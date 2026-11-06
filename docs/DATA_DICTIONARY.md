@@ -50,5 +50,5 @@ Partitioning: `asset_class=/resolution=/symbol=/year=`.
 | positions_confirmed / positions_theoretical | per account/strategy | projections |
 | risk_decisions | ts, order_id, rule_id, decision, reason, snapshot | append-only |
 | risk_limits | versioned limit sets, approved_by, approved_at | append-only versions |
-| audit_log | ts, actor (user/ai/system), action, target, details | append-only |
+| audit_log | **IMPLEMENTED (migration 0001)**: seq PK, id ULID UNIQUE, ts UTC, actor_type CHECK(user/ai/system), actor, action (indexed), target, details (redacted JSON text), prev_hash, hash UNIQUE (sha256 chain) | append-only, enforced by triggers + ORM guard |
 | ml_models | model_id, version, dataset_versions, metrics, artifact_path | append-only |

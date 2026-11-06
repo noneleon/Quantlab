@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0002)
+Last updated: 2026-11-06 (CHANGE-0003)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -20,7 +20,7 @@ Last updated: 2026-11-06 (CHANGE-0002)
 | MEM-001 | Project memory docs (CLAUDE.md + docs/*) | docs | C | 0 | `CLAUDE.md`, `docs/` | — | n/a (docs) | IMPLEMENTED | Must be maintained every session |
 | MEM-002 | Claude Code slash commands & agents | .claude | C | 0 | `.claude/commands/`, `.claude/agents/` | MEM-001 | manual | IMPLEMENTED | Format = Claude Code markdown+frontmatter; re-verify on CLI upgrades |
 | MEM-003 | Environment probe tool | tools | C | 0 | `tools/env_check.py` | — | `tests/tools/test_env_check.py` | TESTED | Run on the owner's Windows machine not yet done |
-| MEM-004 | CI pipeline (lint, format, type-check, tests; Ubuntu + Windows) | repo | C | 1 | `.github/workflows/ci.yml` | CORE-001 | the workflow itself | IMPLEMENTED | Not yet observed running on GitHub; import-linter contracts deferred until ≥2 top-level modules exist (step 1c) |
+| MEM-004 | CI pipeline (lint, format, type-check, tests; Ubuntu + Windows) | repo | C | 1 | `.github/workflows/ci.yml` | CORE-001 | the workflow itself | VERIFIED | Runs 1–2 green on ubuntu + windows (2026-11-06); import-linter contracts deferred until ≥2 top-level modules exist (step 1c) |
 
 ## CORE — Core infrastructure
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -28,13 +28,13 @@ Last updated: 2026-11-06 (CHANGE-0002)
 | CORE-001 | Python package skeleton, `uv` lockfile, ruff/mypy config | core | C | 1 | `pyproject.toml`, `uv.lock`, `.python-version`, `src/quantlab/` | — | full suite runs via it | TESTED | Python pinned `>=3.11,<3.12` |
 | CORE-002 | Layered configuration (defaults/toml/env/overrides) | core | C | 1 | `src/quantlab/core/config.py` | CORE-001, CORE-005 | `tests/unit/core/test_config.py` | TESTED | Rejects `trading.mode=live` until LIVE-003; unknown keys rejected |
 | CORE-003 | Structured logging with secret redaction | core | C | 1 | `src/quantlab/core/logging.py` | CORE-001 | `tests/unit/core/test_logging.py` | TESTED | Redaction is pattern-based (key names + text patterns); unusual secret formats in free text may slip through |
-| CORE-004 | Metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL) | core | C | 1 | — | CORE-002 | — | PLANNED | Postgres optional later |
+| CORE-004 | Metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL) | core | C | 1 | `src/quantlab/core/db.py`, `src/quantlab/core/migrations/` | CORE-002 | `tests/unit/core/test_db_audit.py` | TESTED | PostgreSQL path written but untested (no server in CI) |
 | CORE-005 | QUANTLAB_HOME layout & path resolution (Win/Linux) | core | C | 1 | `src/quantlab/core/paths.py` | — | `tests/unit/core/test_paths.py` | TESTED | Windows paths tested by simulation on Linux; real Windows run pending CI |
-| CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | — | CORE-001 | — | PLANNED | |
+| CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | `src/quantlab/core/ids.py`, `src/quantlab/core/clock.py` | CORE-001 | `tests/unit/core/test_ids_clock.py` | IN_PROGRESS | ids + clock TESTED; event bus not started (needed by OMS, Phase 5) |
 | CORE-007 | Job runner (background runs, cancellation, progress) | core | C | 1 | — | CORE-004 | — | PLANNED | |
 | CORE-008 | CLI (`quantlab`) | cli | C | 1 | — | CORE-* | — | PLANNED | |
 | CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | — | CORE-* | — | PLANNED | |
-| CORE-010 | Audit log (append-only) | core | C | 1 | — | CORE-004 | — | PLANNED | |
+| CORE-010 | Audit log (append-only, hash-chained) | core | C | 1 | `src/quantlab/core/audit.py`, migration `0001` | CORE-004 | `tests/unit/core/test_db_audit.py` | TESTED | Append lock is per-process; multi-process writers would need DB-level serialisation |
 
 ## ENG — Trading engine integration
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -216,7 +216,7 @@ Last updated: 2026-11-06 (CHANGE-0002)
 ## SEC — Security
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| SEC-001 | Secret store via keyring (Windows Credential Manager) + env fallback | core | C | 1 | — | CORE-002 | — | PLANNED | |
+| SEC-001 | Secret store via keyring (Windows Credential Manager) + env fallback | core | C | 1 | `src/quantlab/core/secrets.py` | CORE-002, CORE-010 | `tests/unit/core/test_secrets.py` | TESTED | Tested with in-memory backend; real Windows Credential Manager not exercised yet |
 | SEC-002 | Separate paper/live credential namespaces | core | C | 5 | — | SEC-001 | — | PLANNED | |
 | SEC-003 | Local API protection (127.0.0.1 bind + token) | api | C | 1 | — | CORE-009 | — | PLANNED | |
 | SEC-004 | Remote access auth + TLS guidance | api | C | 9 | — | SEC-003 | — | PLANNED | |

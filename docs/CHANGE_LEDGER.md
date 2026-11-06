@@ -37,3 +37,19 @@ Tests: `uv run pytest --cov` → 41 passed (Python 3.11.15, Linux), coverage 97 
 `mypy --strict` (5 files) → clean. CI workflow not yet observed on GitHub (Windows leg unverified).
 Note: `ruff format` also reformatted a code block inside docs/ARCHITECTURE.md; reverted, `docs/` excluded from ruff.
 Result: PASS · Regression status: PASS (env_check tests still pass under pytest)
+
+### CHANGE-0003 — Phase 1 step 1b: metadata DB, migrations, audit log, ids/clock, secret store
+Date: 2026-11-06 · Module: core · Feature IDs: CORE-004, CORE-006 (partial), CORE-010, SEC-001, MEM-004
+Problem: Persistence, auditability and secret handling needed before engine/strategy/backtest records (1c–1d).
+Files added: `src/quantlab/core/{ids,clock,db,audit,secrets}.py`, `src/quantlab/core/migrations/{env.py,script.py.mako}`,
+`src/quantlab/core/migrations/versions/0001_audit_log.py`, `tests/unit/core/{test_ids_clock,test_db_audit,test_secrets}.py`
+Files modified: `pyproject.toml`/`uv.lock` (+sqlalchemy 2.1.8, alembic, keyring), `tests/conftest.py` (db fixtures), memory docs.
+Design: audit_log append-only via SQLite/Postgres triggers + ORM flush guard; sha256 hash chain with `verify_chain`;
+details redacted before storage. Secrets by `secret://` ref, keyring then `QUANTLAB_SECRET__*` env fallback, returned
+as SecretStr; set/delete audited first (same transaction) so no keyring change goes unrecorded.
+Tests: `uv run pytest --cov` → 75 passed, 96 % coverage (Linux, Py 3.11.15); ruff + mypy --strict clean (12 files).
+Wheel build verified to include migrations. Two test bugs found and fixed during the session (not code bugs):
+ULID test assumed global generator state (→ refactored into `UlidGenerator` class, behaviour unchanged) and a float
+equality in the overflow test.
+CI: step-1a runs #1/#2 green on ubuntu + windows → MEM-004 VERIFIED, KI-0009 resolved.
+Result: PASS · Regression status: PASS (all 1a tests still pass)

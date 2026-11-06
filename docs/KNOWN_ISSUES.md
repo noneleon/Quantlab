@@ -10,5 +10,7 @@
 | KI-0006 | Medium | brokers | IBKR TWS/Gateway require periodic restarts/re-auth; affects unattended live operation and recovery design. | OPEN — Phase 5/6 |
 | KI-0007 | Low | tooling | Python 3.11 was not installed in the dev container. | RESOLVED (CHANGE-0002: `uv python install 3.11` → 3.11.15) |
 | KI-0008 | Low | licensing | Docker Desktop licence terms apply on Windows (free for personal use / small business) — confirm owner's eligibility, else use native LEAN launcher or WSL2 Docker Engine. | OPEN |
-| KI-0009 | Medium | ci | CI (incl. Windows leg) has not yet been observed running on GitHub Actions. | OPEN — check first run after push |
+| KI-0009 | Medium | ci | CI (incl. Windows leg) had not been observed running. | RESOLVED (runs #1/#2 green on ubuntu + windows) |
 | KI-0010 | Low | core | Log redaction is pattern-based; secrets in unusual free-text formats could pass. Mitigation: never log credentials at all; secret store (SEC-001) returns opaque objects. | OPEN |
+| KI-0011 | Low | core | PostgreSQL code paths (pool_pre_ping, append-only trigger function) untested — no Postgres in CI. | OPEN — add service container when Postgres is needed |
+| KI-0012 | Low | core | Audit append lock is per-process; safe for the single-process backend (DEC-0002) only. | OPEN — revisit if workers write audit entries |
