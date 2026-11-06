@@ -21,7 +21,8 @@ CHANGE_LEDGER/SESSION_HANDOFF.
 
 ## Tooling (Phase 1)
 pytest, pytest-cov, hypothesis, import-linter, ruff, mypy (strict on core/oms/risk), Playwright for UI.
-Until Phase 1 lands, tests use stdlib `unittest`: `python -m unittest discover -s tests -v`.
+Run: `uv run pytest` (pytest, hypothesis, pytest-cov, ruff, mypy installed via `uv sync`). import-linter added in step 1c.
+Fixtures: `tests/conftest.py` isolates every test with its own `QUANTLAB_HOME` and strips `QUANTLAB_*` env vars.
 
 ## Gates
 - Coverage targets: oms/risk/portfolio ≥ 90 % branch; others ≥ 75 %.

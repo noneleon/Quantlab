@@ -1,27 +1,26 @@
 # Session Handoff
 
-**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0001
+**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0002
 
 ## What was done
-Phase 0 audit deliverables: project memory system (CLAUDE.md, 15 docs, Claude Code commands/agent), architecture
-specification, feature registry, QuantConnect parity matrix, roadmap with MVP (Milestone M1), and `tools/env_check.py`.
+- Owner approved architecture; DEC-0002..0012 marked ACCEPTED (DEC-0007 → Option A).
+- Phase 1 step 1a: `pyproject.toml`/`uv.lock` (Python 3.11), `quantlab.core.paths` (QUANTLAB_HOME per OS),
+  `quantlab.core.config` (layered pydantic-settings with safety validation), `quantlab.core.logging`
+  (structlog JSON + redaction, file logs under home), CI workflow for Ubuntu + Windows.
 
-## Verified facts (from upstream sources, 2026-11-06)
-- LEAN Apache-2.0; `net10.0`; Python via pythonnet 2.0.68 on Python 3.11.
-- Lean.Brokerages.InteractiveBrokers is Apache-2.0.
-- Lean CLI 1.0.233 on PyPI; has `lean login` / cloud features — QuantLab won't depend on it (DEC-0003).
+## Tests (actually executed)
+`uv run pytest --cov` → 41 passed, 97 % coverage (Linux, Python 3.11.15). ruff check/format and mypy --strict clean.
 
-## Tests
-`python3 -m unittest discover -s tests -v` → **Ran 8 tests, OK** (Python 3.13.18, Linux dev container).
-First run errored (test loader did not register the module in `sys.modules`, breaking `dataclasses`); fixed in the test file, not the tool.
-`python3 tools/env_check.py` in dev container: Python 3.13 (not 3.11), no .NET, Docker client 29.9.2 without daemon, Git 2.43, uv 0.11.32, Node 22.23, no Lean CLI, no IB ports.
+## Key design facts to remember
+- `load_settings(home=None, overrides=None)` never creates files. Precedence overrides > env > toml > defaults.
+- Config validation rejects: `trading.mode='live'`, non-loopback host without `remote_access`, non-digest LEAN image,
+  unknown keys, AI keys not given as `secret://` refs.
+- `docs/` is excluded from ruff (formatter rewrote code blocks in markdown).
 
-## Blocked / waiting for owner
-1. Approve architecture & PROPOSED decisions DEC-0002..0012 (or request changes).
-2. Decide DEC-0007 (live order path) — not needed until Phase 5.
-3. Run `python tools/env_check.py` on the Windows PC and share output (KI-0001).
-4. Choose initial real data source (KI-0003) — needed for Phase 2, not M1.
+## Waiting for owner
+- Run `python tools/env_check.py` on the Windows PC (KI-0001).
+- Check first GitHub Actions run, especially the Windows leg (KI-0009).
 
 ## Next recommended task
-Phase 1 step 1a: CORE-001 package skeleton (pyproject + uv.lock, Python 3.11, ruff/mypy/pytest, CI), then CORE-002/003/005.
-Read ROADMAP.md "Step order inside Phase 1" first.
+Phase 1 step 1b: CORE-004 metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL), CORE-010 append-only audit log,
+CORE-006 ULID ids/clock, SEC-001 keyring secret store. Then 1c LEAN adapter (ENG-001/002/004/005/006).

@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0001)
+Last updated: 2026-11-06 (CHANGE-0002)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -20,16 +20,16 @@ Last updated: 2026-11-06 (CHANGE-0001)
 | MEM-001 | Project memory docs (CLAUDE.md + docs/*) | docs | C | 0 | `CLAUDE.md`, `docs/` | — | n/a (docs) | IMPLEMENTED | Must be maintained every session |
 | MEM-002 | Claude Code slash commands & agents | .claude | C | 0 | `.claude/commands/`, `.claude/agents/` | MEM-001 | manual | IMPLEMENTED | Format = Claude Code markdown+frontmatter; re-verify on CLI upgrades |
 | MEM-003 | Environment probe tool | tools | C | 0 | `tools/env_check.py` | — | `tests/tools/test_env_check.py` | TESTED | Run on the owner's Windows machine not yet done |
-| MEM-004 | CI pipeline (lint, type-check, tests, import contracts) | repo | C | 1 | — | CORE-* | — | PLANNED | |
+| MEM-004 | CI pipeline (lint, format, type-check, tests; Ubuntu + Windows) | repo | C | 1 | `.github/workflows/ci.yml` | CORE-001 | the workflow itself | IMPLEMENTED | Not yet observed running on GitHub; import-linter contracts deferred until ≥2 top-level modules exist (step 1c) |
 
 ## CORE — Core infrastructure
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| CORE-001 | Python package skeleton, `uv` lockfile, ruff/mypy config | core | C | 1 | — | — | — | PLANNED | |
-| CORE-002 | Layered configuration (defaults/toml/env/overrides) | core | C | 1 | — | CORE-001 | — | PLANNED | |
-| CORE-003 | Structured logging with secret redaction | core | C | 1 | — | CORE-001 | — | PLANNED | |
+| CORE-001 | Python package skeleton, `uv` lockfile, ruff/mypy config | core | C | 1 | `pyproject.toml`, `uv.lock`, `.python-version`, `src/quantlab/` | — | full suite runs via it | TESTED | Python pinned `>=3.11,<3.12` |
+| CORE-002 | Layered configuration (defaults/toml/env/overrides) | core | C | 1 | `src/quantlab/core/config.py` | CORE-001, CORE-005 | `tests/unit/core/test_config.py` | TESTED | Rejects `trading.mode=live` until LIVE-003; unknown keys rejected |
+| CORE-003 | Structured logging with secret redaction | core | C | 1 | `src/quantlab/core/logging.py` | CORE-001 | `tests/unit/core/test_logging.py` | TESTED | Redaction is pattern-based (key names + text patterns); unusual secret formats in free text may slip through |
 | CORE-004 | Metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL) | core | C | 1 | — | CORE-002 | — | PLANNED | Postgres optional later |
-| CORE-005 | QUANTLAB_HOME layout & path resolution (Win/Linux) | core | C | 1 | — | CORE-002 | — | PLANNED | |
+| CORE-005 | QUANTLAB_HOME layout & path resolution (Win/Linux) | core | C | 1 | `src/quantlab/core/paths.py` | — | `tests/unit/core/test_paths.py` | TESTED | Windows paths tested by simulation on Linux; real Windows run pending CI |
 | CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | — | CORE-001 | — | PLANNED | |
 | CORE-007 | Job runner (background runs, cancellation, progress) | core | C | 1 | — | CORE-004 | — | PLANNED | |
 | CORE-008 | CLI (`quantlab`) | cli | C | 1 | — | CORE-* | — | PLANNED | |

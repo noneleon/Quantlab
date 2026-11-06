@@ -1,0 +1,255 @@
+"""Layered configuration (CORE-002). Reference: docs/CONFIGURATION_REFERENCE.md.
+
+Precedence, lowest to highest:
+    built-in defaults < QUANTLAB_HOME/quantlab.toml < QUANTLAB_* environment variables < explicit overrides
+
+Environment variables use ``__`` for nesting, e.g. ``QUANTLAB_SERVER__PORT=9000``.
+
+Safety properties enforced here (not left to callers):
+* Unknown keys are rejected, so a typo or a pasted secret is not silently accepted.
+* The API cannot bind to a non-loopback address unless ``server.remote_access`` is true.
+* ``trading.mode = "live"`` is rejected until the live safety gates (LIVE-003) exist.
+* The LEAN Docker image must be pinned by digest for reproducibility (DEC-0004).
+* Secrets never live in configuration; only ``secret://`` references are allowed (SECURITY_POLICY.md).
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import tomllib
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+from quantlab.core.paths import HomeLayout, default_home
+
+ENV_PREFIX = "QUANTLAB_"
+SECRET_REF_PREFIX = "secret://"  # noqa: S105 - URI scheme, not a secret
+
+
+class ConfigError(ValueError):
+    """Raised when configuration cannot be loaded or is invalid."""
+
+
+class _Section(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+class ServerSettings(_Section):
+    host: str = "127.0.0.1"
+    port: int = Field(default=8765, ge=1, le=65535)
+    remote_access: bool = False
+
+    @model_validator(mode="after")
+    def _local_only_unless_enabled(self) -> ServerSettings:
+        if not _is_loopback(self.host) and not self.remote_access:
+            raise ValueError(
+                f"server.host={self.host!r} is not a loopback address; "
+                "set server.remote_access=true explicitly to expose the API (see SECURITY_POLICY.md)"
+            )
+        return self
+
+
+class DatabaseSettings(_Section):
+    url: str | None = None  # None -> SQLite file under QUANTLAB_HOME/db
+
+
+class LeanSettings(_Section):
+    launcher: Literal["docker", "native"] = "docker"
+    image: str | None = None  # e.g. "quantconnect/lean@sha256:<64 hex>"; required before a docker run
+    native_path: Path | None = None
+
+    @field_validator("image")
+    @classmethod
+    def _pinned_by_digest(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        _, sep, digest = value.partition("@sha256:")
+        if not sep or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ValueError("engine.lean.image must be pinned by digest: '<repo>@sha256:<64 lowercase hex>'")
+        return value
+
+
+class EngineSettings(_Section):
+    default: Literal["lean"] = "lean"
+    lean: LeanSettings = LeanSettings()
+
+
+class DataSettings(_Section):
+    root: Path | None = None  # None -> QUANTLAB_HOME/data
+
+
+class TradingSettings(_Section):
+    mode: Literal["paper", "live"] = "paper"
+
+    @field_validator("mode")
+    @classmethod
+    def _live_not_available(cls, value: str) -> str:
+        if value == "live":
+            raise ValueError(
+                "trading.mode='live' is not available: live trading requires the LIVE-003 safety gates "
+                "(not implemented) and explicit owner activation through the UI/CLI, never config alone"
+            )
+        return value
+
+
+class IbkrSettings(_Section):
+    host: str = "127.0.0.1"
+    port_paper: int = Field(default=4002, ge=1, le=65535)
+    port_live: int = Field(default=4001, ge=1, le=65535)
+    client_id: int = Field(default=17, ge=0)
+
+
+class BrokersSettings(_Section):
+    ibkr: IbkrSettings = IbkrSettings()
+
+
+class RiskSettings(_Section):
+    limits_file: Path | None = None  # None -> QUANTLAB_HOME/risk_limits.toml
+
+
+class AiSettings(_Section):
+    provider: Literal["none", "anthropic", "openai", "ollama"] = "none"
+    api_key_ref: str | None = None  # must be a secret:// reference, never the key itself
+    ollama_url: str = "http://127.0.0.1:11434"
+
+    @field_validator("api_key_ref")
+    @classmethod
+    def _must_be_reference(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(SECRET_REF_PREFIX):
+            raise ValueError(
+                f"ai.api_key_ref must be a '{SECRET_REF_PREFIX}<name>' reference; "
+                "never put API keys in configuration"
+            )
+        return value
+
+
+class LoggingSettings(_Section):
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    json_output: bool = True
+    to_file: bool = True
+
+
+# Path of the TOML file used by the settings source currently being built (set by load_settings).
+_toml_path: ContextVar[Path | None] = ContextVar("quantlab_toml_path", default=None)
+
+
+class _TomlSource(PydanticBaseSettingsSource):
+    """Reads QUANTLAB_HOME/quantlab.toml. Missing file -> empty; malformed file -> ConfigError."""
+
+    def __init__(self, settings_cls: type[BaseSettings]) -> None:
+        super().__init__(settings_cls)
+        path = _toml_path.get()
+        self._data: dict[str, Any] = {}
+        if path is not None and path.is_file():
+            try:
+                self._data = tomllib.loads(path.read_text(encoding="utf-8"))
+            except tomllib.TOMLDecodeError as exc:
+                raise ConfigError(f"invalid TOML in {path}: {exc}") from exc
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:  # pragma: no cover
+        return self._data.get(field_name), field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return dict(self._data)
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix=ENV_PREFIX,
+        env_nested_delimiter="__",
+        extra="forbid",
+        frozen=True,
+    )
+
+    home: Path
+    server: ServerSettings = ServerSettings()
+    db: DatabaseSettings = DatabaseSettings()
+    engine: EngineSettings = EngineSettings()
+    data: DataSettings = DataSettings()
+    trading: TradingSettings = TradingSettings()
+    brokers: BrokersSettings = BrokersSettings()
+    risk: RiskSettings = RiskSettings()
+    ai: AiSettings = AiSettings()
+    logging: LoggingSettings = LoggingSettings()
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # First source wins: overrides > env > toml > defaults. Dotenv/secret files deliberately unused.
+        return (init_settings, env_settings, _TomlSource(settings_cls))
+
+    # ---- derived values -------------------------------------------------------------------------
+    @property
+    def layout(self) -> HomeLayout:
+        return HomeLayout(self.home)
+
+    @property
+    def database_url(self) -> str:
+        if self.db.url:
+            return self.db.url
+        return f"sqlite:///{(self.layout.db_dir / 'quantlab.sqlite').as_posix()}"
+
+    @property
+    def data_root(self) -> Path:
+        return self.data.root if self.data.root is not None else self.layout.data_dir
+
+    @property
+    def risk_limits_file(self) -> Path:
+        return self.risk.limits_file if self.risk.limits_file is not None else self.home / "risk_limits.toml"
+
+
+@contextmanager
+def _toml_from(path: Path) -> Iterator[None]:
+    token = _toml_path.set(path)
+    try:
+        yield
+    finally:
+        _toml_path.reset(token)
+
+
+def load_settings(home: Path | str | None = None, overrides: Mapping[str, Any] | None = None) -> Settings:
+    """Load settings for a QuantLab home. Does not create any files or directories."""
+    root = (Path(home).expanduser() if home is not None else default_home()).resolve()
+    kwargs: dict[str, Any] = dict(overrides or {})
+    kwargs["home"] = root
+    try:
+        with _toml_from(HomeLayout(root).config_file):
+            return Settings(**kwargs)
+    except ConfigError:
+        raise
+    except ValueError as exc:  # pydantic.ValidationError subclasses ValueError
+        raise ConfigError(str(exc)) from exc
+
+
+__all__ = [
+    "AiSettings",
+    "ConfigError",
+    "LoggingSettings",
+    "Settings",
+    "load_settings",
+]

@@ -44,8 +44,10 @@ class CheckTests(unittest.TestCase):
             self.assertFalse(env_check.check_dotnet().ok)
 
     def test_docker_daemon_unreachable_is_not_ok(self):
-        responses = {("docker", "--version"): (0, "Docker version 29.9.2"),
-                     ("docker", "info"): (1, "Cannot connect to the Docker daemon")}
+        responses = {
+            ("docker", "--version"): (0, "Docker version 29.9.2"),
+            ("docker", "info"): (1, "Cannot connect to the Docker daemon"),
+        }
         with mock.patch.object(env_check, "run", side_effect=lambda cmd: responses[tuple(cmd[:2])]):
             c = env_check.check_docker()
         self.assertTrue(c.found)

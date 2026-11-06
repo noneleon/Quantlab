@@ -124,7 +124,9 @@ def check_docker() -> Check:
         True,
         version,
         daemon,
-        "daemon reachable" if daemon else "client found but daemon NOT reachable (start Docker Desktop / dockerd)",
+        "daemon reachable"
+        if daemon
+        else "client found but daemon NOT reachable (start Docker Desktop / dockerd)",
         {"daemon_version": parse_version(dout) if daemon else None},
     )
 

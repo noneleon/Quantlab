@@ -4,7 +4,7 @@ A fully self-hosted, local-first quantitative trading platform built around the 
 [QuantConnect LEAN](https://github.com/QuantConnect/Lean) engine — research, backtesting, optimization,
 portfolio management, paper and live trading, all under the owner's control.
 
-**Status:** Phase 0 (architecture & project memory). No platform code yet — see [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
+**Status:** Phase 1 (core infrastructure) in progress — see [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## Start here
 - [CLAUDE.md](CLAUDE.md) — rules for AI-assisted development sessions
@@ -18,9 +18,12 @@ portfolio management, paper and live trading, all under the owner's control.
 python tools/env_check.py
 ```
 
-## Tests
+## Development
 ```
-python -m unittest discover -s tests -v
+uv python install 3.11
+uv sync
+uv run pytest
+uv run ruff check . && uv run mypy
 ```
 
 Personal project. LEAN is © QuantConnect, Apache-2.0.

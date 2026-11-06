@@ -48,4 +48,6 @@ User data/results/secrets live under `QUANTLAB_HOME` (outside git).
 
 ## 7. Commands
 - Environment probe: `python tools/env_check.py` (add `--json` for machine-readable output)
-- Tests: `python -m unittest discover -s tests` (pytest once Phase 1 lands)
+- Setup: `uv sync` (Python 3.11 via `uv python install 3.11`)
+- Tests: `uv run pytest` (coverage: `uv run pytest --cov`)
+- Lint/format/types: `uv run ruff check .` · `uv run ruff format --check .` · `uv run mypy`

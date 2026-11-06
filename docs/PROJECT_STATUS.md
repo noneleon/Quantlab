@@ -1,25 +1,26 @@
 # Project Status
 
-**Current phase:** Phase 0 — Repository & architecture audit (deliverables complete, **awaiting owner approval**)
-**Last change:** CHANGE-0001 (2026-11-06)
-**Overall health:** Documentation foundation only. No platform code exists yet.
+**Current phase:** Phase 1 — Core infrastructure (step 1a done; next 1b)
+**Last change:** CHANGE-0002 (2026-11-06)
+**Overall health:** Foundation code with passing tests. No engine, data, trading or UI code yet.
 
 ## Phase progress
 | Phase | Name | Status |
 |---|---|---|
-| 0 | Repository & architecture audit | Deliverables done; approval pending |
-| 1 | Core infrastructure | Not started (blocked on Phase 0 approval) |
+| 0 | Repository & architecture audit | DONE — approved by owner 2026-11-06 |
+| 1 | Core infrastructure + M1 | IN PROGRESS — 1a done (config, logging, paths, skeleton, CI) |
 | 2–9 | — | Not started |
 
 ## What exists
-- Project memory: `CLAUDE.md`, `docs/*` (15 files), `.claude/commands` (3), `.claude/agents` (1).
-- `tools/env_check.py` — environment probe (Python, .NET, Docker, Git, LEAN CLI, IB Gateway/TWS ports) with unit tests.
+- Project memory: `CLAUDE.md`, `docs/*`, `.claude/commands`, `.claude/agents`.
+- `src/quantlab/core/`: `paths.py` (CORE-005), `config.py` (CORE-002), `logging.py` (CORE-003).
+- Packaging: `pyproject.toml` + `uv.lock`, Python 3.11 (CORE-001). CI: `.github/workflows/ci.yml` (MEM-004).
+- `tools/env_check.py` environment probe.
+- Tests: 41 passing (`uv run pytest`).
 
-## Decisions awaiting approval
-- DEC-0007 — live/paper order path through a QuantLab gateway brokerage (Option A) vs. LEAN native IB + decorator.
-- Phase 1 + Milestone M1 scope (ROADMAP.md).
-- All DEC-0002..0011 are PROPOSED until approved.
+## Decisions
+All DEC-0002..0012 ACCEPTED (DEC-0007 = Option A gateway brokerage; can be revisited before Phase 5).
 
 ## Environment notes
-The development container used for CHANGE-0001 was Linux with Python 3.13, uv 0.11.32, Node 22, Docker client but
-no daemon, no .NET, no LEAN — LEAN cannot be executed there; Docker-gated tests must run on the owner's machine. The owner's Windows machine has **not** been probed yet — run `python tools/env_check.py`.
+Dev container: Linux, Python 3.11.15 via uv, Docker client without daemon, no .NET — LEAN cannot run here.
+The owner's Windows machine has not been probed yet (`python tools/env_check.py`).
