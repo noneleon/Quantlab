@@ -39,9 +39,9 @@ Partitioning: `asset_class=/resolution=/symbol=/year=`.
 ## 2. Metadata DB (SQLite/Postgres) — proposed tables
 | Table | Purpose | Mutability |
 |---|---|---|
-| strategies | registry (id, name, path, language, lifecycle_state, archived) | mutable (lifecycle) |
-| strategy_versions | (strategy_id, git_sha, tree_hash, created_at) | append-only |
-| backtest_runs | run_id, strategy_version, data_version, engine_info, config_json, seeds, status, stats_json, artifacts_path | append-only (status updates until terminal) |
+| strategies | **IMPLEMENTED (0002)**: id ULID, name UNIQUE slug, path, entry_file, language, description, archived, created_at | mutable (archive only); DELETE rejected by trigger |
+| strategy_versions | **IMPLEMENTED (0002)**: id, strategy_id FK, tree_hash (UNIQUE per strategy), files JSON {path: sha256}, git_commit, git_dirty, created_at | append-only (triggers) |
+| backtest_runs | **IMPLEMENTED (0002)**: id, strategy_id, strategy_version_id, rerun_of, status (running/succeeded/algorithm_error/failed/timed_out/cancelled/engine_error), created_at, finished_at, parameters, data_provenance, data_version, engine_info, inputs_hash, result_hash, engine_status, runtime_error, error, engine_statistics, metrics, cross_checks, manifest, run_dir | updates only while `running`; terminal rows immutable, DELETE rejected (triggers + ORM guard) |
 | optimization_runs / trials | search spec, trial params, run_id, IS/OOS label, objective values | append-only |
 | accounts | broker account refs (no secrets), mode paper/live | mutable |
 | orders | order_id, client_order_key (UNIQUE), account, strategy run, spec, current_state | projection |

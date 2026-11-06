@@ -101,3 +101,23 @@ any OS; synthetic fixture clearly labelled.
 Tests: `uv run pytest --cov` → 127 passed, 1 skipped (real-Docker e2e: no daemon/image here), coverage 96 %;
 ruff, mypy --strict (18 files), lint-imports (2 kept; verified both break when core imports engine) clean.
 Result: PASS — CI #15/#16 green on ubuntu + windows · Regression status: PASS (all earlier tests pass)
+
+### CHANGE-0007 — Phase 1 step 1d: strategy registry, backtest service, reproducibility, metrics
+Date: 2026-11-06 · Modules: strategies, backtest, analytics (new), migrations (moved), engine, core · Feature IDs:
+STR-001..003, BT-001..003, AN-001 (partial), CORE-004
+Problem: M1 needs registered, versioned strategies; recorded, reproducible backtests; and QuantLab's own metrics.
+Files added: `src/quantlab/strategies/{__init__,snapshot,registry}.py`, `src/quantlab/analytics/{__init__,metrics}.py`,
+`src/quantlab/backtest/{__init__,models,service}.py`, `src/quantlab/migrations/__init__.py`,
+`src/quantlab/migrations/versions/0002_strategies_backtests.py`, `strategies/README.md`,
+`strategies/examples/sma_crossover/{main.py,strategy.toml}`, `tests/unit/{strategies,analytics,backtest}/*`
+Files moved: `src/quantlab/core/migrations/` → `src/quantlab/migrations/` (DEC-0013); `core/db.py` script location updated.
+Files modified: `src/quantlab/engine/base.py` (+`EngineResult.statistic_values`), `engine/lean/results.py` (fills it),
+`src/quantlab/migrations/env.py` (registers all model modules), `tests/unit/core/test_db_audit.py` (head = 0002, schema-drift
+guard), `tests/unit/engine/test_lean_results.py`, `pyproject.toml` (layered + 2 forbidden import contracts), docs.
+Decisions: DEC-0013 (migrations package), DEC-0014 (per-run code snapshot).
+Tests: `uv run pytest --cov` → 180 passed, 1 skipped (real Docker), 94 % coverage; ruff, mypy --strict (28 files),
+lint-imports (3 contracts kept; each verified to break on a deliberate violation). New schema-drift test proves
+migration 0002 == ORM models.
+Incident (no impact): a bulk `sed` to drop `# fmt: skip` markers also edited committed `core/audit.py` and
+`engine/lean/docker.py`; detected via `git diff` and restored before commit.
+Result: PASS · Regression status: PASS (all earlier tests pass)

@@ -3,10 +3,14 @@
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-import quantlab.core.audit  # noqa: F401  (register models on Base.metadata)
+from quantlab.backtest import models as backtest_models
+from quantlab.core import audit
 from quantlab.core.db import Base
+from quantlab.strategies import registry as strategy_models
 
-# Every module that defines tables must be imported above so autogenerate sees it.
+# Every module that defines tables must be listed here so its models are registered on Base.metadata
+# (otherwise autogenerate would propose dropping their tables).
+MODEL_MODULES = (audit, strategy_models, backtest_models)
 target_metadata = Base.metadata
 config = context.config
 

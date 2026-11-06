@@ -121,6 +121,9 @@ class EngineResult:
     end: datetime | None
     parameters: Mapping[str, str]
     source_files: tuple[Path, ...]
+    # Engine statistics as numbers (percentages as fractions; None if non-numeric), so services need not
+    # understand an engine's text formats.
+    statistic_values: Mapping[str, float | None] = field(default_factory=dict)
 
     @property
     def succeeded(self) -> bool:

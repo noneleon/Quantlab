@@ -1,0 +1,8 @@
+[strategy]
+entry_file = "main.py"
+language = "python"
+description = "Example: SMA crossover on SPY minute bars (LEAN bundled sample data, 2013-10-07..11)."
+
+[parameters]
+fast = 10
+slow = 30

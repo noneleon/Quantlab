@@ -146,12 +146,13 @@ def parse_result_data(
     state = data.get("state") or {}
     configuration = data.get("algorithmConfiguration") or {}
     status = str(state.get("Status") or "Running")
+    statistics = _str_map(data.get("statistics"))
     return EngineResult(
         algorithm_id=algorithm_id,
         status=status,
         finished=status in FINISHED_STATUSES,
         runtime_error=str(state.get("RuntimeError") or ""),
-        statistics=_str_map(data.get("statistics")),
+        statistics=statistics,
         runtime_statistics=_str_map(data.get("runtimeStatistics")),
         orders=_orders(data.get("orders")),
         equity=_equity(data.get("charts") or {}),
@@ -159,6 +160,7 @@ def parse_result_data(
         end=_parse_time(configuration.get("endDate")),
         parameters=_str_map(configuration.get("parameters")),
         source_files=source_files,
+        statistic_values={k: stat_value(v) for k, v in statistics.items()},
     )
 
 

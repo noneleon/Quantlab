@@ -64,3 +64,15 @@ enforced by import contracts and gateway allowlist; every call audited.
 ### DEC-0012 — Backend Python lockfiles via `uv`
 State: ACCEPTED (owner approval 2026-11-06) · 2026-11-06
 Decision: `pyproject.toml` + `uv.lock`; UI via `pnpm-lock.yaml`.
+
+### DEC-0013 — Alembic migrations live in a top-level `quantlab.migrations` package
+State: ACCEPTED (implementation decision within approved DEC-0002/DEC-0009; owner may revisit) · 2026-11-06
+Context: `migrations/env.py` must import every module's models, but `core` may not import other modules.
+Decision: move `src/quantlab/core/migrations` → `src/quantlab/migrations` (top layer in the import-linter layers contract);
+`core.db` resolves it by package name at runtime. Revision ids unchanged (0001), so existing databases are unaffected.
+
+### DEC-0014 — Backtests execute a per-run copy of the strategy code
+State: ACCEPTED (implementation of DEC-0006 / BT-002; owner may revisit) · 2026-11-06
+Decision: at submission the strategy directory is copied to `runs/<id>/algorithm/` and the version is the tree hash of the
+copy; the engine mounts the copy read-only. Re-runs use the stored copy. Consequence: editing a strategy can never change
+what a recorded run executed, at the cost of a few KB–MB per run (strategy dirs capped at 50 MB).

@@ -42,7 +42,7 @@ These actions require a human through the UI/CLI with explicit confirmation.
 - Lean CLI (`pip install lean`) is optional tooling only — QuantLab must not require `lean login`.
 
 ## 6. Repository layout (target — see docs/ARCHITECTURE.md §4)
-`src/quantlab/` platform code · `web/` UI · `strategies/` user algorithms ·
+`src/quantlab/` platform code (`migrations/` = Alembic, top layer) · `web/` UI · `strategies/` user algorithms ·
 `docs/` project memory · `tools/` dev utilities · `tests/` automated tests.
 User data/results/secrets live under `QUANTLAB_HOME` (outside git).
 

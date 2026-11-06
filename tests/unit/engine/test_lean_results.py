@@ -25,6 +25,8 @@ def test_parses_status_statistics_and_configuration(results_dir):
     assert r.end == datetime(2013, 10, 11, 23, 59, 59, tzinfo=UTC)
     assert r.parameters == {"fast": "10", "slow": "30"}  # non-string values normalised
     assert r.source_files == (results_dir / "RUN1.json",)
+    assert r.statistic_values["Net Profit"] == pytest.approx(-0.0016)
+    assert r.statistic_values["Win Rate"] is None
 
 
 def test_equity_series_handles_candles_xy_and_nulls(results_dir):

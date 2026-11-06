@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0006)
+Last updated: 2026-11-06 (CHANGE-0007)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -28,7 +28,7 @@ Last updated: 2026-11-06 (CHANGE-0006)
 | CORE-001 | Python package skeleton, `uv` lockfile, ruff/mypy config | core | C | 1 | `pyproject.toml`, `uv.lock`, `.python-version`, `src/quantlab/` | — | full suite runs via it | TESTED | Python pinned `>=3.11,<3.12` |
 | CORE-002 | Layered configuration (defaults/toml/env/overrides) | core | C | 1 | `src/quantlab/core/config.py` | CORE-001, CORE-005 | `tests/unit/core/test_config.py` | TESTED | Rejects `trading.mode=live` until LIVE-003; unknown keys rejected |
 | CORE-003 | Structured logging with secret redaction | core | C | 1 | `src/quantlab/core/logging.py` | CORE-001 | `tests/unit/core/test_logging.py` | TESTED | Redaction is pattern-based (key names + text patterns); unusual secret formats in free text may slip through |
-| CORE-004 | Metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL) | core | C | 1 | `src/quantlab/core/db.py`, `src/quantlab/core/migrations/` | CORE-002 | `tests/unit/core/test_db_audit.py` | TESTED | Linux + Windows CI green; PostgreSQL path written but untested (no server in CI) |
+| CORE-004 | Metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL) | core | C | 1 | `src/quantlab/core/db.py`, `src/quantlab/migrations/` (moved from core, DEC-0013) | CORE-002 | `tests/unit/core/test_db_audit.py` | TESTED | Linux + Windows CI green; PostgreSQL path written but untested (no server in CI) |
 | CORE-005 | QUANTLAB_HOME layout & path resolution (Win/Linux) | core | C | 1 | `src/quantlab/core/paths.py` | — | `tests/unit/core/test_paths.py` | TESTED | Windows paths tested by simulation on Linux; real Windows run pending CI |
 | CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | `src/quantlab/core/ids.py`, `src/quantlab/core/clock.py` | CORE-001 | `tests/unit/core/test_ids_clock.py` | IN_PROGRESS | ids + clock TESTED; event bus not started (needed by OMS, Phase 5) |
 | CORE-007 | Job runner (background runs, cancellation, progress) | core | C | 1 | — | CORE-004 | — | PLANNED | |
@@ -87,18 +87,18 @@ Last updated: 2026-11-06 (CHANGE-0006)
 ## STR — Strategy management
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| STR-001 | Strategy registry (create/import/clone/archive) | strategies | C | 1 | — | CORE-004 | — | PLANNED | |
-| STR-002 | Strategy versioning (git SHA + tree hash) & diff | strategies | C | 1 | — | STR-001 | — | PLANNED | |
-| STR-003 | Strategy parameters schema | strategies | LI | 1 | — | STR-001 | — | PLANNED | Maps to LEAN `GetParameter` |
+| STR-001 | Strategy registry (register/get/list/archive; import = register by path) | strategies | C | 1 | `src/quantlab/strategies/registry.py` | CORE-004 | `tests/unit/strategies/test_registry.py` | TESTED | Clone not implemented yet; archive audited, never deletes |
+| STR-002 | Strategy versioning (tree hash + git commit/dirty) | strategies | C | 1 | `src/quantlab/strategies/snapshot.py`, `registry.py` | STR-001 | `tests/unit/strategies/test_snapshot.py`, `test_registry.py` | TESTED | Version diff (compare two versions' files) not implemented; byte-exact hash (CRLF differences matter, KI-0020) |
+| STR-003 | Strategy parameters schema (`strategy.toml`) | strategies | LI | 1 | `registry.py: load_manifest, resolve_parameters` | STR-001 | `test_registry.py` | TESTED | Delivery to LEAN `get_parameter` not yet verified with a real run (KI-0002) |
 | STR-004 | Lifecycle state (Research→…→Monitoring) with gates | strategies | C | 4 | — | STR-001 | — | PLANNED | |
 | STR-005 | Strategy templates (momentum, mean-rev, pairs, …) as examples | strategies | C | 3 | — | ENG-007 | — | PLANNED | Examples only, not engine code |
 
 ## BT — Backtesting
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| BT-001 | Backtest submission service | backtest | LI | 1 | — | ENG-002, STR-002 | — | PLANNED | |
-| BT-002 | Reproducibility manifest (code/data/engine/config/seeds) | backtest | C | 1 | — | BT-001, DATA-004, ENG-006 | — | PLANNED | |
-| BT-003 | Immutable backtest history & re-run diff | backtest | C | 1 | — | BT-002 | — | PLANNED | |
+| BT-001 | Backtest submission service | backtest | LI | 1 | `src/quantlab/backtest/service.py` | ENG-001, STR-002, AN-001 | `tests/unit/backtest/test_service.py` (fake docker) | TESTED | Synchronous; engine path tested only with fake docker; sample data only |
+| BT-002 | Reproducibility manifest (code/data/engine/config/seeds) | backtest | C | 1 | `service.py` (`manifest.json`, `inputs_hash`) | BT-001, ENG-006 | `test_service.py` | TESTED | Data version always `sample` until DATA-004 |
+| BT-003 | Immutable backtest history & re-run diff | backtest | C | 1 | `backtest/models.py`, migration 0002, `BacktestService.rerun/compare` | BT-002 | `test_service.py` | TESTED | Reproducibility proven only against the deterministic fake engine; real LEAN determinism unverified |
 | BT-004 | Event-driven simulation, multi-asset/strategy/timeframe | backtest | L | 1 | — | ENG-007 | — | PLANNED | |
 | BT-005 | Fee, slippage, fill, brokerage, margin, buying-power models | backtest | L | 3 | — | ENG-009 | — | PLANNED | Configured via helper library |
 | BT-006 | Partial fills, cancellation, market impact | backtest | L/C | 3 | — | BT-005 | — | PLANNED | Impact models custom |
@@ -109,7 +109,7 @@ Last updated: 2026-11-06 (CHANGE-0006)
 ## AN — Performance analytics
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| AN-001 | Metrics library (return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, win rate, PF, expectancy, turnover, exposure, alpha/beta, costs) | analytics | C | 1 | — | — | — | PLANNED | Cross-checked against LEAN statistics |
+| AN-001 | Metrics library (return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, win rate, PF, expectancy, turnover, exposure, alpha/beta, costs) | analytics | C | 1 | `src/quantlab/analytics/metrics.py` | — | `tests/unit/analytics/test_metrics.py` | IN_PROGRESS | Done + TESTED: total return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, best/worst day, cross-check vs LEAN. Missing: trade metrics (needs fill data from order events), turnover, exposure, alpha/beta (needs benchmark), costs |
 | AN-002 | Chart datasets (equity, drawdown, monthly/annual, trade dist., allocation, exposure, rolling Sharpe, benchmark) | analytics | C | 3 | — | AN-001 | — | PLANNED | |
 | AN-003 | Downloadable report (HTML/PDF + config bundle) | analytics | C | 3 | — | AN-002 | — | PLANNED | |
 | AN-004 | Strategy/run comparison | analytics | C | 4 | — | AN-001 | — | PLANNED | |

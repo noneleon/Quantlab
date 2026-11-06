@@ -66,6 +66,7 @@ Quantlab/
 ├── pyproject.toml / uv.lock      backend packaging + lockfile (Phase 1)
 ├── src/quantlab/
 │   ├── core/          config (pydantic-settings), logging (structlog JSON), ids, clock, event bus, db session, errors
+│   ├── migrations/    Alembic env + versions (top layer: imports every module's models, DEC-0013)
 │   ├── engine/        EngineAdapter protocol; lean/ (config builder, docker+native launchers, result parser, version probe)
 │   ├── data/          providers/ (adapter protocol + impls), catalog (DuckDB), storage (Parquet), validation,
 │   │                  calendars, corporate_actions, versioning, lean_export/
@@ -134,6 +135,13 @@ QuantLab ships a small **`quantlab_lean` helper library** (Python + C#) that str
 
 ### 5.3 Backtesting (BT-*)
 `BacktestService.submit(strategy_ref, config) -> run_id`. Steps: resolve strategy version → resolve/lock dataset version → build manifest → EngineAdapter run → parse → compute QuantLab analytics → persist immutable `backtest_run` row + artifacts. Re-running a manifest creates a **new** run and a reproducibility diff against the original.
+
+As implemented (CHANGE-0007, `src/quantlab/backtest/service.py`): `BacktestService.run(name, parameters)` (synchronous until
+CORE-007) copies the strategy's files into `runs/<id>/algorithm/` and hashes **the copy** (DEC-0014); the engine runs the
+copy. `inputs_hash` = sha256 of {strategy tree hash, entry file, language, parameters, data provenance/version, engine
+identity (image + image id), QuantLab version}; `result_hash` = sha256 of {status, statistics, orders, equity}.
+`rerun(id)` re-executes the stored snapshot with the original parameters, refuses if the engine identity changed, and
+returns a `ReproducibilityReport` (inputs identical? results identical? differences).
 
 ### 5.4 Optimization (OPT-*)
 Optimizer orchestrates many backtest trials via the same BacktestService (no second simulator). Grid/random built-in, Bayesian via Optuna, walk-forward windows defined explicitly with IS/OOS labels persisted per trial. Monte Carlo/bootstrap operate on trade lists and return series from stored runs.

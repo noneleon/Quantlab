@@ -1,7 +1,9 @@
 """Metadata database (CORE-004). SQLAlchemy 2 + Alembic; SQLite (WAL) default, PostgreSQL optional (DEC-0009).
 
-Schema changes go through Alembic migrations in ``quantlab/core/migrations`` — never ``create_all``
-against a real database. Models from other modules must be imported in ``migrations/env.py``.
+Schema changes go through Alembic migrations in the top-level ``quantlab.migrations`` package — never
+``create_all`` against a real database. ``migrations/env.py`` imports every module's models; it lives outside
+``core`` because core may not import other modules (DEC-0013). The script location is resolved by package name
+at runtime, so core keeps no static dependency on it.
 """
 
 from __future__ import annotations
@@ -82,7 +84,7 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 
 def _alembic_config(engine: Engine) -> Config:
     cfg = Config()
-    cfg.set_main_option("script_location", str(files("quantlab.core") / "migrations"))
+    cfg.set_main_option("script_location", str(files("quantlab.migrations")))
     # Alembic's Config is ConfigParser-based: '%' starts interpolation, so it must be escaped.
     # (Windows paths render as e.g. sqlite:///C%3A/... and would otherwise fail - CHANGE-0005.)
     url = engine.url.render_as_string(hide_password=False)

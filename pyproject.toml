@@ -67,12 +67,23 @@ branch = true
 root_package = "quantlab"
 
 [[tool.importlinter.contracts]]
-name = "core is the base layer: it imports no other quantlab module"
-type = "forbidden"
-source_modules = ["quantlab.core"]
-forbidden_modules = ["quantlab.engine"]
+name = "layered architecture (ARCHITECTURE.md section 7)"
+type = "layers"
+layers = [
+    "quantlab.migrations",
+    "quantlab.backtest",
+    "quantlab.strategies | quantlab.analytics | quantlab.engine",
+    "quantlab.core",
+]
 
 [[tool.importlinter.contracts]]
-name = "engine depends only on core"
-type = "layers"
-layers = ["quantlab.engine", "quantlab.core"]
+name = "analytics is pure: depends on nothing else in quantlab"
+type = "forbidden"
+source_modules = ["quantlab.analytics"]
+forbidden_modules = ["quantlab.core", "quantlab.engine", "quantlab.strategies", "quantlab.backtest"]
+
+[[tool.importlinter.contracts]]
+name = "backtest uses the engine abstraction, not LEAN internals"
+type = "forbidden"
+source_modules = ["quantlab.backtest"]
+forbidden_modules = ["quantlab.engine.lean"]

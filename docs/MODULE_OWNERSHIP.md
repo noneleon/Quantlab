@@ -22,9 +22,11 @@ do not re-implement it elsewhere. Dependency rules: see ARCHITECTURE.md §7.
 | ai | `src/quantlab/ai/` | providers, context retrieval, tool gateway, AI audit | import write APIs of oms/risk/brokers/live/secrets |
 | ops | `src/quantlab/ops/` | health, alerts, supervision, backup/restore | — |
 | api / cli | `src/quantlab/api/`, `src/quantlab/cli/` | transport only | contain business logic |
+| migrations | `src/quantlab/migrations/` | Alembic env + schema revisions for all modules | be imported by runtime code (resolved by package name only) |
 | web | `web/` | UI | call anything but the API; show controls without backend |
 | docs | `docs/`, `CLAUDE.md` | project memory | — |
 | tools | `tools/` | developer utilities | be imported by runtime code |
 
-Current state (2026-11-06, CHANGE-0006): `core`, `engine`, `docs`, `.claude`, `tools` exist. Boundaries enforced by
+Current state (2026-11-06, CHANGE-0007): `core`, `engine`, `strategies`, `analytics`, `backtest`, `migrations`, `docs`,
+`.claude`, `tools` exist. Boundaries enforced by
 import-linter contracts in `pyproject.toml` (`uv run lint-imports`); add a contract when a module is created.
