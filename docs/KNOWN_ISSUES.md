@@ -14,3 +14,4 @@
 | KI-0010 | Low | core | Log redaction is pattern-based; secrets in unusual free-text formats could pass. Mitigation: never log credentials at all; secret store (SEC-001) returns opaque objects. | OPEN |
 | KI-0011 | Low | core | PostgreSQL code paths (pool_pre_ping, append-only trigger function) untested — no Postgres in CI. | OPEN — add service container when Postgres is needed |
 | KI-0012 | Low | core | Audit append lock is per-process; safe for the single-process backend (DEC-0002) only. | OPEN — revisit if workers write audit entries |
+| KI-0013 | High | repo | `.gitignore` `secrets*` excluded `src/quantlab/core/secrets.py`; CI ran without it. | RESOLVED (CHANGE-0004: renamed to `secret_store.py`, guard test added) |

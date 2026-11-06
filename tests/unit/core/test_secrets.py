@@ -2,7 +2,7 @@ import keyring.errors
 import pytest
 
 from quantlab.core.audit import AuditEntry
-from quantlab.core.secrets import SecretError, SecretNotFoundError, SecretRef, SecretStore
+from quantlab.core.secret_store import SecretError, SecretNotFoundError, SecretRef, SecretStore
 
 
 class MemoryKeyring:

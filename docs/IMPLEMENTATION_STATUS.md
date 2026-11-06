@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0003)
+Last updated: 2026-11-06 (CHANGE-0004)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -216,7 +216,7 @@ Last updated: 2026-11-06 (CHANGE-0003)
 ## SEC — Security
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| SEC-001 | Secret store via keyring (Windows Credential Manager) + env fallback | core | C | 1 | `src/quantlab/core/secrets.py` | CORE-002, CORE-010 | `tests/unit/core/test_secrets.py` | TESTED | Tested with in-memory backend; real Windows Credential Manager not exercised yet |
+| SEC-001 | Secret store via keyring (Windows Credential Manager) + env fallback | core | C | 1 | `src/quantlab/core/secret_store.py` | CORE-002, CORE-010 | `tests/unit/core/test_secrets.py` | TESTED | Tested with in-memory backend; real Windows Credential Manager not exercised yet |
 | SEC-002 | Separate paper/live credential namespaces | core | C | 5 | — | SEC-001 | — | PLANNED | |
 | SEC-003 | Local API protection (127.0.0.1 bind + token) | api | C | 1 | — | CORE-009 | — | PLANNED | |
 | SEC-004 | Remote access auth + TLS guidance | api | C | 9 | — | SEC-003 | — | PLANNED | |

@@ -41,7 +41,7 @@ Result: PASS · Regression status: PASS (env_check tests still pass under pytest
 ### CHANGE-0003 — Phase 1 step 1b: metadata DB, migrations, audit log, ids/clock, secret store
 Date: 2026-11-06 · Module: core · Feature IDs: CORE-004, CORE-006 (partial), CORE-010, SEC-001, MEM-004
 Problem: Persistence, auditability and secret handling needed before engine/strategy/backtest records (1c–1d).
-Files added: `src/quantlab/core/{ids,clock,db,audit,secrets}.py`, `src/quantlab/core/migrations/{env.py,script.py.mako}`,
+Files added: `src/quantlab/core/{ids,clock,db,audit,secret_store}.py` (secret_store was first named secrets.py — see CHANGE-0004), `src/quantlab/core/migrations/{env.py,script.py.mako}`,
 `src/quantlab/core/migrations/versions/0001_audit_log.py`, `tests/unit/core/{test_ids_clock,test_db_audit,test_secrets}.py`
 Files modified: `pyproject.toml`/`uv.lock` (+sqlalchemy 2.1.8, alembic, keyring), `tests/conftest.py` (db fixtures), memory docs.
 Design: audit_log append-only via SQLite/Postgres triggers + ORM flush guard; sha256 hash chain with `verify_chain`;
@@ -53,3 +53,18 @@ ULID test assumed global generator state (→ refactored into `UlidGenerator` cl
 equality in the overflow test.
 CI: step-1a runs #1/#2 green on ubuntu + windows → MEM-004 VERIFIED, KI-0009 resolved.
 Result: PASS · Regression status: PASS (all 1a tests still pass)
+
+### CHANGE-0004 — Fix: secret store module was never committed (gitignored); CI red on 1b
+Date: 2026-11-06 · Module: core, repo hygiene · Feature IDs: SEC-001, MEM-004
+Problem: CI run #3 failed (ruff I001 in `tests/unit/core/test_secrets.py`, both OSes). Root cause, found by
+diffing a fresh clone against the working tree: `.gitignore` rule `secrets*` matched `src/quantlab/core/secrets.py`,
+so the module was never committed. Locally everything passed because ruff also honours `.gitignore` and silently
+skipped the file (hiding 3 E501 errors), while pytest/mypy used the untracked file on disk.
+Fix: renamed module to `src/quantlab/core/secret_store.py` (keeps the broad secrets-file ignore rule and avoids
+shadowing stdlib `secrets`); fixed the 3 line-length errors; added regression guard
+`tests/unit/test_repo_hygiene.py` (fails if any file under src/, tests/, tools/ is gitignored — verified it fails
+with the original filename). Doc references updated.
+Public API change: import path `quantlab.core.secrets` → `quantlab.core.secret_store` (no consumers yet).
+Tests: `uv run pytest` → 76 passed; ruff check/format + mypy clean; fresh-clone check before push (see handoff).
+Lesson: verify from a fresh clone (`git clone` + `uv sync --locked` + checks) before pushing new files.
+Result: PASS · Regression status: PASS
