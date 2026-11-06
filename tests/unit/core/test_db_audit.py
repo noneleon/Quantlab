@@ -98,14 +98,18 @@ def test_timestamps_monotonic_with_manual_clock(db_session):
     assert b.ts > a.ts and b.seq > a.seq
 
 
-def test_alembic_config_handles_percent_encoded_urls(tmp_path):
-    """Regression (CHANGE-0005): Windows URLs render as sqlite:///C%3A/... and broke ConfigParser."""
-    from quantlab.core.db import _alembic_config, create_db_engine
+def test_alembic_config_handles_percent_encoded_urls():
+    """Regression (CHANGE-0005): Windows URLs render as sqlite:///C%3A/... and broke ConfigParser.
 
-    weird = tmp_path / "pct%3Adir" / "q.sqlite"
-    engine = create_db_engine(f"sqlite:///{weird.as_posix()}")
+    Uses an un-connected engine so no directory with OS-invalid characters is created.
+    The real Windows path is exercised by every DB test on the Windows CI leg.
+    """
+    from sqlalchemy import create_engine
+
+    from quantlab.core.db import _alembic_config
+
+    engine = create_engine("sqlite:///C%3A/Users/someone/qlhome/db/quantlab.sqlite")
     cfg = _alembic_config(engine)
+    assert cfg.get_main_option("sqlalchemy.url") == engine.url.render_as_string(hide_password=False)
     assert "%3A" in cfg.get_main_option("sqlalchemy.url")
-    migrate(engine)
-    assert current_revision(engine) == "0001"
-    engine.dispose()
+    assert head_revision(engine) == "0001"  # parses the config + script directory

@@ -76,5 +76,7 @@ Problem: CI run #7 — Ubuntu green, Windows 12 errors: `ValueError: invalid int
 as interpolation. Not reproducible on Linux paths.
 Fix: escape `%` → `%%` in `_alembic_config` (`src/quantlab/core/db.py`). Regression test
 `test_alembic_config_handles_percent_encoded_urls` uses a `%3A` path on Linux; verified it fails without the fix.
-Tests: `uv run pytest` → 77 passed (Linux). Windows confirmation: CI run after push (see handoff).
-Result: PASS (Linux) · Regression status: PASS
+Tests: `uv run pytest` → 77 passed (Linux). CI run #9: the 12 previously failing Windows tests passed; the new
+regression test itself failed on Windows (it created a directory decoding to `pct:dir`, invalid on Windows) →
+rewritten to use an un-connected engine; verified it still fails without the fix.
+Result: PASS (Linux; Windows per CI after follow-up push) · Regression status: PASS
