@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0007)
+Last updated: 2026-11-06 (CHANGE-0008)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -32,8 +32,8 @@ Last updated: 2026-11-06 (CHANGE-0007)
 | CORE-005 | QUANTLAB_HOME layout & path resolution (Win/Linux) | core | C | 1 | `src/quantlab/core/paths.py` | — | `tests/unit/core/test_paths.py` | TESTED | Windows paths tested by simulation on Linux; real Windows run pending CI |
 | CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | `src/quantlab/core/ids.py`, `src/quantlab/core/clock.py` | CORE-001 | `tests/unit/core/test_ids_clock.py` | IN_PROGRESS | ids + clock TESTED; event bus not started (needed by OMS, Phase 5) |
 | CORE-007 | Job runner (background runs, cancellation, progress) | core | C | 1 | — | CORE-004 | — | PLANNED | |
-| CORE-008 | CLI (`quantlab`) | cli | C | 1 | — | CORE-* | — | PLANNED | |
-| CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | — | CORE-* | — | PLANNED | |
+| CORE-008 | CLI (`quantlab`) | cli | C | 1 | `src/quantlab/cli/main.py`, `src/quantlab/bootstrap.py` | CORE-*, BT-* | `tests/unit/cli/test_cli.py`, `tests/unit/test_bootstrap.py` | TESTED | Commands: init, serve, strategy add/list/show/archive, backtest run/list/show/rerun, engine probe/pull, api token; `serve`/`engine pull` only smoke-tested manually; CLI coverage 77 % |
+| CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | `src/quantlab/api/app.py` | CORE-*, SEC-003 | `tests/unit/api/test_app.py` + manual uvicorn smoke test | IN_PROGRESS | Read-only REST done + TESTED (health, strategies, backtests list/detail); no write endpoints, no WebSocket yet |
 | CORE-010 | Audit log (append-only, hash-chained) | core | C | 1 | `src/quantlab/core/audit.py`, migration `0001` | CORE-004 | `tests/unit/core/test_db_audit.py` | TESTED | Append lock is per-process; multi-process writers would need DB-level serialisation |
 
 ## ENG — Trading engine integration
@@ -216,8 +216,8 @@ Last updated: 2026-11-06 (CHANGE-0007)
 ## SEC — Security
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| SEC-001 | Secret store via keyring (Windows Credential Manager) + env fallback | core | C | 1 | `src/quantlab/core/secret_store.py` | CORE-002, CORE-010 | `tests/unit/core/test_secrets.py` | TESTED | Tested with in-memory backend; real Windows Credential Manager not exercised yet |
+| SEC-001 | Secret store via keyring (Windows Credential Manager) + env fallback | core | C | 1 | `src/quantlab/core/secret_store.py` | CORE-002, CORE-010 | `tests/unit/core/test_secrets.py` | TESTED | Writes verified by read-back (CHANGE-0008); real Windows Credential Manager not exercised (tests use in-memory keyring by design) |
 | SEC-002 | Separate paper/live credential namespaces | core | C | 5 | — | SEC-001 | — | PLANNED | |
-| SEC-003 | Local API protection (127.0.0.1 bind + token) | api | C | 1 | — | CORE-009 | — | PLANNED | |
+| SEC-003 | Local API protection (127.0.0.1 bind + token) | api | C | 1 | `api/app.py`, `bootstrap.py`, config validation | CORE-009, SEC-001 | `tests/unit/api/test_app.py`, `tests/unit/core/test_config.py` | TESTED | Bearer token in keyring/env; fail-closed; Host allow-list; verified over real HTTP (smoke) |
 | SEC-004 | Remote access auth + TLS guidance | api | C | 9 | — | SEC-003 | — | PLANNED | |
 | SEC-005 | AI permission boundaries (import-linter + gateway allowlist) | ai | C | 8 | — | AI-002 | — | PLANNED | |

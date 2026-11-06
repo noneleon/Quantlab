@@ -194,7 +194,7 @@ live ──► engine, oms, brokers, risk, portfolio
 ml ──► data, core ; strategies consume ml artifacts
 ai ──► core + read-only services (strategies, backtest, analytics, docs) — NEVER oms/brokers/risk-write
 ops ──► core, read access to all status
-api/cli ──► services (thin)
+api/cli ──► bootstrap (AppContext: single composition root) ──► services (thin); cli may import api (serve)
 web ──► api only
 ```
 Rule: no dependency cycles; `brokers` never imports `oms`; `ai` cannot import write interfaces of `oms`, `risk`, `brokers`, `live`, or the secrets store (enforced by an import-linter contract in CI, Phase 1).

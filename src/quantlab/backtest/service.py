@@ -104,13 +104,13 @@ class BacktestService:
         self,
         settings: Settings,
         session_factory: sessionmaker[Session],
-        engine: EngineAdapter,
+        engine: EngineAdapter | None,
         registry: StrategyRegistry | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._settings = settings
         self._sessions = session_factory
-        self._engine = engine
+        self._engine_adapter = engine  # None: read-only service (queries only)
         self._clock = clock or SystemClock()
         self._registry = registry or StrategyRegistry(self._clock)
 
@@ -134,6 +134,7 @@ class BacktestService:
     def run(
         self, strategy_name: str, parameters: dict[str, Any] | None = None, timeout_s: float | None = None
     ) -> BacktestRun:
+        self._engine  # noqa: B018 - fail fast (before snapshotting) when no engine is configured
         run_id = new_id()
         with self._sessions() as session:
             strategy = self._registry.get(session, strategy_name)
@@ -213,6 +214,14 @@ class BacktestService:
             raise BacktestError(f"run directory already exists: {run_dir}")
         run_dir.mkdir(parents=True)
         return run_dir
+
+    @property
+    def _engine(self) -> EngineAdapter:
+        if self._engine_adapter is None:
+            raise BacktestError(
+                "no engine configured: set engine.lean.image (see CONFIGURATION_REFERENCE.md)"
+            )
+        return self._engine_adapter
 
     def _probe_or_raise(self) -> EngineInfo:
         try:

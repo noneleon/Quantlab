@@ -17,6 +17,10 @@ Feature IDs → [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 | 9 Hardening | Production-ready self-hosting | OPS-004,005, SEC-004, perf, docs | Backup/restore drill, security audit |
 
 ## Milestone M1 — "First reproducible local LEAN backtest" (the MVP)
+
+Status (CHANGE-0008): all six steps implemented and tested end to end against a **fake** engine
+(`tests/unit/cli/test_cli.py::test_m1_flow`). **Acceptance pending:** the same flow with real LEAN on a Docker machine (KI-0002).
+API token is stored in the OS keyring by `quantlab init`.
 A thin but **real** end-to-end slice, no placeholders:
 
 1. `quantlab init` creates `QUANTLAB_HOME`, SQLite DB (Alembic migration), config, local API token.

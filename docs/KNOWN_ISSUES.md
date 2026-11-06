@@ -22,3 +22,6 @@
 | KI-0018 | Medium | backtest | Runs are synchronous; if the process dies mid-run the row stays `running` forever. Needs startup recovery (mark `interrupted`) with the job runner. | OPEN — CORE-007 |
 | KI-0019 | Medium | analytics | Trade metrics (win rate, profit factor, expectancy, costs), turnover, exposure, alpha/beta not yet computed (need LEAN order-events fills and a benchmark series). | OPEN — AN-001 remainder |
 | KI-0020 | Low | strategies | Tree hash is byte-exact: the same Git commit checked out with `core.autocrlf=true` on Windows hashes differently than on Linux. | OPEN — document; consider `.gitattributes eol=lf` for strategy repos |
+| KI-0021 | Low | cli | CLI prints structured JSON log lines to stderr (INFO), noisy for interactive use; `--json` output on stdout is clean. | OPEN — separate console level from file level |
+| KI-0022 | Low | api | Starlette deprecation warning: TestClient with `httpx` (suggests `httpx2`). Test-only. | OPEN — revisit on dependency update |
+| KI-0023 | Low | cli | `quantlab serve` and `engine pull` have no automated test (manual smoke only); CLI coverage 77 %. | OPEN |

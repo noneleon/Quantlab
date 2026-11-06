@@ -9,7 +9,12 @@
 - Logs pass through a redaction filter (keys matching `*password*|*secret*|*token*|*key*|account numbers`); tested in `tests/security/`.
 
 ## Network exposure
-- API binds to `127.0.0.1` by default; a random local API token is generated at first start and required on every request.
+- API binds to `127.0.0.1` by default (IMPLEMENTED). `quantlab init` generates a random token (`secrets.token_urlsafe(32)`)
+  stored in the OS keyring as `secret://quantlab/api/token`; if no keyring is usable it is shown once and must be set as
+  `QUANTLAB_SECRET__API__TOKEN`. Every endpoint except `/api/health` requires `Authorization: Bearer <token>`
+  (constant-time compare). No token configured ⇒ 503 (fail closed); `quantlab serve` refuses to start. Host-header
+  allow-list (localhost) blocks DNS rebinding. No CORS. API is read-only in M1.
+- Secret writes are verified by read-back; a keyring that silently drops writes is reported as unavailable (CHANGE-0008).
 - Remote access: off by default; when enabled requires TLS (reverse proxy) + authentication; documented in Phase 9.
 - TWS/IB Gateway: "Allow connections from localhost only" recommended; read-only API mode for monitoring-only setups.
 

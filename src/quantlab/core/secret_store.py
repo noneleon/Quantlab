@@ -126,6 +126,10 @@ class SecretStore:
             raise SecretError(
                 f"keyring unavailable, cannot store {parsed.uri}: {type(exc).__name__}"
             ) from exc
+        # Some backends (e.g. keyring's null backend, misconfigured stores) accept writes and drop them.
+        # Never report a secret as stored unless it can be read back (CHANGE-0008).
+        if self._keyring_get(parsed) != raw:
+            raise SecretError(f"keyring did not persist {parsed.uri} (write accepted but not readable)")
 
     def delete(self, ref: str, *, session: Session, actor: str) -> None:
         parsed = SecretRef.parse(ref)

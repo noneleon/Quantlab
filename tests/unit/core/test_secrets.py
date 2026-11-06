@@ -101,3 +101,18 @@ def test_set_fails_cleanly_without_keyring(db_session):
 def test_empty_secret_rejected(db_session):
     with pytest.raises(SecretError):
         SecretStore(backend=MemoryKeyring(), env={}).set(REF, "", session=db_session, actor="o")
+
+
+class DroppingKeyring(MemoryKeyring):
+    """Accepts writes and silently discards them (like keyring's null backend)."""
+
+    def set_password(self, service, user, pw):
+        pass
+
+
+def test_set_detects_silently_dropped_write(db_session):
+    store = SecretStore(backend=DroppingKeyring(), env={})
+    with pytest.raises(SecretError, match="did not persist"):
+        store.set(REF, "hunter2", session=db_session, actor="owner")
+    db_session.rollback()
+    assert db_session.query(AuditEntry).count() == 0

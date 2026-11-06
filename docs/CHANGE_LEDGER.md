@@ -121,3 +121,21 @@ migration 0002 == ORM models.
 Incident (no impact): a bulk `sed` to drop `# fmt: skip` markers also edited committed `core/audit.py` and
 `engine/lean/docker.py`; detected via `git diff` and restored before commit.
 Result: PASS · Regression status: PASS (all earlier tests pass)
+
+### CHANGE-0008 — Phase 1 step 1e: CLI, local read-only API with token auth; secret write verification
+Date: 2026-11-06 · Modules: cli, api, bootstrap (new), backtest, core · Feature IDs: CORE-008, CORE-009 (partial), SEC-003, SEC-001
+Problem: M1 needs a usable interface (CLI) and the read API the UI will build on.
+Files added: `src/quantlab/bootstrap.py` (AppContext composition root, `initialize`), `src/quantlab/cli/{__init__,main}.py`,
+`src/quantlab/__main__.py`, `src/quantlab/api/{__init__,app}.py`, `tests/fixtures/{__init__,m1}.py`,
+`tests/unit/test_bootstrap.py`, `tests/unit/api/test_app.py`, `tests/unit/cli/test_cli.py`
+Files modified: `src/quantlab/backtest/service.py` (engine optional for read-only use; fail fast before snapshot),
+`src/quantlab/core/secret_store.py` (read-back verification), `tests/conftest.py` (autouse in-memory keyring — tests never
+touch the real OS keyring), `tests/unit/core/test_secrets.py`, `pyproject.toml` (+typer, fastapi, uvicorn, dev httpx;
+`[project.scripts] quantlab`; layers contract now cli > api > bootstrap > …), docs.
+Bug found by smoke test: with keyring's null backend `quantlab init` claimed the API token was "stored in the OS keyring"
+although nothing was stored. Root cause: some backends accept and drop writes. Fix: `SecretStore.set` reads back and raises
+`SecretError` if the value did not persist (audit entry rolled back). Regression tests verified to fail without the fix.
+Tests: `uv run pytest --cov` → 214 passed, 1 skipped (real Docker), 92 % coverage; ruff, mypy --strict (34 files),
+lint-imports (3 kept). Manual smoke: `quantlab init` + `quantlab serve` + curl — health 200, no/bad token 401, valid token
+200, foreign Host 400, token absent from all logs.
+Result: PASS · Regression status: PASS
