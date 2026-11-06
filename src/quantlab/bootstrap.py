@@ -21,6 +21,7 @@ from quantlab.core.config import Settings, load_settings
 from quantlab.core.db import create_db_engine, current_revision, head_revision, migrate, session_factory
 from quantlab.core.logging import configure_from_settings
 from quantlab.core.secret_store import SecretError, SecretNotFoundError, SecretStore
+from quantlab.data.catalog import DataCatalog
 from quantlab.engine import EngineAdapter, create_engine_adapter
 from quantlab.strategies.registry import StrategyRegistry
 
@@ -91,6 +92,10 @@ class AppContext:
     @property
     def registry(self) -> StrategyRegistry:
         return StrategyRegistry()
+
+    @property
+    def data(self) -> DataCatalog:
+        return DataCatalog(self.settings.data_root)
 
     @property
     def engine(self) -> EngineAdapter:

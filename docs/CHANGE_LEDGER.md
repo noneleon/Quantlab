@@ -139,3 +139,20 @@ Tests: `uv run pytest --cov` → 214 passed, 1 skipped (real Docker), 92 % cover
 lint-imports (3 kept). Manual smoke: `quantlab init` + `quantlab serve` + curl — health 200, no/bad token 401, valid token
 200, foreign Host 400, token absent from all logs.
 Result: PASS — CI #21/#22 green on ubuntu + windows · Regression status: PASS
+
+### CHANGE-0009 — Phase 2a: market-data foundation (providers, CSV import, validation, versioned catalog, export)
+Date: 2026-11-06 · Modules: data (new), cli, api, bootstrap · Feature IDs: DATA-001..007, DATA-016, CORE-009 (datasets endpoint)
+Problem: Backtests and research need real, validated, versioned data with provenance instead of LEAN sample data.
+Files added: `src/quantlab/data/{__init__,schema,calendars,validation,storage,catalog}.py`,
+`src/quantlab/data/providers/{__init__,base,csv_file}.py`, `src/quantlab/migrations/versions/0003_datasets.py`,
+`src/quantlab/cli/{common,data}.py`, `tests/unit/data/*`, `tests/unit/cli/test_cli_data.py`
+Files modified: `src/quantlab/cli/main.py` (shared helpers moved to `cli/common.py`; `data` command group),
+`src/quantlab/bootstrap.py` (`AppContext.data`), `src/quantlab/api/app.py` (`GET /api/datasets`),
+`src/quantlab/migrations/env.py` (data models), `pyproject.toml`/`uv.lock` (+pyarrow, duckdb, pandas, exchange-calendars;
+mypy overrides for untyped libs; `quantlab.data` in the engine/strategies layer), `tests/unit/core/test_db_audit.py`
+(head 0003, data models in drift check), `tests/unit/api/test_app.py`, docs. Decision: DEC-0015.
+Tests: `uv run pytest --cov` → 248 passed, 1 skipped (real Docker), 92 % coverage; ruff, mypy --strict (46 files; pandas/
+pyarrow/exchange_calendars/duckdb treated as untyped), lint-imports (3 kept). Manual CLI smoke on a fresh home: import →
+missing 2024-07-05 detected (completeness 0.8), early close mapped to 17:00 UTC, conflicting revision rejected and
+quarantined, head shows unchanged data. Remaining pandas deprecation warnings originate in exchange_calendars/duckdb.
+Result: PASS · Regression status: PASS

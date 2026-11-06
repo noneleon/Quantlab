@@ -76,3 +76,12 @@ State: ACCEPTED (implementation of DEC-0006 / BT-002; owner may revisit) · 2026
 Decision: at submission the strategy directory is copied to `runs/<id>/algorithm/` and the version is the tree hash of the
 copy; the engine mounts the copy read-only. Re-runs use the stored copy. Consequence: editing a strategy can never change
 what a recorded run executed, at the cost of a few KB–MB per run (strategy dirs capped at 50 MB).
+
+### DEC-0015 — Market data storage: raw prices, immutable content-addressed versions, quarantine on error
+State: ACCEPTED (implementation of DEC-0005; owner may revisit) · 2026-11-06
+Decisions: (1) datasets declare provenance and price adjustment once (raw preferred; adjustments applied at read time
+in DATA-008, avoiding look-ahead); (2) version identity = hash of logical rows, not Parquet bytes; (3) each import is a
+copy-on-write merge producing a new immutable version (old versions remain readable for reproducibility);
+(4) validation errors reject + quarantine the whole batch, never partial imports; (5) conflicting revisions of existing
+rows are rejected unless the user chooses `replace`, which is recorded on the version; (6) SQLite is the catalog of
+record, DuckDB the query engine. Trade-off: full rewrite per import is costly for large intraday datasets (KI-0024).

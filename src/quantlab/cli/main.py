@@ -7,26 +7,24 @@ Examples::
     quantlab backtest run sma -p fast=5
     quantlab backtest show <run-id>
     quantlab backtest rerun <run-id>
+    quantlab data create spy --asset-class equity --market usa --resolution daily \\
+        --provenance real_historical --adjustment raw --source "broker export"
+    quantlab data import spy ./spy.csv --symbol SPY
     quantlab serve
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any
 
 import typer
 
 from quantlab.backtest.models import BacktestRun
-from quantlab.backtest.service import BacktestError
-from quantlab.bootstrap import AppContext, BootstrapError, initialize
-from quantlab.core.config import ConfigError
-from quantlab.engine import EngineError
-from quantlab.strategies.registry import StrategyError
-from quantlab.strategies.snapshot import SnapshotError
+from quantlab.bootstrap import AppContext, initialize
+from quantlab.cli.common import EXPECTED, HomeOpt, JsonOpt, context, emit_json, fail
+from quantlab.cli.data import data_app
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuantLab — self-hosted quant platform.")
 strategy_app = typer.Typer(no_args_is_help=True, help="Register and inspect strategies.")
@@ -35,37 +33,9 @@ engine_app = typer.Typer(no_args_is_help=True, help="Inspect the trading engine.
 api_app = typer.Typer(no_args_is_help=True, help="Local API utilities.")
 app.add_typer(strategy_app, name="strategy")
 app.add_typer(backtest_app, name="backtest")
+app.add_typer(data_app, name="data")
 app.add_typer(engine_app, name="engine")
 app.add_typer(api_app, name="api")
-
-HomeOpt = Annotated[
-    Path | None, typer.Option("--home", help="QuantLab home (default: QUANTLAB_HOME / OS default).")
-]
-JsonOpt = Annotated[bool, typer.Option("--json", help="Machine-readable JSON output.")]
-EXPECTED = (BootstrapError, ConfigError, StrategyError, SnapshotError, BacktestError, EngineError)
-
-
-def fail(message: str) -> NoReturn:
-    typer.secho(f"error: {message}", fg=typer.colors.RED, err=True)
-    raise typer.Exit(1)
-
-
-@contextmanager
-def context(home: Path | None) -> Iterator[AppContext]:
-    try:
-        ctx = AppContext.open(home)
-    except EXPECTED as exc:
-        fail(str(exc))
-    try:
-        yield ctx
-    except EXPECTED as exc:
-        fail(str(exc))
-    finally:
-        ctx.close()
-
-
-def emit_json(obj: Any) -> None:
-    typer.echo(json.dumps(obj, indent=2, sort_keys=True, default=str))
 
 
 def _fmt_pct(value: float | None) -> str:

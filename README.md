@@ -28,6 +28,16 @@ uv run quantlab serve        # local read-only API on 127.0.0.1:8765 (token: qua
 ```
 Runs on LEAN's bundled sample data are labelled `sample` — they are not performance claims.
 
+## Your own data (Phase 2a)
+```
+uv run quantlab data create spy-daily --asset-class equity --market usa --resolution daily \
+    --provenance real_historical --adjustment raw --source "my broker export"
+uv run quantlab data import spy-daily ./SPY.csv --symbol SPY
+uv run quantlab data show spy-daily
+```
+Imports are validated (bad batches are quarantined, never partially imported) and every import creates an immutable,
+content-hashed version. Backtests on these datasets arrive in Phase 2b.
+
 ## Check your machine
 ```
 python tools/env_check.py

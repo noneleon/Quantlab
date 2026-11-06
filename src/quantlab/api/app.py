@@ -37,6 +37,25 @@ class StrategyOut(BaseModel):
     archived: bool
 
 
+class DatasetOut(BaseModel):
+    name: str
+    asset_class: str
+    market: str
+    resolution: str
+    calendar: str
+    provenance: str
+    price_adjustment: str
+    source: str
+    license_terms: str
+    redistribution_allowed: bool
+    versions: int
+    latest_version: str | None
+    latest_rows: int | None
+    latest_start: str | None
+    latest_end: str | None
+    latest_validation_ok: bool | None
+
+
 class BacktestSummaryOut(BaseModel):
     id: str
     strategy_id: str
@@ -129,6 +148,36 @@ def create_app(ctx: AppContext) -> FastAPI:
                 )
                 for s in ctx.registry.list(session, include_archived=include_archived)
             ]
+
+    @app.get("/api/datasets", dependencies=auth)
+    def list_datasets() -> list[DatasetOut]:
+        catalog = ctx.data
+        out = []
+        with ctx.sessions() as session:
+            for d in catalog.list_datasets(session):
+                versions = catalog.versions(session, d)
+                latest = versions[-1] if versions else None
+                out.append(
+                    DatasetOut(
+                        name=d.name,
+                        asset_class=d.asset_class,
+                        market=d.market,
+                        resolution=d.resolution,
+                        calendar=d.calendar,
+                        provenance=d.provenance,
+                        price_adjustment=d.price_adjustment,
+                        source=d.source,
+                        license_terms=d.license_terms,
+                        redistribution_allowed=d.redistribution_allowed,
+                        versions=len(versions),
+                        latest_version=latest.content_hash[:20] if latest else None,
+                        latest_rows=latest.row_count if latest else None,
+                        latest_start=latest.start_ts.isoformat() if latest else None,
+                        latest_end=latest.end_ts.isoformat() if latest else None,
+                        latest_validation_ok=latest.json("validation")["ok"] if latest else None,
+                    )
+                )
+        return out
 
     @app.get("/api/backtests", dependencies=auth)
     def list_backtests(

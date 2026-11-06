@@ -1,44 +1,59 @@
 # Data Dictionary
 
-Status: **DRAFT** — schemas are proposals until implemented (Phase 1+). Update when tables/columns change and
+Status: sections marked IMPLEMENTED are authoritative; others are proposals. Update when tables/columns change and
 reference the CHANGE id. All timestamps UTC (`timestamp[us, UTC]`), money as decimal strings in DB / float64 in analytics.
 
-## 1. Market data (Parquet, `QUANTLAB_HOME/data/parquet/`)
-Partitioning: `asset_class=/resolution=/symbol=/year=`.
+## 1. Market data (IMPLEMENTED, CHANGE-0009)
+Files: `QUANTLAB_HOME/data/parquet/<dataset>/<content_hash[:20]>/<SYMBOL>.parquet` (zstd), one immutable directory per
+version. Quarantined batches: `QUANTLAB_HOME/data/quarantine/<ingest_id>/{batch.csv,report.json}`.
 
-### bars
+### bars (canonical frame / Parquet schema)
 | Column | Type | Description |
 |---|---|---|
-| ts | timestamp UTC | bar **end** time (LEAN convention) |
-| symbol_id | string | QuantLab canonical id (maps to LEAN SecurityIdentifier) |
-| open, high, low, close | float64 | **raw, unadjusted** prices |
-| volume | float64 | shares/contracts/units |
-| bid_close, ask_close | float64? | optional quote data |
-| source | string | provider id |
-| ingest_id | string | ingestion batch ULID |
+| symbol | string | ticker as used by the market, upper case (e.g. `SPY`) |
+| ts | timestamp[us, UTC] | bar **end** time (LEAN convention); daily bars end at the calendar's session close |
+| open, high, low, close | float64 | prices as declared by the dataset's `price_adjustment` (normally `raw`) |
+| volume | float64 | NaN when the source has no volume |
 
-### corporate_actions
+Content hash per symbol = sha256 over `ts|repr(open)|repr(high)|repr(low)|repr(close)|repr(volume)` lines sorted by ts;
+version hash = sha256(dataset identity + sorted symbol hashes). Independent of Parquet bytes and OS.
+
+### datasets (metadata DB, migration 0003)
+| Column | Description |
+|---|---|
+| id, name (UNIQUE) | ULID, lowercase name |
+| asset_class, market, resolution, calendar | e.g. equity / usa / daily / XNYS |
+| provenance | real_historical · live_recorded · synthetic · sample (fixed at creation) |
+| price_adjustment | raw · split_adjusted · split_dividend_adjusted (fixed at creation) |
+| source, license_terms, redistribution_allowed, license_url, description, created_at | |
+Never deleted (trigger).
+
+### dataset_versions (metadata DB, migration 0003)
+| Column | Description |
+|---|---|
+| id, dataset_id, parent_id | ULID; parent = previous version merged into this one |
+| content_hash | version hash (UNIQUE per dataset) |
+| ingest_id, source, conflict_policy | import batch, provider source, `reject`/`replace` |
+| row_count, start_ts, end_ts | coverage |
+| symbols | JSON {symbol: content hash} |
+| files | JSON {file: sha256} — verified on every read |
+| validation | JSON ValidationReport of the merged data (issues, completeness per symbol) |
+| notes | JSON list (timestamp mapping, replaced rows, ignored adjusted-close column, …) |
+| path | version directory |
+Append-only (triggers).
+
+### corporate_actions — PLANNED (DATA-008)
 | Column | Type | Description |
 |---|---|---|
-| symbol_id, ex_date | string, date | |
+| symbol, ex_date | string, date | |
 | kind | enum | split, dividend, symbol_change, delisting |
 | ratio / amount | float64 | split ratio or cash dividend |
 | source | string | |
 
-### dataset_versions (metadata DB)
-| Column | Type | Description |
-|---|---|---|
-| data_version | string | content hash (sha256 of sorted partition hashes + manifest) |
-| created_at | timestamp | |
-| provenance | enum | real_historical, live_recorded, synthetic, sample |
-| completeness | json | gap/duplicate/validation report summary |
-| license | string | provider licence terms id; redistribution flag |
-| symbols, start, end, resolution | | coverage |
-| lean_export_path | string? | path of LEAN-format export |
-
 ## 2. Metadata DB (SQLite/Postgres) — proposed tables
 | Table | Purpose | Mutability |
 |---|---|---|
+| datasets / dataset_versions | **IMPLEMENTED (0003)** — see §1 | datasets never deleted; versions append-only |
 | strategies | **IMPLEMENTED (0002)**: id ULID, name UNIQUE slug, path, entry_file, language, description, archived, created_at | mutable (archive only); DELETE rejected by trigger |
 | strategy_versions | **IMPLEMENTED (0002)**: id, strategy_id FK, tree_hash (UNIQUE per strategy), files JSON {path: sha256}, git_commit, git_dirty, created_at | append-only (triggers) |
 | backtest_runs | **IMPLEMENTED (0002)**: id, strategy_id, strategy_version_id, rerun_of, status (running/succeeded/algorithm_error/failed/timed_out/cancelled/engine_error), created_at, finished_at, parameters, data_provenance, data_version, engine_info, inputs_hash, result_hash, engine_status, runtime_error, error, engine_statistics, metrics, cross_checks, manifest, run_dir | updates only while `running`; terminal rows immutable, DELETE rejected (triggers + ORM guard) |

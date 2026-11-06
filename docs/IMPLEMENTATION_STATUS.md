@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0008)
+Last updated: 2026-11-06 (CHANGE-0009)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -33,7 +33,7 @@ Last updated: 2026-11-06 (CHANGE-0008)
 | CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | `src/quantlab/core/ids.py`, `src/quantlab/core/clock.py` | CORE-001 | `tests/unit/core/test_ids_clock.py` | IN_PROGRESS | ids + clock TESTED; event bus not started (needed by OMS, Phase 5) |
 | CORE-007 | Job runner (background runs, cancellation, progress) | core | C | 1 | — | CORE-004 | — | PLANNED | |
 | CORE-008 | CLI (`quantlab`) | cli | C | 1 | `src/quantlab/cli/main.py`, `src/quantlab/bootstrap.py` | CORE-*, BT-* | `tests/unit/cli/test_cli.py`, `tests/unit/test_bootstrap.py` | TESTED | Commands: init, serve, strategy add/list/show/archive, backtest run/list/show/rerun, engine probe/pull, api token; `serve`/`engine pull` only smoke-tested manually; CLI coverage 77 % |
-| CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | `src/quantlab/api/app.py` | CORE-*, SEC-003 | `tests/unit/api/test_app.py` + manual uvicorn smoke test | IN_PROGRESS | Read-only REST done + TESTED (health, strategies, backtests list/detail); no write endpoints, no WebSocket yet |
+| CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | `src/quantlab/api/app.py` | CORE-*, SEC-003 | `tests/unit/api/test_app.py` + manual uvicorn smoke test | IN_PROGRESS | Read-only REST done + TESTED (health, strategies, datasets, backtests list/detail); no write endpoints, no WebSocket yet |
 | CORE-010 | Audit log (append-only, hash-chained) | core | C | 1 | `src/quantlab/core/audit.py`, migration `0001` | CORE-004 | `tests/unit/core/test_db_audit.py` | TESTED | Append lock is per-process; multi-process writers would need DB-level serialisation |
 
 ## ENG — Trading engine integration
@@ -56,13 +56,13 @@ Last updated: 2026-11-06 (CHANGE-0008)
 ## DATA — Market data infrastructure
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| DATA-001 | DataProvider adapter protocol + license metadata | data | C | 2 | — | CORE-* | — | PLANNED | |
-| DATA-002 | CSV/Parquet file importer (user-owned data) | data | C | 2 | — | DATA-001 | — | PLANNED | |
-| DATA-003 | Parquet storage + DuckDB catalog | data | C | 2 | — | CORE-005 | — | PLANNED | |
-| DATA-004 | Dataset versioning (content hash, immutable versions) | data | C | 2 | — | DATA-003 | — | PLANNED | |
-| DATA-005 | Validation: duplicates, gaps vs calendar, OHLC sanity, outliers, staleness | data | C | 2 | — | DATA-003, DATA-007 | — | PLANNED | |
-| DATA-006 | Provenance labels (real/live/synthetic/sample) + completeness report | data | C | 2 | — | DATA-004 | — | PLANNED | |
-| DATA-007 | Trading calendars & sessions | data | C | 2 | — | — | — | PLANNED | exchange_calendars + LEAN MHDB |
+| DATA-001 | DataProvider adapter protocol + license metadata | data | C | 2 | `src/quantlab/data/providers/base.py` | CORE-* | `tests/unit/data/test_csv_provider.py` | TESTED | Only the file provider implements it so far |
+| DATA-002 | CSV/Parquet file importer (user-owned data) | data | C | 2 | `src/quantlab/data/providers/csv_file.py`, `quantlab data import` | DATA-001, DATA-007 | `test_csv_provider.py`, `tests/unit/cli/test_cli_data.py` | TESTED | Column auto-detection by common names; ambiguous DST timestamps rejected |
+| DATA-003 | Parquet storage + DuckDB catalog | data | C | 2 | `data/storage.py`, `data/catalog.py`, migration 0003 | CORE-005 | `tests/unit/data/test_catalog.py` | TESTED | Catalog of record in SQLite; DuckDB for reads |
+| DATA-004 | Dataset versioning (content hash, immutable versions) | data | C | 2 | `data/storage.py`, `data/catalog.py` | DATA-003 | `test_catalog.py` | TESTED | Copy-on-write full rewrite per import (KI-0024) |
+| DATA-005 | Validation: duplicates, gaps vs calendar, OHLC sanity, outliers, staleness | data | C | 2 | `src/quantlab/data/validation.py` | DATA-003, DATA-007 | `tests/unit/data/test_validation.py` | TESTED | Gap detection daily-only (intraday gaps not checked, KI-0025) |
+| DATA-006 | Provenance labels (real/live/synthetic/sample) + completeness report | data | C | 2 | `data/schema.py`, `data/catalog.py` | DATA-004 | `test_catalog.py`, `test_cli_data.py` | TESTED | Provenance is required at dataset creation; not yet propagated into backtest manifests (DATA-009/2b) |
+| DATA-007 | Trading calendars & sessions | data | C | 2 | `src/quantlab/data/calendars.py` | — | `tests/unit/data/test_calendars.py` | TESTED | exchange_calendars + `24/7`/`weekdays`/`none`; forex `weekdays` is approximate; not reconciled with LEAN MHDB (KI-0026) |
 | DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | — | DATA-003 | — | PLANNED | Accurate factors require a data source that provides them |
 | DATA-009 | LEAN-format exporter (zipped CSV per version) | data | LI | 2 | — | DATA-004 | — | PLANNED | |
 | DATA-010 | User-defined custom datasets | data | C | 2 | — | DATA-001 | — | PLANNED | |
@@ -71,7 +71,7 @@ Last updated: 2026-11-06 (CHANGE-0008)
 | DATA-013 | Real-time streaming + recording | data | X | 5 | — | DATA-012 | — | PLANNED | |
 | DATA-014 | Point-in-time universes, delisted symbols | data | X | 7 | — | DATA-008 | — | PLANNED | Survivorship-free data usually paid (Norgate/CRSP/QC library) |
 | DATA-015 | Options/futures chains & continuous futures | data | LI/X | 7 | — | DATA-009 | — | PLANNED | Licensed data required |
-| DATA-016 | Data export (Parquet/CSV) for zero lock-in | data | C | 2 | — | DATA-003 | — | PLANNED | |
+| DATA-016 | Data export (Parquet/CSV) for zero lock-in | data | C | 2 | `DataCatalog.export`, `quantlab data export` | DATA-003 | `test_catalog.py`, `test_cli_data.py` | TESTED | Refuses licence-restricted data without `--acknowledge-license`; audited |
 | DATA-017 | Delayed/stale market data detection | data | C | 5 | — | DATA-013 | — | PLANNED | |
 
 ## RES — Research environment

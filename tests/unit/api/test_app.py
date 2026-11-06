@@ -76,3 +76,32 @@ def test_api_is_read_only(client, ctx):
     for method in ("post", "put", "delete", "patch"):
         r = getattr(client, method)("/api/backtests", headers=auth(ctx))
         assert r.status_code == 405
+
+
+def test_datasets_endpoint(ctx, client, tmp_path):
+    from quantlab.data.providers.base import BarRequest, LicenseInfo
+    from quantlab.data.providers.csv_file import CsvFileProvider
+    from quantlab.data.schema import AssetClass, PriceAdjustment, Provenance, Resolution
+    from tests.unit.data.conftest import csv_text, daily_rows
+
+    assert client.get("/api/datasets").status_code == 401
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    with ctx.sessions() as s:
+        ctx.data.create_dataset(
+            s,
+            "spy",
+            asset_class=AssetClass.EQUITY,
+            market="usa",
+            resolution=Resolution.DAILY,
+            provenance=Provenance.SYNTHETIC,
+            price_adjustment=PriceAdjustment.RAW,
+            source="fixture",
+            license=LicenseInfo("test", False),
+        )
+        p = CsvFileProvider(csv, calendar="XNYS", symbol="SPY")
+        ctx.data.import_bars(s, "spy", p, p.fetch_bars(BarRequest((), Resolution.DAILY)))
+        s.commit()
+    [d] = client.get("/api/datasets", headers=auth(ctx)).json()
+    assert d["name"] == "spy" and d["provenance"] == "synthetic" and d["versions"] == 1
+    assert d["latest_rows"] == 6 and d["latest_validation_ok"] is True

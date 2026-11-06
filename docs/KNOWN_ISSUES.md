@@ -25,3 +25,7 @@
 | KI-0021 | Low | cli | CLI prints structured JSON log lines to stderr (INFO), noisy for interactive use; `--json` output on stdout is clean. | OPEN — separate console level from file level |
 | KI-0022 | Low | api | Starlette deprecation warning: TestClient with `httpx` (suggests `httpx2`). Test-only. | OPEN — revisit on dependency update |
 | KI-0023 | Low | cli | `quantlab serve` and `engine pull` have no automated test (manual smoke only); CLI coverage 77 %. | OPEN |
+| KI-0024 | Medium | data | Each import rewrites the whole dataset version (copy-on-write) and hashes rows in a Python loop; fine for daily data, slow for large minute/second datasets. | OPEN — partitioned versions / vectorised hashing before intraday bulk imports |
+| KI-0025 | Medium | data | Gap detection only for daily bars; intraday gaps (missing minutes within sessions) are not checked. | OPEN |
+| KI-0026 | Medium | data | QuantLab calendars (exchange_calendars) are not reconciled with LEAN's market-hours database; forex `weekdays` calendar is an approximation. | OPEN — compare when LEAN export (DATA-009) lands |
+| KI-0027 | Low | data | pandas 3.1 deprecation warnings raised inside exchange_calendars and duckdb `.df()`; harmless now, may break on pandas 4. | OPEN — track upstream |

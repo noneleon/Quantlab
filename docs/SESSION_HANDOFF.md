@@ -1,40 +1,26 @@
 # Session Handoff
 
-**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0008 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0009 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
-- CHANGE-0002..0005 core infra; 0006 LEAN Docker adapter; 0007 strategies/backtests/metrics;
-- CHANGE-0008 (step 1e): `quantlab` CLI, `AppContext` composition root, read-only local API (token in OS keyring,
-  fail-closed, Host allow-list), secret write read-back verification (bug found by smoke test).
+- Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending (owner, Docker machine).
+- CHANGE-0009 (Phase 2a): `quantlab.data` — provider protocol, CSV/Parquet importer, calendars, validation with quarantine,
+  immutable content-addressed versions in Parquet (DuckDB reads), provenance/adjustment metadata, licence-aware export,
+  `quantlab data …` CLI, `GET /api/datasets`.
 
 ## Tests (actually executed)
-`uv run pytest --cov` → 214 passed, 1 skipped (real Docker), 92 % (Linux, Py 3.11.15); ruff, mypy --strict, lint-imports
-clean; manual uvicorn smoke test over HTTP passed. CI runs #21 (push) and #22 (PR) green on ubuntu + windows.
-
-## Critical honesty note
-Phase 1 code is complete, but **Milestone M1 is not accepted**: LEAN has never run under QuantLab. The M1 flow is proven
-only against the fake engine with synthetic results.
-
-## M1 acceptance procedure (owner, Windows PC with Docker Desktop)
-```
-uv sync
-uv run quantlab init
-# edit %LOCALAPPDATA%\QuantLab\quantlab.toml: [engine.lean] image = "quantconnect/lean@sha256:<digest>"
-uv run quantlab engine pull
-uv run quantlab engine probe
-uv run quantlab strategy add sma strategies/examples/sma_crossover
-uv run quantlab backtest run sma
-uv run quantlab backtest rerun <run-id>      # expect: reproduced True
-```
-Report any failure output; KI-0014 lists the most likely LEAN-specific issues.
+`uv run pytest --cov` → 248 passed, 1 skipped (real Docker), 92 % (Linux, Py 3.11.15); ruff, mypy --strict, lint-imports
+clean; manual CLI smoke of the data workflow passed. CI for CHANGE-0009: see latest run on the PR.
 
 ## Key design facts to remember
-- All entry points go through `quantlab.bootstrap.AppContext.open()` (auto-migrates DB). Don't build services elsewhere.
-- Tests: autouse in-memory keyring + isolated QUANTLAB_HOME; `tests/fixtures/m1.py` configures the fake engine.
-- CLI `--json` writes to stdout only; logs go to stderr.
-- Layers: cli > api > bootstrap > migrations > backtest > (strategies | analytics | engine) > core.
+- Canonical bar frame: symbol, ts (bar END, UTC), open, high, low, close, volume. Daily ts = calendar session close.
+- `DataCatalog(settings.data_root)` via `AppContext.data`; `import_bars` = validate → merge with latest → new version.
+- Provenance + adjustment are fixed per dataset; never default provenance to real.
+- Versions: `data/parquet/<dataset>/<hash[:20]>/`; files' sha256 verified on read; never modified.
+- mypy treats pandas/pyarrow/exchange_calendars/duckdb as untyped (pyproject overrides).
 
 ## Next recommended task
-1. M1 acceptance on real LEAN (owner) → fix whatever it reveals, record recorded LEAN fixture, mark ENG/BT VERIFIED.
-2. Then Phase 2 (data & research): DATA-001..006 (provider protocol, CSV importer, Parquet+DuckDB catalog, versioning,
-   validation, provenance) — the first real-data path into backtests.
+Phase 2b: DATA-009 LEAN-format exporter (zipped CSV per symbol/resolution, LEAN price scaling, map/factor files for raw
+data) and backtests on a pinned dataset version (`BacktestService.run(..., dataset=...)` → manifest data_version and real
+provenance, mounted read-only). Needs care: LEAN data format details must be verified against LEAN source before coding.
+Then 2c research API + Jupyter, 2d UI shell, 2e network providers.

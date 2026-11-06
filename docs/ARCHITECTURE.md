@@ -127,6 +127,11 @@ LEAN adapter responsibilities: generate LEAN `config.json` (algorithm location/l
 QuantLab ships a small **`quantlab_lean` helper library** (Python + C#) that strategies may import to apply platform-configured fee/slippage/brokerage models and to emit structured telemetry — so models are configured once and are not re-implemented.
 
 ### 5.2 Market data (DATA-*)
+As implemented (CHANGE-0009, `src/quantlab/data/`): `DataProvider` protocol + `CsvFileProvider`; `validate_bars`
+(errors quarantine the batch, warnings are recorded); `DataCatalog` publishes immutable, content-addressed versions
+(copy-on-write merge with the latest; conflicting revisions rejected unless `on_conflict="replace"`, which is recorded);
+DuckDB reads Parquet; exports refuse licence-restricted data without explicit acknowledgement. See DEC-0015.
+Original design notes:
 - `DataProvider` protocol: `capabilities()`, `fetch_history(request) -> RawBatch`, `stream(subscription)`; each provider declares license terms + redistribution flag.
 - Pipeline: fetch → normalize (UTC timestamps + exchange tz metadata, canonical symbol/`SecurityIdentifier` mapping) → validate (duplicates, gaps vs trading calendar, OHLC sanity, outliers, stale prices) → store raw + adjusted factors separately → **dataset version** (content hash of partitions + manifest) → optional LEAN export.
 - Every dataset carries `provenance` ∈ {`real_historical`, `live_recorded`, `synthetic`, `sample`} and `completeness` report. Reports refuse to label `synthetic`/`incomplete` data as real.
