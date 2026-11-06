@@ -9,7 +9,7 @@
 
 ## Tests (actually executed)
 `uv run pytest --cov` → 214 passed, 1 skipped (real Docker), 92 % (Linux, Py 3.11.15); ruff, mypy --strict, lint-imports
-clean; manual uvicorn smoke test over HTTP passed. CI for CHANGE-0008: see latest run on the PR.
+clean; manual uvicorn smoke test over HTTP passed. CI runs #21 (push) and #22 (PR) green on ubuntu + windows.
 
 ## Critical honesty note
 Phase 1 code is complete, but **Milestone M1 is not accepted**: LEAN has never run under QuantLab. The M1 flow is proven

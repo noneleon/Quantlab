@@ -67,7 +67,7 @@ with the original filename). Doc references updated.
 Public API change: import path `quantlab.core.secrets` → `quantlab.core.secret_store` (no consumers yet).
 Tests: `uv run pytest` → 76 passed; ruff check/format + mypy clean; fresh-clone check before push (see handoff).
 Lesson: verify from a fresh clone (`git clone` + `uv sync --locked` + checks) before pushing new files.
-Result: PASS · Regression status: PASS
+Result: PASS — CI #21/#22 green on ubuntu + windows · Regression status: PASS
 
 ### CHANGE-0005 — Fix: Alembic config broke on Windows SQLite URLs (`%` interpolation)
 Date: 2026-11-06 · Module: core (db) · Feature IDs: CORE-004
@@ -138,4 +138,4 @@ although nothing was stored. Root cause: some backends accept and drop writes. F
 Tests: `uv run pytest --cov` → 214 passed, 1 skipped (real Docker), 92 % coverage; ruff, mypy --strict (34 files),
 lint-imports (3 kept). Manual smoke: `quantlab init` + `quantlab serve` + curl — health 200, no/bad token 401, valid token
 200, foreign Host 400, token absent from all logs.
-Result: PASS · Regression status: PASS
+Result: PASS — CI #21/#22 green on ubuntu + windows · Regression status: PASS
