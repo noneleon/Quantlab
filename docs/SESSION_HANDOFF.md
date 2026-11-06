@@ -10,7 +10,7 @@
   for dataset runs (DEC-0016).
 
 ## Tests (actually executed)
-`uv run pytest` → 263 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI for CHANGE-0010: see
+`uv run pytest` → 263 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI runs #29 (push) and #30 (PR) green on ubuntu + windows; see
 latest run on the PR.
 
 ## Critical honesty note

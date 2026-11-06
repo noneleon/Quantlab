@@ -174,4 +174,4 @@ warning for non-real data), `tests/fixtures/fake_docker.py` (records dataset mou
 Tests: `uv run pytest` → 263 passed, 1 skipped; ruff, mypy --strict (47 files), lint-imports clean. Golden tests: LEAN
 sample lines (daily, hour, minute SPY) → canonical frame → export reproduces LEAN's bytes exactly. Manual CLI smoke:
 `data lean-export` writes the expected tree and reuses/verifies it on the second call.
-Result: PASS · Regression status: PASS (one existing test updated for the intended mount change)
+Result: PASS — CI #29/#30 green on ubuntu + windows · Regression status: PASS (one existing test updated for the intended mount change)
