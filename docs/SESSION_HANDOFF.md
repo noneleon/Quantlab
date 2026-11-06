@@ -11,7 +11,7 @@
 
 ## Tests (actually executed)
 `uv run pytest --cov` → 127 passed, 1 skipped (real Docker e2e), 96 % coverage (Linux, Py 3.11.15).
-ruff, mypy --strict, lint-imports clean. CI result for CHANGE-0006: see latest run on the PR.
+ruff, mypy --strict, lint-imports clean. CI runs #15 (push) and #16 (PR) green on ubuntu + windows.
 
 ## Critical honesty note
 LEAN has **never actually run** under QuantLab (no Docker daemon in the dev container). ENG-002/006 are

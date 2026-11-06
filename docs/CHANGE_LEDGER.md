@@ -100,4 +100,4 @@ read-only; docker invoked without shell via configurable command; fake docker ex
 any OS; synthetic fixture clearly labelled.
 Tests: `uv run pytest --cov` → 127 passed, 1 skipped (real-Docker e2e: no daemon/image here), coverage 96 %;
 ruff, mypy --strict (18 files), lint-imports (2 kept; verified both break when core imports engine) clean.
-Result: PASS · Regression status: PASS (all earlier tests pass)
+Result: PASS — CI #15/#16 green on ubuntu + windows · Regression status: PASS (all earlier tests pass)
