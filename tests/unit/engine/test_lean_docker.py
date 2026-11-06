@@ -7,6 +7,7 @@ import pytest
 from quantlab.core.config import load_settings
 from quantlab.engine import create_engine_adapter
 from quantlab.engine.base import AlgorithmSpec, BacktestSpec, EngineAdapter, EngineError, RunState
+from quantlab.engine.lean.config import DATASET_ENTRYPOINT_SCRIPT
 from quantlab.engine.lean.docker import LeanDockerAdapter, build_run_argv, run_layout
 
 IMAGE = "quantconnect/lean@sha256:" + "a" * 64
@@ -54,11 +55,14 @@ def test_argv_mounts_readonly_and_no_network(tmp_path, strategy):
     argv = build_run_argv(spec, handle, IMAGE)
     assert argv[:3] == ["docker", "run", "--rm"]
     assert argv[argv.index("--network") + 1] == "none"
-    assert argv[-1] == IMAGE
+    # dataset runs: export mounted read-only, overlaid inside the container by the entrypoint script
+    assert argv[-4:-1] == ["sh", IMAGE, "-c"] and argv[argv.index("--entrypoint") + 1] == "sh"
+    assert argv[-1] == DATASET_ENTRYPOINT_SCRIPT
     mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
     by_target = {dict(p.split("=", 1) for p in m.split(",") if "=" in p)["target"]: m for m in mounts}
     assert by_target["/LeanCLI"].endswith(",readonly")
-    assert by_target["/Lean/Data"].endswith(",readonly")
+    assert by_target["/QuantLab/dataset"].endswith(",readonly")
+    assert "/Lean/Data" not in by_target  # never hide LEAN's databases
     assert by_target["/Lean/Launcher/bin/Debug/config.json"].endswith(",readonly")
     assert not by_target["/Results"].endswith(",readonly")
     assert handle.container_name == "quantlab-01hrun"
@@ -68,6 +72,7 @@ def test_argv_without_data_dir_uses_bundled_sample_data(tmp_path, strategy):
     spec = make_spec(tmp_path, strategy)
     argv = build_run_argv(spec, run_layout(spec), IMAGE)
     assert not any("target=/Lean/Data" in a for a in argv)
+    assert argv[-1] == IMAGE and "--entrypoint" not in argv  # image entrypoint, bundled sample data
 
 
 def test_mount_paths_with_commas_rejected(tmp_path):
@@ -184,3 +189,43 @@ def test_factory_from_settings():
     )
     assert isinstance(adapter, LeanDockerAdapter) and adapter.docker_command == ("podman",)
     assert adapter.default_timeout_s == 3600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell script; runs inside the Linux container")
+def test_dataset_entrypoint_script_removes_all_sample_prices_and_overlays(tmp_path):
+    """Execute the real container script against a fake /Lean/Data tree (paths rewritten into tmp)."""
+    import shutil
+    import subprocess
+
+    if shutil.which("sh") is None:
+        pytest.skip("no sh")
+    data, dataset = tmp_path / "Lean" / "Data", tmp_path / "QuantLab" / "dataset"
+    for rel in [
+        "equity/usa/daily/spy.zip",
+        "equity/usa/minute/spy/20131007_trade.zip",
+        "equity/usa/map_files/spy.csv",
+        "equity/usa/factor_files/spy.csv",
+        "forex/oanda/minute/eurusd/x.zip",
+        "crypto/coinbase/daily/btc.zip",
+        "market-hours/market-hours-database.json",
+        "symbol-properties/symbol-properties-database.csv",
+    ]:
+        (data / rel).parent.mkdir(parents=True, exist_ok=True)
+        (data / rel).write_text("sample")
+    for rel in ["equity/usa/daily/aapl.zip", "equity/usa/map_files/aapl.csv", "quantlab-lean-export.json"]:
+        (dataset / rel).parent.mkdir(parents=True, exist_ok=True)
+        (dataset / rel).write_text("dataset")
+    script = (
+        DATASET_ENTRYPOINT_SCRIPT.replace("/Lean/Data", str(data))
+        .replace("/QuantLab/dataset", str(dataset))
+        .replace("exec dotnet QuantConnect.Lean.Launcher.dll", "echo launched")
+    )
+    out = subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "launched"
+    remaining = sorted(p.relative_to(data).as_posix() for p in data.rglob("*") if p.is_file())
+    assert remaining == [
+        "equity/usa/daily/aapl.zip",
+        "equity/usa/map_files/aapl.csv",
+        "market-hours/market-hours-database.json",
+        "symbol-properties/symbol-properties-database.csv",
+    ]

@@ -51,6 +51,10 @@ elif args[:1] == ["run"]:
     (STATE / f"{name}.pid").write_text(str(os.getpid()))
     m = mounts(args)
     config = json.loads(m["/Lean/Launcher/bin/Debug/config.json"].read_text())
+    if "/QuantLab/dataset" in m:  # record what a dataset run would see (tests assert on it)
+        root = m["/QuantLab/dataset"]
+        listing = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+        (STATE / f"{config['algorithm-id']}-dataset.json").write_text(json.dumps(listing))
     print(
         f"TRACE:: Engine.Main(): LEAN ALGORITHMIC TRADING ENGINE (fake) algorithm-id={config['algorithm-id']}"
     )

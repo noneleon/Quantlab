@@ -3,7 +3,8 @@
 Runs the official LEAN image, pinned by digest (DEC-0004), with:
 
 * the strategy directory mounted read-only at ``/LeanCLI`` (Lean CLI layout),
-* the dataset export mounted read-only at ``/Lean/Data`` (or the image's bundled sample data),
+* a dataset export mounted read-only at ``/QuantLab/dataset`` and overlaid onto ``/Lean/Data`` inside the
+  container after all bundled sample price data is removed (or, without a dataset, the sample data as is),
 * per-run ``/Results`` and ``/Storage`` folders under the run's work dir,
 * the generated ``config.json`` mounted read-only over the launcher's default,
 * networking disabled by default — a backtest must not depend on, or leak to, the network.
@@ -34,9 +35,10 @@ from quantlab.engine.base import (
 from quantlab.engine.lean.config import (
     CONTAINER_ALGORITHM,
     CONTAINER_CONFIG,
-    CONTAINER_DATA,
+    CONTAINER_DATASET,
     CONTAINER_RESULTS,
     CONTAINER_STORAGE,
+    DATASET_ENTRYPOINT_SCRIPT,
     build_backtest_config,
     write_config,
 )
@@ -105,9 +107,11 @@ def build_run_argv(
         *_mount(handle.work_dir / "storage", CONTAINER_STORAGE, readonly=False),
         *_mount(handle.config_path, CONTAINER_CONFIG, readonly=True),
     ]
-    if spec.data_dir is not None:
-        argv += _mount(spec.data_dir, CONTAINER_DATA, readonly=True)
-    argv.append(image)
+    if spec.data_dir is None:
+        argv.append(image)  # image entrypoint; LEAN's bundled sample data (provenance "sample")
+    else:
+        argv += _mount(spec.data_dir, CONTAINER_DATASET, readonly=True)
+        argv += ["--entrypoint", "sh", image, "-c", DATASET_ENTRYPOINT_SCRIPT]
     return argv
 
 

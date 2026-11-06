@@ -120,8 +120,9 @@ Optimization trials are ordinary backtests submitted by the optimizer through Ba
 engine call). Live/paper execution is deliberately **not** an engine method: it arrives in Phase 5 through the
 OMS + risk gate (DEC-0007).
 
-Docker run layout (ENG-002): strategy dir → `/LeanCLI` (ro), dataset export → `/Lean/Data` (ro; omitted = image's
-bundled sample data), `runs/<id>/results` → `/Results`, `runs/<id>/storage` → `/Storage`, generated config →
+Docker run layout (ENG-002): strategy dir → `/LeanCLI` (ro); dataset export → `/QuantLab/dataset` (ro), overlaid onto
+`/Lean/Data` inside the container after **all** bundled sample price data is deleted (DEC-0016; omitted = image's bundled
+sample data, provenance `sample`), `runs/<id>/results` → `/Results`, `runs/<id>/storage` → `/Storage`, generated config →
 `/Lean/Launcher/bin/Debug/config.json` (ro), `--network none` by default, image pinned by digest.
 LEAN adapter responsibilities: generate LEAN `config.json` (algorithm location/language, data folder, parameters, brokerage/fee/slippage models are set in algorithm code or via QuantLab helper library), launch worker, stream logs, collect `*-summary.json`/`*.json` result files, record engine version.
 QuantLab ships a small **`quantlab_lean` helper library** (Python + C#) that strategies may import to apply platform-configured fee/slippage/brokerage models and to emit structured telemetry — so models are configured once and are not re-implemented.

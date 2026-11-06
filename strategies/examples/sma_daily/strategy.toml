@@ -1,0 +1,11 @@
+[strategy]
+entry_file = "main.py"
+language = "python"
+description = "Example: daily SMA crossover on one symbol from a QuantLab dataset (raw prices)."
+
+[parameters]
+symbol = "SPY"
+start = "2020-01-02"
+end = "2024-12-31"
+fast = 20
+slow = 50

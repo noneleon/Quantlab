@@ -15,6 +15,7 @@ from quantlab.bootstrap import AppContext, BootstrapError
 from quantlab.core.config import ConfigError
 from quantlab.data.calendars import CalendarError
 from quantlab.data.catalog import DataError
+from quantlab.data.lean_export import LeanExportError
 from quantlab.data.providers.base import ProviderError
 from quantlab.data.storage import StorageError
 from quantlab.engine import EngineError
@@ -38,6 +39,7 @@ EXPECTED: tuple[type[Exception], ...] = (
     ProviderError,
     CalendarError,
     StorageError,
+    LeanExportError,
 )
 
 

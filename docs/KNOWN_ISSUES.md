@@ -29,3 +29,6 @@
 | KI-0025 | Medium | data | Gap detection only for daily bars; intraday gaps (missing minutes within sessions) are not checked. | OPEN |
 | KI-0026 | Medium | data | QuantLab calendars (exchange_calendars) are not reconciled with LEAN's market-hours database; forex `weekdays` calendar is an approximation. | OPEN — compare when LEAN export (DATA-009) lands |
 | KI-0027 | Low | data | pandas 3.1 deprecation warnings raised inside exchange_calendars and duckdb `.df()`; harmless now, may break on pandas 4. | OPEN — track upstream |
+| KI-0028 | High | data/engine | A real LEAN run has never read a QuantLab export. Unverified: 2-column map files, neutral factor files, benchmark (LEAN's default SPY benchmark has no data unless SPY is in the dataset — strategies should `set_benchmark` to a dataset symbol), `--network none`. | OPEN — first Docker run with `--dataset` |
+| KI-0029 | Medium | data | Hour bars: LEAN labels the first regular-session hour bar 09:00 (covering 09:30–10:00); vendor hour bars stamped 09:30 export as 09:30 and may not align with LEAN consolidators. | OPEN — verify with real LEAN; consider re-bucketing on import |
+| KI-0030 | Low | engine | Dataset runs copy the whole export into the container on every run (cheap for daily, slow for large minute datasets). | OPEN |

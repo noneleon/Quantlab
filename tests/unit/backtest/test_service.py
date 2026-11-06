@@ -201,3 +201,75 @@ def test_engine_error_from_start_is_recorded(env):
     service = BacktestService(env["settings"], env["sessions"], BrokenStart(IMAGE, docker_command=FAKE))
     run = service.run("sma")
     assert run.status == "engine_error" and run.error == "boom"
+
+
+@pytest.fixture
+def dataset(env, tmp_path):
+    """A synthetic daily SPY dataset in the catalog (provenance=synthetic)."""
+    from quantlab.data.catalog import DataCatalog
+    from quantlab.data.providers.base import BarRequest, LicenseInfo
+    from quantlab.data.providers.csv_file import CsvFileProvider
+    from quantlab.data.schema import AssetClass, PriceAdjustment, Provenance, Resolution
+    from tests.unit.data.conftest import csv_text, daily_rows
+
+    catalog = DataCatalog(env["settings"].data_root)
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    with env["sessions"]() as s:
+        catalog.create_dataset(
+            s,
+            "spy-daily",
+            asset_class=AssetClass.EQUITY,
+            market="usa",
+            resolution=Resolution.DAILY,
+            provenance=Provenance.SYNTHETIC,
+            price_adjustment=PriceAdjustment.RAW,
+            source="fixture",
+            license=LicenseInfo("t", False),
+        )
+        p = CsvFileProvider(csv, calendar="XNYS", symbol="SPY")
+        version = catalog.import_bars(
+            s, "spy-daily", p, p.fetch_bars(BarRequest((), Resolution.DAILY))
+        ).version
+        s.commit()
+        return {"name": "spy-daily", "hash": version.content_hash, "catalog": catalog}
+
+
+def test_run_on_dataset_records_provenance_and_mounts_export(env, dataset, tmp_path):
+    run = env["service"]().run("sma", dataset="spy-daily")
+    assert run.status == "succeeded"
+    assert run.data_provenance == "synthetic" and run.data_version == dataset["hash"]
+    data = run.json("manifest")["data"]
+    assert (
+        data["dataset"]["name"] == "spy-daily"
+        and data["export_hash"]
+        and "not a performance claim" in data["note"]
+    )
+    assert run.json("manifest")["inputs"]["data_version"] == dataset["hash"]
+    seen = json.loads((tmp_path / "fake" / f"{run.id}-dataset.json").read_text())
+    assert "equity/usa/daily/spy.zip" in seen and "equity/usa/factor_files/spy.csv" in seen
+    sample_run = env["service"]().run("sma")
+    assert sample_run.inputs_hash != run.inputs_hash and sample_run.data_provenance == "sample"
+
+
+def test_dataset_run_reruns_reproducibly_and_detects_tampered_export(env, dataset):
+    service = env["service"]()
+    original = service.run("sma", dataset="spy-daily", dataset_version=dataset["hash"][:12])
+    rerun, report = service.rerun(original.id)
+    assert report.reproduced and rerun.data_version == original.data_version
+    export_dir = env["settings"].data_root / "lean" / "spy-daily" / dataset["hash"][:20]
+    (export_dir / "equity" / "usa" / "daily" / "spy.zip").write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="modified"):
+        service.rerun(original.id)
+
+
+def test_dataset_argument_errors(env, dataset):
+    service = env["service"]()
+    with pytest.raises(BacktestError, match="without dataset"):
+        service.run("sma", dataset_version="abc")
+    from quantlab.data.catalog import DataError
+
+    with pytest.raises(DataError, match="unknown dataset"):
+        service.run("sma", dataset="nope")
+    runs_dir = env["settings"].layout.runs_dir
+    assert not runs_dir.exists() or not any(runs_dir.iterdir())

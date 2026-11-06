@@ -86,3 +86,31 @@ def test_unknown_dataset_and_bad_options(home, tmp_path):
     assert ql("data", "import", "spy", tmp_path / "missing.csv", "--symbol", "SPY").exit_code == 1
     assert ql("data", "import", "spy", tmp_path / "x.csv", "--on-conflict", "merge").exit_code == 1
     assert ql("data", "export", "spy", tmp_path / "o", "--format", "xlsx").exit_code == 1
+
+
+def test_backtest_on_dataset_via_cli(home, tmp_path, monkeypatch):
+    from tests.fixtures.m1 import EXAMPLE_STRATEGY, configure_fake_engine
+
+    monkeypatch.setenv("FAKE_DOCKER_STATE", str(tmp_path / "fake"))
+    configure_fake_engine(home)
+    ql(*CREATE)
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    ql("data", "import", "spy", csv, "--symbol", "SPY")
+    assert "export" in ql("data", "lean-export", "spy").output
+    ql("strategy", "add", "sma", EXAMPLE_STRATEGY)
+    r = ql("backtest", "run", "sma", "--dataset", "spy", "--json")
+    assert r.exit_code == 0, r.output
+    summary = json.loads(r.stdout)
+    assert summary["data_provenance"] == "synthetic" and summary["data_version"]
+    shown = ql("backtest", "show", summary["id"]).output
+    assert "spy @" in shown and "not a performance claim" in shown
+
+
+def test_example_daily_strategy_manifest():
+    from pathlib import Path
+
+    from quantlab.strategies.registry import load_manifest
+
+    m = load_manifest(Path(__file__).parents[3] / "strategies" / "examples" / "sma_daily")
+    assert m.parameters["symbol"] == "SPY" and m.parameters["slow"] == "50"

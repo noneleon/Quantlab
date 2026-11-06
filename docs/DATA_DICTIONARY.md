@@ -42,6 +42,13 @@ Never deleted (trigger).
 | path | version directory |
 Append-only (triggers).
 
+### LEAN export (IMPLEMENTED, DATA-009)
+`QUANTLAB_HOME/data/lean/<dataset>/<version_hash[:20]>/` (immutable, verified on reuse):
+`equity/<market>/{daily,hour}/<sym>.zip` (→ `<sym>.csv`, `yyyyMMdd HH:mm` bar start, exchange time),
+`equity/<market>/{minute,second}/<sym>/<yyyyMMdd>_trade.zip` (→ `<yyyyMMdd>_<sym>_<res>_trade.csv`, ms since midnight),
+prices × 10 000 as integers, integer volume; `map_files/<sym>.csv` and neutral `factor_files/<sym>.csv`;
+`quantlab-lean-export.json` (dataset identity, version, per-file sha256, export hash).
+
 ### corporate_actions — PLANNED (DATA-008)
 | Column | Type | Description |
 |---|---|---|

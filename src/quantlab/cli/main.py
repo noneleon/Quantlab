@@ -53,6 +53,7 @@ def _run_summary(run: BacktestRun) -> dict[str, Any]:
         "status": run.status,
         "created_at": run.created_at.isoformat(),
         "data_provenance": run.data_provenance,
+        "data_version": run.data_version,
         "total_return": metrics.get("total_return"),
         "sharpe": metrics.get("sharpe"),
         "max_drawdown": metrics.get("max_drawdown"),
@@ -64,12 +65,15 @@ def _print_run(run: BacktestRun) -> None:
     metrics = run.json("metrics") or {}
     typer.echo(f"run        {run.id}")
     typer.echo(f"status     {run.status}" + (f"  (engine: {run.engine_status})" if run.engine_status else ""))
-    if run.data_provenance == "sample":
-        typer.secho(
-            "data       sample (engine-bundled sample data — not a performance claim)", fg=typer.colors.YELLOW
-        )
+    data = (run.json("manifest") or {}).get("data", {})
+    dataset = (data.get("dataset") or {}).get("name")
+    label = f"{dataset} @ {run.data_version[:20]}" if dataset and run.data_version else "engine sample data"
+    if run.data_provenance in ("real_historical", "live_recorded"):
+        typer.echo(f"data       {label} ({run.data_provenance})")
     else:
-        typer.echo(f"data       {run.data_provenance} {run.data_version or ''}")
+        typer.secho(
+            f"data       {label} ({run.data_provenance}: not a performance claim)", fg=typer.colors.YELLOW
+        )
     typer.echo(f"parameters {json.dumps(run.json('parameters'), sort_keys=True)}")
     if run.error:
         typer.secho(f"error      {run.error}", fg=typer.colors.RED)
@@ -239,13 +243,21 @@ def backtest_run(
         list[str] | None, typer.Option("--param", "-p", help="Parameter override key=value.")
     ] = None,
     timeout: Annotated[float | None, typer.Option(help="Seconds before the run is stopped.")] = None,
+    dataset: Annotated[
+        str | None, typer.Option(help="Run on this dataset (default: engine sample data).")
+    ] = None,
+    dataset_version: Annotated[
+        str | None, typer.Option(help="Dataset version hash prefix (default: latest).")
+    ] = None,
     home: HomeOpt = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Run a backtest of STRATEGY now (blocks until it finishes)."""
     params = _parse_params(param)
     with context(home) as ctx:
-        run = ctx.backtests().run(strategy, params, timeout_s=timeout)
+        run = ctx.backtests().run(
+            strategy, params, timeout_s=timeout, dataset=dataset, dataset_version=dataset_version
+        )
         if as_json:
             emit_json(_run_summary(run))
         else:

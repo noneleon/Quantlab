@@ -26,6 +26,7 @@ from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.db import Base, UTCDateTime
 from quantlab.core.ids import new_id
 from quantlab.data.calendars import check_calendar, default_calendar
+from quantlab.data.lean_export import export_version, verify_export
 from quantlab.data.providers.base import DataProvider, LicenseInfo, RawBars
 from quantlab.data.schema import (
     BAR_COLUMNS,
@@ -382,6 +383,24 @@ class DataCatalog:
         ]
         frame = read_bars(paths, pd.Timestamp(start) if start else None, pd.Timestamp(end) if end else None)
         return frame, resolved
+
+    def lean_export(
+        self, session: Session, dataset_name: str, version: str | None = None
+    ) -> tuple[Path, str, Dataset, DatasetVersion]:
+        """LEAN-format export of a version (created once, then re-verified).
+
+        Returns (export path, export hash, dataset, version).
+        """
+        dataset = self.get(session, dataset_name)
+        resolved = self.resolve_version(session, dataset, version)
+        destination = self.root / "lean" / dataset.name / resolved.content_hash[:20]
+        if destination.exists():
+            return destination, verify_export(destination), dataset, resolved
+        frame, _ = self.read(session, dataset_name, version=resolved.id)
+        export_hash = export_version(
+            frame, destination, dataset=dataset.identity(), version_hash=resolved.content_hash
+        )
+        return destination, export_hash, dataset, resolved
 
     def export(
         self,

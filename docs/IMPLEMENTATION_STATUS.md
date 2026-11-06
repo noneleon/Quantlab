@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0009)
+Last updated: 2026-11-06 (CHANGE-0010)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -61,10 +61,10 @@ Last updated: 2026-11-06 (CHANGE-0009)
 | DATA-003 | Parquet storage + DuckDB catalog | data | C | 2 | `data/storage.py`, `data/catalog.py`, migration 0003 | CORE-005 | `tests/unit/data/test_catalog.py` | TESTED | Catalog of record in SQLite; DuckDB for reads |
 | DATA-004 | Dataset versioning (content hash, immutable versions) | data | C | 2 | `data/storage.py`, `data/catalog.py` | DATA-003 | `test_catalog.py` | TESTED | Copy-on-write full rewrite per import (KI-0024) |
 | DATA-005 | Validation: duplicates, gaps vs calendar, OHLC sanity, outliers, staleness | data | C | 2 | `src/quantlab/data/validation.py` | DATA-003, DATA-007 | `tests/unit/data/test_validation.py` | TESTED | Gap detection daily-only (intraday gaps not checked, KI-0025) |
-| DATA-006 | Provenance labels (real/live/synthetic/sample) + completeness report | data | C | 2 | `data/schema.py`, `data/catalog.py` | DATA-004 | `test_catalog.py`, `test_cli_data.py` | TESTED | Provenance is required at dataset creation; not yet propagated into backtest manifests (DATA-009/2b) |
+| DATA-006 | Provenance labels (real/live/synthetic/sample) + completeness report | data | C | 2 | `data/schema.py`, `data/catalog.py`, `backtest/service.py` (DataBinding) | DATA-004 | `test_catalog.py`, `test_cli_data.py`, `tests/unit/backtest/test_service.py` | TESTED | Provenance required at dataset creation and propagated into backtest rows/manifests/metrics.json and CLI output |
 | DATA-007 | Trading calendars & sessions | data | C | 2 | `src/quantlab/data/calendars.py` | — | `tests/unit/data/test_calendars.py` | TESTED | exchange_calendars + `24/7`/`weekdays`/`none`; forex `weekdays` is approximate; not reconciled with LEAN MHDB (KI-0026) |
 | DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | — | DATA-003 | — | PLANNED | Accurate factors require a data source that provides them |
-| DATA-009 | LEAN-format exporter (zipped CSV per version) | data | LI | 2 | — | DATA-004 | — | PLANNED | |
+| DATA-009 | LEAN-format exporter (zipped CSV per version) | data | LI | 2 | `src/quantlab/data/lean_export.py`, `DataCatalog.lean_export`, `quantlab data lean-export` | DATA-004 | `tests/unit/data/test_lean_export.py` (golden round-trip vs LEAN sample bytes) | TESTED | Equities only (daily/hour/minute/second trade bars); neutral map/factor files; **not yet read by a real LEAN run** (KI-0028) |
 | DATA-010 | User-defined custom datasets | data | C | 2 | — | DATA-001 | — | PLANNED | |
 | DATA-011 | Free/low-cost provider adapters (e.g. Stooq/Tiingo/Alpha Vantage/Binance public) | data | X | 2 | — | DATA-001 | — | PLANNED | ToS & rate limits per provider |
 | DATA-012 | IBKR historical data adapter | data | X | 5 | — | BRK-002 | — | PLANNED | Needs IBKR market data subscriptions; pacing limits |
@@ -97,7 +97,7 @@ Last updated: 2026-11-06 (CHANGE-0009)
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
 | BT-001 | Backtest submission service | backtest | LI | 1 | `src/quantlab/backtest/service.py` | ENG-001, STR-002, AN-001 | `tests/unit/backtest/test_service.py` (fake docker) | TESTED | Synchronous; engine path tested only with fake docker; sample data only |
-| BT-002 | Reproducibility manifest (code/data/engine/config/seeds) | backtest | C | 1 | `service.py` (`manifest.json`, `inputs_hash`) | BT-001, ENG-006 | `test_service.py` | TESTED | Data version always `sample` until DATA-004 |
+| BT-002 | Reproducibility manifest (code/data/engine/config/seeds) | backtest | C | 1 | `service.py` (`manifest.json`, `inputs_hash`, `DataBinding`) | BT-001, ENG-006, DATA-009 | `test_service.py` | TESTED | Data = sample or pinned dataset version + LEAN export hash; rerun refuses changed exports |
 | BT-003 | Immutable backtest history & re-run diff | backtest | C | 1 | `backtest/models.py`, migration 0002, `BacktestService.rerun/compare` | BT-002 | `test_service.py` | TESTED | Reproducibility proven only against the deterministic fake engine; real LEAN determinism unverified |
 | BT-004 | Event-driven simulation, multi-asset/strategy/timeframe | backtest | L | 1 | — | ENG-007 | — | PLANNED | |
 | BT-005 | Fee, slippage, fill, brokerage, margin, buying-power models | backtest | L | 3 | — | ENG-009 | — | PLANNED | Configured via helper library |

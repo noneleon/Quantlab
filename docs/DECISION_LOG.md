@@ -85,3 +85,13 @@ copy-on-write merge producing a new immutable version (old versions remain reada
 (4) validation errors reject + quarantine the whole batch, never partial imports; (5) conflicting revisions of existing
 rows are rejected unless the user chooses `replace`, which is recorded on the version; (6) SQLite is the catalog of
 record, DuckDB the query engine. Trade-off: full rewrite per import is costly for large intraday datasets (KI-0024).
+
+### DEC-0016 — Dataset runs: LEAN export overlaid inside the container; sample prices removed; RAW normalization
+State: ACCEPTED (implementation of DEC-0005/BT-002; owner may revisit) · 2026-11-06
+Context: LEAN reads one data folder that must also contain its databases (market hours, symbol properties) shipped in
+the image. Mounting an export over `/Lean/Data` would hide them; adding files next to the sample data would let a run
+silently read sample prices for symbols/resolutions the dataset lacks.
+Decision: mount the export read-only at `/QuantLab/dataset`; the container entrypoint script deletes every price folder
+(tick/second/minute/hour/daily) and all map/factor files under `/Lean/Data/*/*/`, copies the export in, then starts LEAN.
+Exports carry neutral map/factor files; strategies use `DataNormalizationMode.RAW` until corporate actions (DATA-008).
+Consequence: per-run copy cost (KI-0030); behaviour verified with a real shell against a fake tree, not yet with LEAN.

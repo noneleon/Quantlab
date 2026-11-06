@@ -18,6 +18,21 @@ from quantlab.engine.base import AlgorithmLanguage, BacktestSpec, EngineError
 LEAN_ROOT = "/Lean/Launcher/bin/Debug"  # image WORKDIR; config.json is read from here
 CONTAINER_CONFIG = f"{LEAN_ROOT}/config.json"
 CONTAINER_DATA = "/Lean/Data"  # also where the image bundles LEAN's sample data
+CONTAINER_DATASET = "/QuantLab/dataset"  # read-only mount of a QuantLab LEAN-format export
+PRICE_RESOLUTIONS = ("tick", "second", "minute", "hour", "daily")
+
+# Run inside the container when a dataset is supplied: remove *all* bundled sample price data (so a run can
+# never silently read sample prices), keep LEAN's databases (market hours, symbol properties, ...), overlay
+# the dataset, then start LEAN. The container is ephemeral (--rm); nothing on the host is modified.
+DATASET_ENTRYPOINT_SCRIPT = (
+    "set -eu; "
+    "for market_dir in " + CONTAINER_DATA + "/*/*/; do "
+    "for res in " + " ".join(PRICE_RESOLUTIONS) + '; do rm -rf "${market_dir}${res}"; done; '
+    'rm -rf "${market_dir}map_files" "${market_dir}factor_files"; done; '
+    "cp -R " + CONTAINER_DATASET + "/. " + CONTAINER_DATA + "/; "
+    "rm -f " + CONTAINER_DATA + "/quantlab-lean-export.json; "
+    "exec dotnet QuantConnect.Lean.Launcher.dll"
+)
 CONTAINER_RESULTS = "/Results"
 CONTAINER_STORAGE = "/Storage"
 CONTAINER_ALGORITHM = "/LeanCLI"  # same mount point as the Lean CLI uses for Python projects

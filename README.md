@@ -36,7 +36,11 @@ uv run quantlab data import spy-daily ./SPY.csv --symbol SPY
 uv run quantlab data show spy-daily
 ```
 Imports are validated (bad batches are quarantined, never partially imported) and every import creates an immutable,
-content-hashed version. Backtests on these datasets arrive in Phase 2b.
+content-hashed version. Backtest on a pinned dataset version:
+```
+uv run quantlab strategy add sma-daily strategies/examples/sma_daily
+uv run quantlab backtest run sma-daily --dataset spy-daily
+```
 
 ## Check your machine
 ```

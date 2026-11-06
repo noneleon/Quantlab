@@ -6,9 +6,10 @@ Flow of ``run``:
     -> engine start/wait/collect -> QuantLab metrics + cross-check vs engine statistics
     -> write manifest.json / metrics.json -> terminal, immutable row.
 
-Runs are synchronous for now (a background job runner is CORE-007). Only the engine's bundled
-**sample** data is supported until the data catalog (Phase 2) exists; such runs are labelled
-``data_provenance = "sample"`` and must not be presented as real performance.
+Runs are synchronous for now (a background job runner is CORE-007). Data is either the engine's bundled
+**sample** data (``data_provenance = "sample"``) or a pinned version of a QuantLab dataset, exported to the
+engine format and recorded (dataset identity, version hash, export hash, provenance) in the manifest. Only
+``real_historical`` / ``live_recorded`` provenance may ever be presented as real performance.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.config import Settings
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
+from quantlab.data.catalog import DataCatalog
+from quantlab.data.schema import Provenance
 from quantlab.engine.base import (
     AlgorithmLanguage,
     AlgorithmSpec,
@@ -50,6 +53,38 @@ SAMPLE_DATA_NOTE = "engine-bundled sample data; not suitable for performance cla
 
 class BacktestError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class DataBinding:
+    """Which market data a run uses."""
+
+    provenance: str
+    data_version: str | None = None  # dataset version content hash
+    dataset: dict[str, Any] | None = None  # dataset identity
+    export_path: Path | None = None
+    export_hash: str | None = None
+
+    @property
+    def note(self) -> str:
+        if self.provenance == "sample":
+            return SAMPLE_DATA_NOTE
+        if not Provenance(self.provenance).is_real:
+            return f"{self.provenance} data; not a performance claim"
+        return "real historical data (see dataset source and licence)"
+
+    def manifest(self) -> dict[str, Any]:
+        return {
+            "provenance": self.provenance,
+            "data_version": self.data_version,
+            "dataset": self.dataset,
+            "export_hash": self.export_hash,
+            "note": self.note,
+            "normalization": None if self.data_version is None else "RAW (neutral factor files)",
+        }
+
+
+SAMPLE = DataBinding("sample")
 
 
 def _canonical(obj: Any) -> str:
@@ -107,12 +142,14 @@ class BacktestService:
         engine: EngineAdapter | None,
         registry: StrategyRegistry | None = None,
         clock: Clock | None = None,
+        catalog: DataCatalog | None = None,
     ) -> None:
         self._settings = settings
         self._sessions = session_factory
         self._engine_adapter = engine  # None: read-only service (queries only)
         self._clock = clock or SystemClock()
         self._registry = registry or StrategyRegistry(self._clock)
+        self._catalog = catalog or DataCatalog(settings.data_root)
 
     # ---- queries -------------------------------------------------------------------------------
     def get(self, run_id: str) -> BacktestRun:
@@ -132,8 +169,15 @@ class BacktestService:
 
     # ---- commands ------------------------------------------------------------------------------
     def run(
-        self, strategy_name: str, parameters: dict[str, Any] | None = None, timeout_s: float | None = None
+        self,
+        strategy_name: str,
+        parameters: dict[str, Any] | None = None,
+        timeout_s: float | None = None,
+        *,
+        dataset: str | None = None,
+        dataset_version: str | None = None,
     ) -> BacktestRun:
+        """Run a backtest on the engine's sample data, or on a pinned version of ``dataset``."""
         self._engine  # noqa: B018 - fail fast (before snapshotting) when no engine is configured
         run_id = new_id()
         with self._sessions() as session:
@@ -141,6 +185,7 @@ class BacktestService:
             if strategy.archived:
                 raise BacktestError(f"strategy {strategy_name!r} is archived")
             resolved = resolve_parameters(load_manifest(strategy.directory), parameters)
+            binding = self._bind_data(session, dataset, dataset_version)
             git = git_info(strategy.directory)
             run_dir = self._new_run_dir(run_id)  # only after validation, so failed requests leave nothing
             snapshot = copy_snapshot(strategy.directory, run_dir / "algorithm")
@@ -149,7 +194,7 @@ class BacktestService:
             version_id, tree_hash = version.id, version.tree_hash
             git_meta = {"commit": version.git_commit, "dirty": version.git_dirty}
         return self._execute(
-            run_id, run_dir, strategy, version_id, tree_hash, git_meta, resolved, None, timeout_s
+            run_id, run_dir, strategy, version_id, tree_hash, git_meta, resolved, None, timeout_s, binding
         )
 
     def rerun(self, run_id: str, timeout_s: float | None = None) -> tuple[BacktestRun, ReproducibilityReport]:
@@ -162,6 +207,7 @@ class BacktestService:
                 "cannot reproduce: the engine differs from the original run "
                 f"(original {manifest['engine']['identity']}, current {engine_identity(current)})"
             )
+        binding = self._rebind_data(manifest["data"])
         new_id_ = new_id()
         new_dir = self._new_run_dir(new_id_)
         snapshot = copy_snapshot(Path(original.run_dir) / "algorithm", new_dir / "algorithm")
@@ -183,6 +229,7 @@ class BacktestService:
             dict(manifest["parameters"]),
             run_id,
             timeout_s,
+            binding,
         )
         return rerun, self.compare(original, rerun)
 
@@ -223,6 +270,25 @@ class BacktestService:
             )
         return self._engine_adapter
 
+    def _bind_data(self, session: Session, dataset: str | None, version: str | None) -> DataBinding:
+        if dataset is None:
+            if version is not None:
+                raise BacktestError("dataset_version given without dataset")
+            return SAMPLE
+        path, export_hash, ds, resolved = self._catalog.lean_export(session, dataset, version)
+        return DataBinding(ds.provenance, resolved.content_hash, ds.identity(), path, export_hash)
+
+    def _rebind_data(self, recorded: dict[str, Any]) -> DataBinding:
+        if recorded.get("data_version") is None:
+            return SAMPLE
+        with self._sessions() as session:
+            binding = self._bind_data(session, recorded["dataset"]["name"], recorded["data_version"])
+        if binding.export_hash != recorded.get("export_hash") or binding.dataset != recorded.get("dataset"):
+            raise BacktestError(
+                "cannot reproduce: the dataset version's engine export no longer matches the original"
+            )
+        return binding
+
     def _probe_or_raise(self) -> EngineInfo:
         try:
             return self._engine.probe()
@@ -240,6 +306,7 @@ class BacktestService:
         parameters: dict[str, str],
         rerun_of: str | None,
         timeout_s: float | None,
+        data: DataBinding,
     ) -> BacktestRun:
         engine_error: str | None = None
         try:
@@ -252,8 +319,10 @@ class BacktestService:
             "entry_file": strategy.entry_file,
             "language": strategy.language,
             "parameters": parameters,
-            "data_provenance": "sample",
-            "data_version": None,
+            "data_provenance": data.provenance,
+            "data_version": data.data_version,
+            "dataset": data.dataset,
+            "data_export_hash": data.export_hash,
             "engine": engine_identity(info),
             "quantlab_version": quantlab.__version__,
         }
@@ -273,7 +342,7 @@ class BacktestService:
                 "language": strategy.language,
             },
             "parameters": parameters,
-            "data": {"provenance": "sample", "data_version": None, "note": SAMPLE_DATA_NOTE},
+            "data": data.manifest(),
             "engine": {"identity": engine_identity(info), "info": asdict(info)},
             "random_seed": None,  # LEAN backtests are deterministic for identical inputs
             "metrics_conventions": {
@@ -292,8 +361,8 @@ class BacktestService:
                 created_at=self._clock.now(),
                 finished_at=None if engine_error is None else self._clock.now(),
                 parameters=_canonical(parameters),
-                data_provenance="sample",
-                data_version=None,
+                data_provenance=data.provenance,
+                data_version=data.data_version,
                 engine_info=_canonical(asdict(info)),
                 inputs_hash=manifest["inputs_hash"],
                 error=engine_error,
@@ -307,7 +376,7 @@ class BacktestService:
             log.warning("backtest.engine_unavailable", run_id=run_id, error=engine_error)
             return self.get(run_id)
 
-        updates = self._run_engine(run_id, run_dir, strategy, parameters, timeout_s)
+        updates = self._run_engine(run_id, run_dir, strategy, parameters, timeout_s, data)
         with self._sessions() as session:
             finished = session.get(BacktestRun, run_id)
             if finished is None:
@@ -326,6 +395,7 @@ class BacktestService:
         strategy: Strategy,
         parameters: dict[str, str],
         timeout_s: float | None,
+        data: DataBinding,
     ) -> dict[str, Any]:
         spec = BacktestSpec(
             run_id=run_id,
@@ -334,7 +404,7 @@ class BacktestService:
             ),
             work_dir=run_dir / "engine",
             parameters=parameters,
-            data_dir=None,
+            data_dir=data.export_path,
         )
         try:
             handle = self._engine.start_backtest(spec)
@@ -375,8 +445,8 @@ class BacktestService:
                 {
                     "metrics": metrics.to_dict(),
                     "cross_checks": [c.to_dict() for c in checks],
-                    "data_provenance": "sample",
-                    "note": SAMPLE_DATA_NOTE,
+                    "data_provenance": data.provenance,
+                    "note": data.note,
                 },
             )
         return updates

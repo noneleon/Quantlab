@@ -156,3 +156,22 @@ pyarrow/exchange_calendars/duckdb treated as untyped), lint-imports (3 kept). Ma
 missing 2024-07-05 detected (completeness 0.8), early close mapped to 17:00 UTC, conflicting revision rejected and
 quarantined, head shows unchanged data. Remaining pandas deprecation warnings originate in exchange_calendars/duckdb.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0010 — Phase 2b: LEAN-format export; backtests on pinned dataset versions
+Date: 2026-11-06 · Modules: data, engine, backtest, cli · Feature IDs: DATA-009, DATA-006, BT-002, ENG-002
+Research (LEAN sources + bundled sample data, 2026-11-06): daily/hour/minute file layout and line formats, ×10 000 price
+scaling, map-file rows (exchange column optional, `MapFileRow.Parse`), factor-file rows and minimum-date rule
+(`CorporateFactorRow.Parse`: data before min date − 1 day is ignored).
+Files added: `src/quantlab/data/lean_export.py`, `tests/unit/data/test_lean_export.py`,
+`strategies/examples/sma_daily/{main.py,strategy.toml}`
+Files modified: `src/quantlab/data/catalog.py` (`lean_export`), `src/quantlab/engine/lean/config.py` (dataset mount point +
+entrypoint script), `src/quantlab/engine/lean/docker.py` (dataset overlay instead of replacing `/Lean/Data`),
+`src/quantlab/backtest/service.py` (`DataBinding`; `run(..., dataset=, dataset_version=)`; rerun re-binds and verifies the
+export hash), `src/quantlab/cli/{main,data,common}.py` (`--dataset/--dataset-version`, `data lean-export`, provenance
+warning for non-real data), `tests/fixtures/fake_docker.py` (records dataset mount contents),
+`tests/unit/engine/test_lean_docker.py` (new argv expectations + real `sh` execution of the entrypoint script),
+`tests/unit/backtest/test_service.py`, `tests/unit/cli/test_cli_data.py`, docs. Decision: DEC-0016.
+Tests: `uv run pytest` → 263 passed, 1 skipped; ruff, mypy --strict (47 files), lint-imports clean. Golden tests: LEAN
+sample lines (daily, hour, minute SPY) → canonical frame → export reproduces LEAN's bytes exactly. Manual CLI smoke:
+`data lean-export` writes the expected tree and reuses/verifies it on the second call.
+Result: PASS · Regression status: PASS (one existing test updated for the intended mount change)

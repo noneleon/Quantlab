@@ -219,6 +219,18 @@ def data_head(
         typer.echo(frame.head(n).to_string(index=False))
 
 
+@data_app.command("lean-export")
+def data_lean_export(
+    name: str,
+    version: Annotated[str | None, typer.Option(help="Version hash prefix (default latest).")] = None,
+    home: HomeOpt = None,
+) -> None:
+    """Create (once) and verify the LEAN-format export of a version; prints its location and hash."""
+    with context(home) as ctx, ctx.sessions() as session:
+        path, export_hash, _, resolved = ctx.data.lean_export(session, name, version)
+    typer.echo(f"version {resolved.content_hash[:20]}  export {export_hash[:20]}  {path}")
+
+
 @data_app.command("export")
 def data_export(
     name: str,
