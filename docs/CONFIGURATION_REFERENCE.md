@@ -14,7 +14,10 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `engine.default` | `lean` | EngineAdapter id |
 | `engine.lean.launcher` | `docker` | `docker` or `native` |
 | `engine.lean.image` | unset | must be `<repo>@sha256:<64 hex>`; tags rejected |
-| `engine.lean.native_path` | — | path to local LEAN Launcher build |
+| `engine.lean.native_path` | — | path to local LEAN Launcher build (launcher `native` not implemented yet, ENG-003) |
+| `engine.lean.docker_command` | `["docker"]` | command used to invoke Docker, run without a shell (e.g. `["podman"]`) |
+| `engine.lean.network` | `none` | `none` or `bridge`; backtests run without network by default |
+| `engine.lean.timeout_s` | `3600` | backtests running longer are stopped (`RunState.TIMED_OUT`) |
 | `data.root` | `{home}/data` | |
 | `db.url` note | | unset → SQLite file above |
 | `trading.mode` | `paper` | `live` is **rejected** by validation until LIVE-003 gates exist; even then config alone will not activate live |
@@ -44,3 +47,13 @@ launcher = "docker"
 level = "INFO"
 ```
 Environment override example: `QUANTLAB_SERVER__PORT=9000`.
+
+## Pinning the LEAN image
+Find the digest of the image you want and put it in `quantlab.toml`:
+```
+docker pull quantconnect/lean:latest
+docker image inspect --format "{{index .RepoDigests 0}}" quantconnect/lean:latest
+```
+Candidate observed on Docker Hub 2026-11-06 (`latest`, linux/amd64 — **not yet run by QuantLab**, KI-0002):
+`quantconnect/lean@sha256:e3d50f1c7f908abe95f27eb4aed7d02f47bdff2ae25c92059c6bffa2c9559714`
+(multi-arch index digest: `sha256:a91d4e3058242d6db408097001e2dea4041e21fe115fda9b26a55cfab8e90031`).

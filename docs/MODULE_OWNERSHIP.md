@@ -26,4 +26,5 @@ do not re-implement it elsewhere. Dependency rules: see ARCHITECTURE.md §7.
 | docs | `docs/`, `CLAUDE.md` | project memory | — |
 | tools | `tools/` | developer utilities | be imported by runtime code |
 
-Current state (2026-11-06): only `docs`, `.claude`, `tools` exist.
+Current state (2026-11-06, CHANGE-0006): `core`, `engine`, `docs`, `.claude`, `tools` exist. Boundaries enforced by
+import-linter contracts in `pyproject.toml` (`uv run lint-imports`); add a contract when a module is created.

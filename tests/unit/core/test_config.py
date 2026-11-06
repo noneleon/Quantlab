@@ -102,3 +102,16 @@ def test_settings_are_immutable():
     s = load_settings()
     with pytest.raises(Exception):  # noqa: B017 - pydantic frozen instance error
         s.server.port = 1
+
+
+def test_lean_runtime_defaults_and_validation():
+    lean = load_settings().engine.lean
+    assert lean.docker_command == ("docker",) and lean.network == "none" and lean.timeout_s == 3600
+    for bad in ({"network": "host"}, {"docker_command": []}, {"docker_command": [" "]}, {"timeout_s": 0}):
+        with pytest.raises(ConfigError):
+            load_settings(overrides={"engine": {"lean": bad}})
+
+
+def test_lean_docker_command_from_env(monkeypatch):
+    monkeypatch.setenv("QUANTLAB_ENGINE__LEAN__DOCKER_COMMAND", '["podman"]')
+    assert load_settings().engine.lean.docker_command == ("podman",)

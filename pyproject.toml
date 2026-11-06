@@ -21,6 +21,7 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.7",
     "mypy>=1.13",
+    "import-linter>=2.1",
 ]
 
 [build-system]
@@ -60,3 +61,18 @@ plugins = ["pydantic.mypy"]
 [tool.coverage.run]
 source = ["quantlab"]
 branch = true
+
+# Module boundary contracts (docs/ARCHITECTURE.md §7, docs/MODULE_OWNERSHIP.md). Run: uv run lint-imports
+[tool.importlinter]
+root_package = "quantlab"
+
+[[tool.importlinter.contracts]]
+name = "core is the base layer: it imports no other quantlab module"
+type = "forbidden"
+source_modules = ["quantlab.core"]
+forbidden_modules = ["quantlab.engine"]
+
+[[tool.importlinter.contracts]]
+name = "engine depends only on core"
+type = "layers"
+layers = ["quantlab.engine", "quantlab.core"]

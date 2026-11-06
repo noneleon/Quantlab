@@ -3,7 +3,7 @@
 | ID | Severity | Area | Description | Status |
 |---|---|---|---|---|
 | KI-0001 | High | env | Owner's Windows environment (Python/.NET/Docker/WSL2/IB Gateway) not yet probed; dev container differs (Linux, Py 3.13, no Docker daemon, no .NET). | OPEN — run `tools/env_check.py` on Windows |
-| KI-0002 | High | engine | LEAN has not been executed in any QuantLab environment yet; no end-to-end validation of Docker image, data mount or result parsing. | OPEN — Milestone M1 |
+| KI-0002 | High | engine | LEAN has not been executed in any QuantLab environment yet. Launcher, config and parser are tested only with a fake docker + synthetic fixture. Run `tests/integration/test_lean_docker_e2e.py` on a machine with Docker (see TESTING_STRATEGY). | OPEN — blocks ENG-002/004/005 → VERIFIED |
 | KI-0003 | High | data | No real historical data source selected. Free sources are survivorship-biased and have ToS limits; QC Data Library is paid. | OPEN — owner decision |
 | KI-0004 | Medium | architecture | DEC-0007 (live order path) undecided; blocks OMS-007. | OPEN — owner decision |
 | KI-0005 | Medium | engine | Verify LEAN settlement model coverage for US equities T+1 (since May 2024) before claiming BT-007. | OPEN |
@@ -15,3 +15,6 @@
 | KI-0011 | Low | core | PostgreSQL code paths (pool_pre_ping, append-only trigger function) untested — no Postgres in CI. | OPEN — add service container when Postgres is needed |
 | KI-0012 | Low | core | Audit append lock is per-process; safe for the single-process backend (DEC-0002) only. | OPEN — revisit if workers write audit entries |
 | KI-0013 | High | repo | `.gitignore` `secrets*` excluded `src/quantlab/core/secrets.py`; CI ran without it. | RESOLVED (CHANGE-0004: renamed to `secret_store.py`, guard test added) |
+| KI-0014 | Medium | engine | Unverified with real LEAN: (a) `--network none` — LEAN may attempt network calls at startup; (b) read-only `/Lean/Data` mount — LEAN might write caches there; (c) read-only `/LeanCLI` — Python cannot write `__pycache__` (expected harmless). | OPEN — check during first real run |
+| KI-0015 | Low | engine | On Linux hosts, files LEAN writes into `runs/<id>/results` are owned by root (container user). | OPEN — consider `--user` once image requirements are known |
+| KI-0016 | Low | engine | `engine.log` is captured but not parsed; LEAN runtime errors are taken from the result file `state` only. | OPEN — Phase 3 |

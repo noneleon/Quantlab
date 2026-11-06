@@ -80,3 +80,24 @@ Tests: `uv run pytest` → 77 passed (Linux). CI run #9: the 12 previously faili
 regression test itself failed on Windows (it created a directory decoding to `pct:dir`, invalid on Windows) →
 rewritten to use an un-connected engine; verified it still fails without the fix.
 Result: PASS — CI runs #11 (push) and #12 (PR) green on ubuntu + windows · Regression status: PASS
+
+### CHANGE-0006 — Phase 1 step 1c: EngineAdapter + LEAN Docker launcher, config builder, result parser
+Date: 2026-11-06 · Module: engine (new), core (config) · Feature IDs: ENG-001, ENG-002, ENG-004, ENG-005, ENG-006, MEM-004
+Problem: Milestone M1 needs QuantLab to launch LEAN locally and read its results without Lean CLI / QC account.
+Research (upstream, 2026-11-06): LEAN Launcher/config.json keys; `algorithm-id` names result files
+(Engine/Results/BacktestingResultHandler.cs, Queues/JobQueue.cs); image WORKDIR `/Lean/Launcher/bin/Debug`, bundled
+sample data at `/Lean/Data` (Dockerfile); Lean CLI mounts Python projects at `/LeanCLI` and results at `/Results`;
+order enums from Common/Orders/OrderTypes.cs. `quantconnect/lean:latest` amd64 digest recorded in
+CONFIGURATION_REFERENCE.md as a candidate pin (not yet run).
+Files added: `src/quantlab/engine/{__init__,base}.py`, `src/quantlab/engine/lean/{__init__,config,results,docker}.py`,
+`tests/unit/engine/{test_lean_config,test_lean_results,test_lean_docker}.py`, `tests/integration/test_lean_docker_e2e.py`,
+`tests/fixtures/{fake_docker.py,lean/README.md,lean/sample_result.json,algorithms/buy_and_hold_spy/main.py}`
+Files modified: `src/quantlab/core/config.py` (+engine.lean.docker_command/network/timeout_s), `tests/unit/core/test_config.py`,
+`pyproject.toml`/`uv.lock` (+import-linter dev dep, 2 contracts), `.github/workflows/ci.yml` (+lint-imports),
+`docs/ARCHITECTURE.md` §5.1 (protocol updated to the implemented shape), memory docs.
+Design notes: runs are immutable (non-empty run dir refused); `--network none` default; strategy/data/config mounts
+read-only; docker invoked without shell via configurable command; fake docker executable enables launcher tests on
+any OS; synthetic fixture clearly labelled.
+Tests: `uv run pytest --cov` → 127 passed, 1 skipped (real-Docker e2e: no daemon/image here), coverage 96 %;
+ruff, mypy --strict (18 files), lint-imports (2 kept; verified both break when core imports engine) clean.
+Result: PASS · Regression status: PASS (all earlier tests pass)

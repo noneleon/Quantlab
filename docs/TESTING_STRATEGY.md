@@ -27,3 +27,16 @@ Fixtures: `tests/conftest.py` isolates every test with its own `QUANTLAB_HOME` a
 ## Gates
 - Coverage targets: oms/risk/portfolio ≥ 90 % branch; others ≥ 75 %.
 - Any change under `oms/`, `risk/`, `brokers/`, `live/` must be reviewed by the `trading-safety-reviewer` agent.
+
+## Engine tests without Docker
+`tests/fixtures/fake_docker.py` stands in for the `docker` CLI (configured via `docker_command`), writes LEAN-layout
+result files from the **synthetic** fixture `tests/fixtures/lean/sample_result.json`, and supports failure, timeout and
+cancel scenarios. It tests QuantLab's launcher logic, not LEAN.
+
+## Real LEAN run (Docker-gated)
+```
+docker pull quantconnect/lean@sha256:<digest>
+QUANTLAB_TEST_LEAN_IMAGE=quantconnect/lean@sha256:<digest> uv run pytest -m docker -v
+```
+(PowerShell: `$env:QUANTLAB_TEST_LEAN_IMAGE="..."; uv run pytest -m docker -v`). Skips with a reason when the
+daemon or image variable is missing. Uses LEAN's bundled sample data (provenance `sample`).

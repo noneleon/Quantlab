@@ -1,0 +1,74 @@
+"""LEAN ``config.json`` builder (ENG-004).
+
+Keys and container paths follow LEAN's ``Launcher/config.json`` and the layout the Lean CLI uses
+for local Docker backtests (verified against upstream sources 2026-11-06), so QuantLab runs the
+engine the same way without needing ``lean login`` or a QuantConnect account (DEC-0003).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from quantlab.engine.base import AlgorithmLanguage, BacktestSpec, EngineError
+
+# Paths inside the LEAN container.
+LEAN_ROOT = "/Lean/Launcher/bin/Debug"  # image WORKDIR; config.json is read from here
+CONTAINER_CONFIG = f"{LEAN_ROOT}/config.json"
+CONTAINER_DATA = "/Lean/Data"  # also where the image bundles LEAN's sample data
+CONTAINER_RESULTS = "/Results"
+CONTAINER_STORAGE = "/Storage"
+CONTAINER_ALGORITHM = "/LeanCLI"  # same mount point as the Lean CLI uses for Python projects
+
+_PARAM_KEY = re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+
+def build_backtest_config(spec: BacktestSpec) -> dict[str, Any]:
+    """Return the LEAN configuration for a local backtest of ``spec``."""
+    algo = spec.algorithm
+    if algo.language is not AlgorithmLanguage.PYTHON:
+        raise EngineError("only Python algorithms are supported so far (C# is ENG-008, Phase 3)")
+    if not algo.entry_file.endswith(".py") or "/" in algo.entry_file or "\\" in algo.entry_file:
+        raise EngineError(f"entry_file must be a .py file in the strategy directory, got {algo.entry_file!r}")
+    for key, value in spec.parameters.items():
+        if not _PARAM_KEY.match(key):
+            raise EngineError(f"invalid parameter name {key!r}")
+        if not isinstance(value, str):
+            raise EngineError(f"parameter {key!r} must be a string (LEAN GetParameter semantics)")
+
+    return {
+        "environment": "backtesting",
+        "algorithm-type-name": Path(algo.entry_file).stem,
+        "algorithm-language": "Python",
+        "algorithm-location": f"{CONTAINER_ALGORITHM}/{algo.entry_file}",
+        "algorithm-id": spec.run_id,  # LEAN names result files <algorithm-id>.json / -summary.json
+        "data-folder": CONTAINER_DATA,
+        "results-destination-folder": CONTAINER_RESULTS,
+        "object-store-root": CONTAINER_STORAGE,
+        "close-automatically": True,
+        "debugging": False,
+        "debugging-method": "LocalCmdline",
+        "composer-dll-directory": ".",
+        # Local, account-free operation: no QuantConnect credentials, ever.
+        "job-user-id": "0",
+        "api-access-token": "",
+        "job-organization-id": "",
+        "log-handler": "QuantConnect.Logging.CompositeLogHandler",
+        "messaging-handler": "QuantConnect.Messaging.Messaging",
+        "job-queue-handler": "QuantConnect.Queues.JobQueue",
+        "api-handler": "QuantConnect.Api.Api",
+        "map-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskMapFileProvider",
+        "factor-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskFactorFileProvider",
+        "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DefaultDataProvider",
+        "show-missing-data-logs": True,
+        "parameters": dict(sorted(spec.parameters.items())),
+    }
+
+
+def write_config(config: dict[str, Any], path: Path) -> Path:
+    """Write deterministically (sorted keys) so identical runs produce identical config files."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path

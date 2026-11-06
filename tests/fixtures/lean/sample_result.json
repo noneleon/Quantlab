@@ -1,0 +1,33 @@
+{
+  "charts": {
+    "Strategy Equity": {
+      "name": "Strategy Equity",
+      "chartType": 0,
+      "series": {
+        "Equity": {"name": "Equity", "unit": "$", "index": 0, "seriesType": 2,
+          "values": [[1381104000, 100000.0, 100000.0, 100000.0, 100000.0],
+                     [1381190400, 100000.0, 100410.0, 99800.0, 100350.0],
+                     {"x": 1381276800, "y": 99900.0},
+                     [1381363200, null],
+                     [1381449600, 99839.57]]},
+        "Return": {"name": "Return", "unit": "%", "index": 1, "seriesType": 3, "values": [[1381104000, 0.0]]}
+      }
+    }
+  },
+  "orders": {
+    "2": {"type": 0, "id": 2, "symbol": {"value": "SPY", "id": "SPY R735QTJ8XC9X", "permtick": "SPY"},
+          "time": "2013-10-11T19:59:00Z", "quantity": -10.0, "price": 168.9, "status": 3, "direction": 1,
+          "tag": "exit", "value": -1689.0},
+    "1": {"type": 1, "id": 1, "symbol": {"value": "SPY", "id": "SPY R735QTJ8XC9X", "permtick": "SPY"},
+          "time": "2013-10-07T13:31:00", "quantity": 10.0, "price": 168.5, "status": 3, "direction": 0,
+          "tag": null, "value": 1685.0},
+    "3": {"type": 11, "id": 3, "symbol": "SPY", "time": null, "quantity": 5.0, "price": 0.0, "status": 42,
+          "direction": 7}
+  },
+  "statistics": {"Total Orders": "2", "Net Profit": "-0.160%", "Sharpe Ratio": "1.028",
+                 "Compounding Annual Return": "-8.025%", "Drawdown": "0.400%", "Win Rate": "N/A"},
+  "runtimeStatistics": {"Equity": "$99,839.57", "Net Profit": "$-294.86", "Return": "-0.16 %"},
+  "state": {"Status": "Completed", "RuntimeError": ""},
+  "algorithmConfiguration": {"startDate": "2013-10-07T00:00:00Z", "endDate": "2013-10-11T23:59:59Z",
+                             "parameters": {"fast": "10", "slow": 30}}
+}

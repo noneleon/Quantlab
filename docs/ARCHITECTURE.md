@@ -106,15 +106,22 @@ QUANTLAB_HOME/
 
 ### 5.1 Engine (ENG-*)
 ```python
+# As implemented in src/quantlab/engine/base.py (CHANGE-0006)
 class EngineAdapter(Protocol):
     name: str
-    def probe(self) -> EngineInfo: ...                     # version, image digest / build hash, capabilities
-    def run_backtest(self, spec: BacktestSpec) -> RunHandle: ...
-    def run_optimization_trial(self, spec: BacktestSpec) -> RunHandle: ...
-    def start_live(self, spec: LiveSpec) -> RunHandle: ...  # paper/live, gated by live supervisor
+    def probe(self) -> EngineInfo: ...                    # engine build: image digest/id, runtime version
+    def start_backtest(self, spec: BacktestSpec) -> RunHandle: ...   # prepares run dir, starts, returns
+    def wait(self, handle: RunHandle, timeout_s: float | None = None) -> RunOutcome: ...
     def cancel(self, handle: RunHandle) -> None: ...
-    def parse_results(self, handle: RunHandle) -> EngineResult: ...
+    def collect(self, handle: RunHandle) -> EngineResult: ...        # parse engine-native results
 ```
+Optimization trials are ordinary backtests submitted by the optimizer through BacktestService (no separate
+engine call). Live/paper execution is deliberately **not** an engine method: it arrives in Phase 5 through the
+OMS + risk gate (DEC-0007).
+
+Docker run layout (ENG-002): strategy dir → `/LeanCLI` (ro), dataset export → `/Lean/Data` (ro; omitted = image's
+bundled sample data), `runs/<id>/results` → `/Results`, `runs/<id>/storage` → `/Storage`, generated config →
+`/Lean/Launcher/bin/Debug/config.json` (ro), `--network none` by default, image pinned by digest.
 LEAN adapter responsibilities: generate LEAN `config.json` (algorithm location/language, data folder, parameters, brokerage/fee/slippage models are set in algorithm code or via QuantLab helper library), launch worker, stream logs, collect `*-summary.json`/`*.json` result files, record engine version.
 QuantLab ships a small **`quantlab_lean` helper library** (Python + C#) that strategies may import to apply platform-configured fee/slippage/brokerage models and to emit structured telemetry — so models are configured once and are not re-implemented.
 

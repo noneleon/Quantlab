@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0005)
+Last updated: 2026-11-06 (CHANGE-0006)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -20,7 +20,7 @@ Last updated: 2026-11-06 (CHANGE-0005)
 | MEM-001 | Project memory docs (CLAUDE.md + docs/*) | docs | C | 0 | `CLAUDE.md`, `docs/` | — | n/a (docs) | IMPLEMENTED | Must be maintained every session |
 | MEM-002 | Claude Code slash commands & agents | .claude | C | 0 | `.claude/commands/`, `.claude/agents/` | MEM-001 | manual | IMPLEMENTED | Format = Claude Code markdown+frontmatter; re-verify on CLI upgrades |
 | MEM-003 | Environment probe tool | tools | C | 0 | `tools/env_check.py` | — | `tests/tools/test_env_check.py` | TESTED | Run on the owner's Windows machine not yet done |
-| MEM-004 | CI pipeline (lint, format, type-check, tests; Ubuntu + Windows) | repo | C | 1 | `.github/workflows/ci.yml` | CORE-001 | the workflow itself | VERIFIED | Runs 1–2 green on ubuntu + windows (2026-11-06); import-linter contracts deferred until ≥2 top-level modules exist (step 1c) |
+| MEM-004 | CI pipeline (lint, format, type-check, tests; Ubuntu + Windows) | repo | C | 1 | `.github/workflows/ci.yml` | CORE-001 | the workflow itself | VERIFIED | Green on ubuntu + windows; import-linter contracts (core ⟂ engine, engine→core only) added in CHANGE-0006 |
 
 ## CORE — Core infrastructure
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -39,12 +39,12 @@ Last updated: 2026-11-06 (CHANGE-0005)
 ## ENG — Trading engine integration
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| ENG-001 | EngineAdapter protocol | engine | C | 1 | — | CORE-001 | — | PLANNED | |
-| ENG-002 | LEAN Docker launcher (pinned image digest) | engine | LI | 1 | — | ENG-001 | — | PLANNED | Needs Docker Desktop on Windows |
+| ENG-001 | EngineAdapter protocol | engine | C | 1 | `src/quantlab/engine/base.py` | CORE-001 | `tests/unit/engine/test_lean_docker.py::test_adapter_satisfies_protocol` | TESTED | Methods: probe/start_backtest/wait/cancel/collect; live intentionally excluded |
+| ENG-002 | LEAN Docker launcher (pinned image digest) | engine | LI | 1 | `src/quantlab/engine/lean/docker.py` | ENG-001 | `tests/unit/engine/test_lean_docker.py` (fake docker), `tests/integration/test_lean_docker_e2e.py` (skipped) | IMPLEMENTED | **Never run against a real Docker daemon/LEAN image** (KI-0002); start/wait/timeout/cancel tested with a fake docker executable |
 | ENG-003 | LEAN native .NET 10 launcher | engine | LI | 3 | — | ENG-001 | — | PLANNED | Requires local LEAN build |
-| ENG-004 | LEAN config.json builder | engine | LI | 1 | — | ENG-001 | — | PLANNED | |
-| ENG-005 | LEAN result/log parser (orders, stats, charts) | engine | LI | 1 | — | ENG-002 | — | PLANNED | |
-| ENG-006 | Engine version probe recorded in manifests | engine | LI | 1 | — | ENG-002 | — | PLANNED | |
+| ENG-004 | LEAN config.json builder | engine | LI | 1 | `src/quantlab/engine/lean/config.py` | ENG-001 | `tests/unit/engine/test_lean_config.py` | TESTED | Keys from LEAN Launcher/config.json + Lean CLI layout; not yet accepted by a real LEAN run |
+| ENG-005 | LEAN result/log parser (orders, stats, charts) | engine | LI | 1 | `src/quantlab/engine/lean/results.py` | ENG-002 | `tests/unit/engine/test_lean_results.py` | TESTED | Tested on a hand-built synthetic fixture only; logs captured to `engine.log` but not parsed |
+| ENG-006 | Engine version probe recorded in manifests | engine | LI | 1 | `LeanDockerAdapter.probe()` | ENG-002 | `test_full_run_with_fake_docker`, `test_probe_errors` | IMPLEMENTED | Manifest recording is BT-002 (step 1d); probe untested against real Docker |
 | ENG-007 | Python algorithms | engine | L | 1 | — | ENG-002 | — | PLANNED | Python 3.11 only |
 | ENG-008 | C# algorithms (compile in container) | engine | L | 3 | — | ENG-002 | — | PLANNED | |
 | ENG-009 | `quantlab_lean` helper library (platform-configured models, telemetry) | engine | C | 3 | — | ENG-004 | — | PLANNED | |

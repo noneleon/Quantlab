@@ -76,6 +76,16 @@ class LeanSettings(_Section):
     launcher: Literal["docker", "native"] = "docker"
     image: str | None = None  # e.g. "quantconnect/lean@sha256:<64 hex>"; required before a docker run
     native_path: Path | None = None
+    docker_command: tuple[str, ...] = ("docker",)  # e.g. ("podman",); executed without a shell
+    network: Literal["none", "bridge"] = "none"  # backtests run without network access by default
+    timeout_s: int = Field(default=3600, ge=1)  # a backtest exceeding this is stopped
+
+    @field_validator("docker_command")
+    @classmethod
+    def _non_empty_command(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or not all(part.strip() for part in value):
+            raise ValueError("engine.lean.docker_command must be a non-empty list of non-empty strings")
+        return value
 
     @field_validator("image")
     @classmethod
