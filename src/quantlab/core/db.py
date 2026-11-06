@@ -83,7 +83,10 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 def _alembic_config(engine: Engine) -> Config:
     cfg = Config()
     cfg.set_main_option("script_location", str(files("quantlab.core") / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", engine.url.render_as_string(hide_password=False))
+    # Alembic's Config is ConfigParser-based: '%' starts interpolation, so it must be escaped.
+    # (Windows paths render as e.g. sqlite:///C%3A/... and would otherwise fail - CHANGE-0005.)
+    url = engine.url.render_as_string(hide_password=False)
+    cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     return cfg
 
 

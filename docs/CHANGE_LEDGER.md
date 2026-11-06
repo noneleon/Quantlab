@@ -68,3 +68,13 @@ Public API change: import path `quantlab.core.secrets` → `quantlab.core.secret
 Tests: `uv run pytest` → 76 passed; ruff check/format + mypy clean; fresh-clone check before push (see handoff).
 Lesson: verify from a fresh clone (`git clone` + `uv sync --locked` + checks) before pushing new files.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0005 — Fix: Alembic config broke on Windows SQLite URLs (`%` interpolation)
+Date: 2026-11-06 · Module: core (db) · Feature IDs: CORE-004
+Problem: CI run #7 — Ubuntu green, Windows 12 errors: `ValueError: invalid interpolation syntax in
+'sqlite:///C%3A/...'`. SQLAlchemy renders the drive colon as `%3A`; Alembic's ConfigParser-based Config treats `%`
+as interpolation. Not reproducible on Linux paths.
+Fix: escape `%` → `%%` in `_alembic_config` (`src/quantlab/core/db.py`). Regression test
+`test_alembic_config_handles_percent_encoded_urls` uses a `%3A` path on Linux; verified it fails without the fix.
+Tests: `uv run pytest` → 77 passed (Linux). Windows confirmation: CI run after push (see handoff).
+Result: PASS (Linux) · Regression status: PASS

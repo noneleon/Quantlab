@@ -1,7 +1,7 @@
 # Project Status
 
 **Current phase:** Phase 1 — Core infrastructure (steps 1a + 1b done; next 1c LEAN adapter)
-**Last change:** CHANGE-0004 (2026-11-06)
+**Last change:** CHANGE-0005 (2026-11-06)
 **Overall health:** Foundation code with passing tests. No engine, data, trading or UI code yet.
 
 ## Phase progress
@@ -17,7 +17,7 @@
   (CORE-004), `audit.py` (CORE-010), `ids.py`/`clock.py` (CORE-006 partial), `secret_store.py` (SEC-001).
 - Packaging: `pyproject.toml` + `uv.lock`, Python 3.11 (CORE-001). CI: `.github/workflows/ci.yml` (MEM-004, green on ubuntu + windows).
 - `tools/env_check.py` environment probe.
-- Tests: 76 passing (`uv run pytest`), 96 % coverage.
+- Tests: 77 passing (`uv run pytest`), 96 % coverage.
 - PR noneleon/Quantlab#1 open from this branch (opened by owner).
 
 ## Decisions

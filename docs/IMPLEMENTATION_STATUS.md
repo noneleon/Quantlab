@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0004)
+Last updated: 2026-11-06 (CHANGE-0005)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |

@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0004 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0005 · PR noneleon/Quantlab#1
 
 ## What was done this session
 - CHANGE-0002 (step 1a): package skeleton, layered config with safety validation, structlog logging with redaction,
@@ -10,9 +10,10 @@
   Doc updates for 1b landed in two commits (the first commit missed SECURITY_POLICY/PROJECT_STATUS/handoff).
 - CHANGE-0004: CI run #3 was red — `secrets.py` had been gitignored and never committed. Renamed to
   `quantlab.core.secret_store`, added `tests/unit/test_repo_hygiene.py` guard.
+- CHANGE-0005: Windows CI failed in Alembic (`C%3A` in SQLite URL vs ConfigParser interpolation); fixed by escaping `%`.
 
 ## Tests (actually executed)
-`uv run pytest --cov` → 76 passed (after CHANGE-0004) (Linux, Py 3.11.15). ruff + mypy --strict clean.
+`uv run pytest` → 77 passed (Linux, after CHANGE-0005). Windows: see latest CI run on the PR. (Linux, Py 3.11.15). ruff + mypy --strict clean.
 
 ## Key design facts to remember
 - `load_settings()` never creates files; `create_db_engine()` creates the db dir; `migrate(engine)` is idempotent.

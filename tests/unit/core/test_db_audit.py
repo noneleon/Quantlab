@@ -96,3 +96,16 @@ def test_timestamps_monotonic_with_manual_clock(db_session):
     clock.advance(timedelta(seconds=1))
     b = log.record(db_session, actor_type="user", actor="o", action="b")
     assert b.ts > a.ts and b.seq > a.seq
+
+
+def test_alembic_config_handles_percent_encoded_urls(tmp_path):
+    """Regression (CHANGE-0005): Windows URLs render as sqlite:///C%3A/... and broke ConfigParser."""
+    from quantlab.core.db import _alembic_config, create_db_engine
+
+    weird = tmp_path / "pct%3Adir" / "q.sqlite"
+    engine = create_db_engine(f"sqlite:///{weird.as_posix()}")
+    cfg = _alembic_config(engine)
+    assert "%3A" in cfg.get_main_option("sqlalchemy.url")
+    migrate(engine)
+    assert current_revision(engine) == "0001"
+    engine.dispose()
