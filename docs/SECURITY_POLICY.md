@@ -2,7 +2,9 @@
 
 ## Secrets
 - Never hardcode or commit API keys, broker credentials, tokens. `.gitignore` excludes `.env*`, `*.key`, `secrets*`.
-- Storage: OS keyring (`keyring` → Windows Credential Manager / Linux Secret Service); env vars as fallback for headless servers.
+- Storage (IMPLEMENTED, `quantlab.core.secrets`): OS keyring (`keyring` → Windows Credential Manager / Secret Service) first;
+  env var fallback for headless servers: `secret://quantlab/ibkr/paper/password` → `QUANTLAB_SECRET__IBKR__PAPER__PASSWORD`.
+  Values returned as `SecretStr`; set/delete are audited without the value.
 - Paper and live credentials live in separate namespaces (`quantlab/ibkr/paper/*`, `quantlab/ibkr/live/*`).
 - Logs pass through a redaction filter (keys matching `*password*|*secret*|*token*|*key*|account numbers`); tested in `tests/security/`.
 

@@ -1,26 +1,29 @@
 # Session Handoff
 
-**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0002
+**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0003 · PR noneleon/Quantlab#1
 
-## What was done
-- Owner approved architecture; DEC-0002..0012 marked ACCEPTED (DEC-0007 → Option A).
-- Phase 1 step 1a: `pyproject.toml`/`uv.lock` (Python 3.11), `quantlab.core.paths` (QUANTLAB_HOME per OS),
-  `quantlab.core.config` (layered pydantic-settings with safety validation), `quantlab.core.logging`
-  (structlog JSON + redaction, file logs under home), CI workflow for Ubuntu + Windows.
+## What was done this session
+- CHANGE-0002 (step 1a): package skeleton, layered config with safety validation, structlog logging with redaction,
+  QUANTLAB_HOME layout, CI (ubuntu + windows, **green**).
+- CHANGE-0003 (step 1b): SQLAlchemy/Alembic metadata DB (SQLite WAL), migration 0001 `audit_log` (append-only
+  triggers + ORM guard + sha256 hash chain), ULID ids + Clock, keyring secret store with env fallback.
+  Doc updates for 1b landed in two commits (the first commit missed SECURITY_POLICY/PROJECT_STATUS/handoff).
 
 ## Tests (actually executed)
-`uv run pytest --cov` → 41 passed, 97 % coverage (Linux, Python 3.11.15). ruff check/format and mypy --strict clean.
+`uv run pytest --cov` → 75 passed, 96 % coverage (Linux, Py 3.11.15). ruff + mypy --strict clean.
 
 ## Key design facts to remember
-- `load_settings(home=None, overrides=None)` never creates files. Precedence overrides > env > toml > defaults.
-- Config validation rejects: `trading.mode='live'`, non-loopback host without `remote_access`, non-digest LEAN image,
-  unknown keys, AI keys not given as `secret://` refs.
-- `docs/` is excluded from ruff (formatter rewrote code blocks in markdown).
+- `load_settings()` never creates files; `create_db_engine()` creates the db dir; `migrate(engine)` is idempotent.
+- New tables: add an Alembic revision under `src/quantlab/core/migrations/versions/` and import the model module in
+  `migrations/env.py`. Never use `create_all` on real databases.
+- Use `quantlab.core.ids.new_id()` for ids and a `Clock` for time — never `datetime.now()` in platform code.
+- Sensitive operations → `AuditLog().record(session, actor_type=..., actor=..., action=..., target=..., details=...)`.
+- Secrets only via `SecretStore().get("secret://quantlab/...")`.
 
 ## Waiting for owner
-- Run `python tools/env_check.py` on the Windows PC (KI-0001).
-- Check first GitHub Actions run, especially the Windows leg (KI-0009).
+- Run `python tools/env_check.py` on the Windows PC (KI-0001) — especially Docker daemon status, needed for 1c tests.
 
 ## Next recommended task
-Phase 1 step 1b: CORE-004 metadata DB (SQLAlchemy 2 + Alembic, SQLite WAL), CORE-010 append-only audit log,
-CORE-006 ULID ids/clock, SEC-001 keyring secret store. Then 1c LEAN adapter (ENG-001/002/004/005/006).
+Phase 1 step 1c: ENG-001 EngineAdapter protocol, ENG-004 LEAN config builder, ENG-005 result parser (test against a
+recorded LEAN result JSON first), ENG-002 Docker launcher + ENG-006 version probe (Docker-gated integration test),
+and add import-linter contracts (core must not import engine) to CI.
