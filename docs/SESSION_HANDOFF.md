@@ -13,7 +13,7 @@
 - CHANGE-0005: Windows CI failed in Alembic (`C%3A` in SQLite URL vs ConfigParser interpolation); fixed by escaping `%`.
 
 ## Tests (actually executed)
-`uv run pytest` → 77 passed (Linux, after CHANGE-0005). Windows: see latest CI run on the PR. (Linux, Py 3.11.15). ruff + mypy --strict clean.
+`uv run pytest` → 77 passed (Linux, after CHANGE-0005). CI runs #11/#12 green on ubuntu + windows (Python 3.11.9 on Windows). (Linux, Py 3.11.15). ruff + mypy --strict clean.
 
 ## Key design facts to remember
 - `load_settings()` never creates files; `create_db_engine()` creates the db dir; `migrate(engine)` is idempotent.

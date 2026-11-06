@@ -79,4 +79,4 @@ Fix: escape `%` → `%%` in `_alembic_config` (`src/quantlab/core/db.py`). Regre
 Tests: `uv run pytest` → 77 passed (Linux). CI run #9: the 12 previously failing Windows tests passed; the new
 regression test itself failed on Windows (it created a directory decoding to `pct:dir`, invalid on Windows) →
 rewritten to use an un-connected engine; verified it still fails without the fix.
-Result: PASS (Linux; Windows per CI after follow-up push) · Regression status: PASS
+Result: PASS — CI runs #11 (push) and #12 (PR) green on ubuntu + windows · Regression status: PASS
