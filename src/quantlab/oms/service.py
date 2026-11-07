@@ -49,7 +49,7 @@ from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
 from quantlab.oms import queries
-from quantlab.oms.models import DailyEquity, FillRecord, OmsAccount, Order, OrderEvent
+from quantlab.oms.models import DailyEquity, EquitySample, FillRecord, OmsAccount, Order, OrderEvent
 from quantlab.oms.states import TERMINAL, WORKING, OrderState, can_transition
 from quantlab.portfolio.book import Book
 from quantlab.risk.gate import Decision, OrderIntent, PendingOrder, RiskContext, RiskGate
@@ -332,6 +332,36 @@ class OMS:
             )  # fmt: skip
             session.commit()
         return CancelAllResult(out, still)
+
+    def record_equity(self, *, source: str, start_of_day: bool = False) -> float | None:
+        """Mark the confirmed book with current quotes and store the equity sample (supervisor, LIVE-001).
+
+        ``start_of_day`` also records today's start-of-day equity if it is not recorded yet. Returns None (and
+        records nothing) when a held symbol has no quote: an unmarked equity is never stored.
+        """
+        with self._sessions() as session:
+            book = self.book(session)
+            held = sorted(s for s, p in book.positions.items() if abs(p.quantity) > 1e-9)
+            equity = book.snapshot(self.marks(held))["equity"]
+            if equity is None:
+                return None
+            now = self._clock.now()
+            session.add(
+                EquitySample(id=new_id(), account=self.account, equity=equity, source=source, created_at=now)
+            )
+            if start_of_day:
+                self._start_of_day(session, now, equity)
+            session.commit()
+            return float(equity)
+
+    def expire_day_orders(self) -> bool:
+        """End of session: DAY orders expire at brokers that do not do it themselves (local paper)."""
+        expire = getattr(self._broker, "expire_day_orders", None)
+        if expire is None:
+            return False
+        expire()
+        self.process_events()
+        return True
 
     def process_events(self) -> int:
         """Apply broker events, commit, then acknowledge them.
@@ -636,9 +666,14 @@ class OMS:
             and st in (S.RISK_REJECTED, S.REJECTED)
             and (o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=UTC)) >= hour_ago
         )
-        peak = session.execute(
-            select(func.max(DailyEquity.equity)).where(DailyEquity.account == self.account)
-        ).scalar_one_or_none()
+        peaks = [
+            session.execute(select(func.max(DailyEquity.equity)).where(DailyEquity.account == self.account)),
+            session.execute(
+                select(func.max(EquitySample.equity)).where(EquitySample.account == self.account)
+            ),
+        ]
+        recorded = [x for x in (r.scalar_one_or_none() for r in peaks) if x is not None]
+        peak = max(recorded) if recorded else None
         return RiskContext(
             broker_mode=self._broker.mode,
             book=book,

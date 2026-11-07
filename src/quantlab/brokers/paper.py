@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import math
-import sys
 import time
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -44,6 +43,7 @@ from quantlab.brokers.base import (
     SubmitUnknown,
     TimeInForce,
 )
+from quantlab.core.filelock import lock_file, unlock_file
 from quantlab.core.ids import new_id
 from quantlab.data.market_data import Quote
 
@@ -375,35 +375,12 @@ class PaperBroker:
 
 
 def _acquire(fh: Any, lock: Path) -> None:
-    deadline = time.monotonic() + LOCK_TIMEOUT_S
-    while True:
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-
-                fh.seek(0)
-                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return
-        except OSError:
-            if time.monotonic() > deadline:
-                raise BrokerUnavailable(f"paper broker state is locked by another process ({lock})") from None
-            time.sleep(0.02)
+    if not lock_file(fh, LOCK_TIMEOUT_S):
+        raise BrokerUnavailable(f"paper broker state is locked by another process ({lock})")
 
 
 def _release(fh: Any) -> None:
-    if sys.platform == "win32":
-        import msvcrt
-
-        fh.seek(0)
-        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    unlock_file(fh)
 
 
 def _report(e: dict[str, Any]) -> ExecutionReport:

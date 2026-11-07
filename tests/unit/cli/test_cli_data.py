@@ -274,6 +274,10 @@ def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
     assert positions["positions"][0]["quantity"] == 5
     assert "FILLED" in ql("paper", "orders").stdout
     assert ql("paper", "reconcile").exit_code == 0
+    sup = ql("paper", "supervise", "--ticks", "1")
+    assert sup.exit_code == 0 and "ticks 1" in sup.output, sup.output
+    status = json.loads(ql("paper", "supervisor-status", "--json").stdout)
+    assert status["running"] is True and status["status"]["ticks"] == 1
 
     rest = ql("paper", "order", "SPY", "buy", "1", "--key", "rest", "--type", "limit", "--limit-price", "0.5")
     assert rest.exit_code == 0 and "ACCEPTED" in rest.output, rest.output  # works far below the market

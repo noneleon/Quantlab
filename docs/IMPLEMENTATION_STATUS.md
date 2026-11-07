@@ -173,7 +173,7 @@ Last updated: 2026-11-07 (CHANGE-0025)
 ## LIVE — Paper/live deployment
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| LIVE-001 | Deployment supervisor (start/pause/stop/monitor) | live | LI | 5 | — | ENG-002, OMS-* | — | PLANNED | |
+| LIVE-001 | Deployment supervisor (start/pause/stop/monitor) | live | LI | 5 | `oms/supervisor.py`, `quantlab paper supervise|supervisor-status`, `GET /api/paper/supervisor` (DEC-0030) | ENG-002, OMS-* | `test_supervisor.py`, CLI/API/web tests | IN_PROGRESS | Account supervision done (events, reconcile, equity, DAY expiry, heartbeat); start/pause/stop of strategy deployments needs OMS-007 |
 | LIVE-002 | Paper mode default | live | C | 5 | `trading.mode` rejects live; OMS refuses non-paper brokers; every CLI line `[PAPER]` | LIVE-001 | `test_oms_risk.py` | TESTED | |
 | LIVE-003 | Live activation safety gates (separate creds, limits set, broker verified, typed confirmation, status banner) | live | C | 6 | — | RISK-*, BRK-005 | — | PLANNED | Disabled until owner approves |
 | LIVE-004 | Crash/restart recovery with reconciliation-before-trading | live | C | 6 | — | BRK-005 | — | PLANNED | |

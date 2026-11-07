@@ -242,6 +242,20 @@ class PaperSettings(_Section):
         return self
 
 
+class SupervisorSettings(_Section):
+    """Paper trading supervisor (LIVE-001). It never sends orders and never disengages the kill switch."""
+
+    interval_s: float = Field(default=5.0, ge=0.5)  # broker events are processed every tick
+    reconcile_every_s: float = Field(default=60.0, ge=5)
+    equity_every_s: float = Field(default=60.0, ge=5)  # equity samples (drawdown high-water mark)
+    calendar: str = (
+        "XNYS"  # session open (start-of-day equity) and close (DAY orders expire); "none" disables
+    )
+    engage_kill_switch_on_mismatch: bool = (
+        True  # reconcile finds a position difference -> engage (risk-reducing)
+    )
+
+
 class LifecycleSettings(_Section):
     """Promotion gates (STR-004, DEC-0026). Changing them is an owner decision; each event records them."""
 
@@ -324,6 +338,7 @@ class Settings(BaseSettings):
     backtest: BacktestSettings = BacktestSettings()
     lifecycle: LifecycleSettings = LifecycleSettings()
     paper: PaperSettings = PaperSettings()
+    supervisor: SupervisorSettings = SupervisorSettings()
     ai: AiSettings = AiSettings()
     logging: LoggingSettings = LoggingSettings()
 

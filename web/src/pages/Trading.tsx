@@ -5,7 +5,7 @@ import { Link, useParams } from "react-router-dom";
 
 import {
   ENGAGE_CONFIRMATION, apiSend, type EngageResult, type PaperOrderDetail, type PaperOrderRow, type PaperPortfolio,
-  type RiskStatus,
+  type RiskStatus, type SupervisorStatus,
 } from "../api";
 import { Empty, ErrorBox, Loading } from "../components/States";
 import { dateTime, num, shortHash } from "../format";
@@ -238,15 +238,30 @@ export function RiskView({ data, onEngaged }: { data: RiskStatus; onEngaged: (r:
   );
 }
 
+export function SupervisorLine({ data }: { data: SupervisorStatus }) {
+  const st = data.status;
+  if (!st) return <p className="muted">Supervisor: never started — run <code>quantlab paper supervise</code>.</p>;
+  return (
+    <div className={data.running && st.last_reconcile_clean !== false ? "notice" : "warning"} role="status">
+      Supervisor: <strong>{data.running ? "running" : "NOT running"}</strong> · last heartbeat {dateTime(st.heartbeat_at)}
+      {" "}· last reconcile {st.last_reconcile_clean === null ? "–" : st.last_reconcile_clean ? "clean" : "DIFFERENCES"} ({dateTime(st.last_reconcile_at)})
+      {st.kill_switch_engaged_by_supervisor ? <> · engaged the kill switch at {dateTime(st.kill_switch_engaged_by_supervisor)}</> : null}
+      {st.errors.length ? <> · last error: <code>{st.errors[st.errors.length - 1]}</code></> : null}
+    </div>
+  );
+}
+
 export function RiskPage() {
   const [refresh, setRefresh] = useState(0);
   const [outcome, setOutcome] = useState<EngageResult | null>(null);
   const { data, error, loading } = useApi<RiskStatus>(`/api/risk?limit=100&r=${refresh}`);
+  const sup = useApi<SupervisorStatus>("/api/paper/supervisor");
   if (error) return <ErrorBox error={error} />;
   if (loading || !data) return <Loading />;
   return (
     <>
       {outcome ? <EngageOutcome result={outcome} /> : null}
+      {sup.data ? <SupervisorLine data={sup.data} /> : null}
       <RiskView data={data} onEngaged={(r) => { setOutcome(r); setRefresh((n) => n + 1); }} />
     </>
   );

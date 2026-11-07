@@ -251,3 +251,15 @@ read-only market-data connection. (4) Orders without a QuantLab reference (place
 orders and block new orders. (5) Failures after handing an order to IBKR, and missing acknowledgements, are
 SUBMIT_UNKNOWN (reconcile), never "rejected". (6) Live trading stays unavailable (LIVE-003); this adapter is not a
 step towards it without a new decision.
+
+### DEC-0030 — Paper trading supervisor: keeps the account in step, never trades
+State: ACCEPTED (owner approved Phase 5b, 2026-11-07)
+Decisions: (1) `quantlab paper supervise` runs one supervisor per OMS account (OS-level lock): broker events every
+tick, reconciliation and equity samples on a schedule, start-of-day equity at the session open, DAY-order expiry
+after the close for brokers that do not expire orders themselves. (2) It never submits or modifies orders and never
+disengages the kill switch. (3) It engages the kill switch (risk-reducing, actor "supervisor") when reconciliation
+finds a position difference; configurable via `[supervisor] engage_kill_switch_on_mismatch`, on by default.
+(4) Equity samples are append-only and only stored when every held symbol is marked; the drawdown high-water mark is
+the highest of the start-of-day rows and the samples. (5) Errors never stop the loop; they are kept in the status file
+and a stale heartbeat (more than three intervals) shows the supervisor as not running in the CLI, API and console.
+Strategy deployments (start/pause/stop of algorithms) need the LEAN gateway (OMS-007) and are not part of this.

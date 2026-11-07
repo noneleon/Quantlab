@@ -605,3 +605,21 @@ Remaining (KI-0074/0075): late commission reports are not applied; IBKR executio
 `Inactive` is treated as final.
 Tests: Python 560 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0032 — Phase 5b-4: paper trading supervisor (LIVE-001)
+Date: 2026-11-07 · Modules: oms, core, migrations, cli, api, web · Feature IDs: LIVE-001, RISK-002, OMS-005 ·
+Decision: DEC-0030
+Change: `oms/supervisor.py` (tick loop: events, scheduled reconciliation with kill-switch engagement on position
+differences, equity samples during the session with start-of-day equity at the first sample of the session day, DAY
+expiry after the close, status/heartbeat file, single instance); `OMS.record_equity`, `OMS.expire_day_orders`; the
+drawdown peak includes equity samples (migration 0007, append-only `oms_equity_samples`); `core/filelock.py` (the
+OS-level lock, moved out of the paper broker and reused); `[supervisor]` settings; `quantlab paper supervise
+[--ticks N]`, `quantlab paper supervisor-status`; `GET /api/paper/supervisor`; supervisor line on the Risk page.
+Tests: supervisor tests with a manual clock on the XNYS calendar (event application, reconcile schedule, heartbeat
+and staleness, equity samples only in session, intraday peak drives the drawdown limit, DAY expiry once after the
+close, kill switch engaged on mismatch and configurable, failures recorded without stopping, never submits, single
+instance), CLI and API tests, web test. Synthetic SIMULATED quotes only.
+Safety review: a trading-safety review was still running when this was committed (the supervisor only runs when
+started with `quantlab paper supervise`); its outcome and any fixes are recorded in the next ledger entry.
+Tests: Python 570 passed, 1 skipped; web 28 passed; ruff, mypy --strict, lint-imports (5 contracts), tsc, build clean.
+Result: PASS · Regression status: PASS

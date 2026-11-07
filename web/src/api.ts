@@ -496,3 +496,18 @@ export interface EngageResult {
 }
 
 export const ENGAGE_CONFIRMATION = "ENGAGE KILL SWITCH";
+
+export interface SupervisorStatus {
+  running: boolean;
+  heartbeat_age_s?: number | null;
+  status: {
+    account: string;
+    heartbeat_at: string | null;
+    ticks: number;
+    last_reconcile_at: string | null;
+    last_reconcile_clean: boolean | null;
+    last_equity: number | null;
+    kill_switch_engaged_by_supervisor: string | null;
+    errors: string[];
+  } | null;
+}

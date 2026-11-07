@@ -103,10 +103,22 @@ class DailyEquity(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
+class EquitySample(Base):
+    """Account equity sampled by the trading supervisor (high-water mark for the drawdown limit)."""
+
+    __tablename__ = "oms_equity_samples"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    account: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    equity: Mapped[float] = mapped_column(Float, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 @event.listens_for(Session, "before_flush")
 def _append_only(session: Session, _ctx: Any, _instances: Any) -> None:
     for obj in [*session.deleted, *session.dirty]:
-        if isinstance(obj, Order | OrderEvent | FillRecord | DailyEquity | OmsAccount) and (
+        if isinstance(obj, Order | OrderEvent | FillRecord | DailyEquity | OmsAccount | EquitySample) and (
             obj in session.deleted or session.is_modified(obj)
         ):
             raise OrderRecordError("orders, order events and fills are append-only")

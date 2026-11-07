@@ -28,6 +28,7 @@ from quantlab.data.market_data import MarketDataError, Quote
 from quantlab.engine import EngineAdapter, create_engine_adapter
 from quantlab.lifecycle.service import LifecycleService
 from quantlab.oms.service import OMS
+from quantlab.oms.supervisor import Supervisor
 from quantlab.optimize.service import OptimizationService
 from quantlab.risk.gate import KillSwitch, RiskGate
 from quantlab.strategies.registry import StrategyRegistry
@@ -180,6 +181,24 @@ class AppContext:
         )
         return OMS(
             self.sessions, broker, gate, quote, account=paper.account, starting_cash=paper.starting_cash
+        )
+
+    def supervisor_status_file(self) -> Path:
+        return self.settings.home / "run" / f"supervisor-{self.settings.paper.oms_account}.json"
+
+    def paper_supervisor(self, session: Session) -> Supervisor:
+        """Supervisor for the configured paper account (LIVE-001, DEC-0030)."""
+        sup = self.settings.supervisor
+        return Supervisor(
+            self.paper_oms(session),
+            self.sessions,
+            self.kill_switch(),
+            self.supervisor_status_file(),
+            interval_s=sup.interval_s,
+            reconcile_every_s=sup.reconcile_every_s,
+            equity_every_s=sup.equity_every_s,
+            calendar=sup.calendar,
+            engage_on_mismatch=sup.engage_kill_switch_on_mismatch,
         )
 
     def ibkr_paper_broker(self) -> IBKRPaperBroker:

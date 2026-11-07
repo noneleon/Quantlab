@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0031 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0032 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -48,10 +48,12 @@
 - CHANGE-0030 (5b-3, DEC-0029): IBKR paper broker adapter (`[paper] broker = "ibkr"`, `ibkr_account = "DU…"`,
   `ibkr_starting_cash`); paper logins only; **fake-client tested only — needs a real IB Gateway paper check (KI-0075)**.
   CHANGE-0031 fixed its safety-review findings (rejections reported as Cancelled; manual TWS orders refreshed).
+- CHANGE-0032 (5b-4, DEC-0030): `quantlab paper supervise` — events, reconcile (engages the kill switch on position
+  differences), equity samples / start-of-day at the open, DAY expiry; heartbeat in CLI/API/console. Migration 0007.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 560 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
-Web: `npm test` → 27 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
+Python: `uv run pytest` → 570 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Web: `npm test` → 28 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -79,5 +81,6 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 5b continues (DEC-0027): 5b-4 deployment supervisor (LIVE-001). OMS-007 (LEAN gateway) needs .NET.
+Phase 5 remaining: OMS-007 (LEAN → OMS gateway, C#) needs .NET (KI-0055/0064); then Phase 6 planning (live gates,
+LIVE-003) only with explicit owner approval.
 Owner actions: `quantlab risk init` + review limits; first real LEAN run (KI-0002); IBKR paper check — market data (KI-0043/0044) and the paper broker adapter (KI-0075).

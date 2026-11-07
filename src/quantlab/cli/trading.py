@@ -301,3 +301,49 @@ def paper_reconcile(home: HomeOpt = None, as_json: JsonOpt = False) -> None:
         typer.echo(json.dumps(data, indent=2, default=str))
     if not report.clean:
         raise typer.Exit(1)
+
+
+@paper_app.command("supervise")
+def paper_supervise(
+    ticks: Annotated[
+        int | None, typer.Option(help="Stop after this many ticks (default: run until Ctrl+C).")
+    ] = None,
+    home: HomeOpt = None,
+) -> None:
+    """Run the paper trading supervisor (events, reconcile, equity, DAY expiry). Never sends orders."""
+    from quantlab.core.filelock import LockHeld
+
+    with context(home) as ctx, ctx.sessions() as session:
+        sup = ctx.paper_supervisor(session)
+        typer.echo(
+            f"[PAPER] supervising {sup.status.account} every {sup.status.interval_s}s (Ctrl+C to stop)"
+        )
+        try:
+            sup.run(max_ticks=ticks)
+        except LockHeld:
+            fail(f"a supervisor is already running for {sup.status.account}")
+        except KeyboardInterrupt:
+            typer.echo("supervisor stopped")
+    st = sup.status
+    typer.echo(
+        f"ticks {st.ticks} · events {st.events_applied} · last reconcile clean: {st.last_reconcile_clean}"
+    )
+    for e in st.errors[-5:]:
+        typer.secho(f"  error: {e}", fg=typer.colors.YELLOW)
+
+
+@paper_app.command("supervisor-status")
+def paper_supervisor_status(home: HomeOpt = None, as_json: JsonOpt = False) -> None:
+    """Heartbeat and last results of the paper trading supervisor."""
+    from datetime import UTC, datetime
+
+    from quantlab.oms.supervisor import read_status
+
+    with context(home) as ctx:
+        data = read_status(ctx.supervisor_status_file(), datetime.now(UTC))
+    if as_json:
+        emit_json(data)
+        return
+    typer.echo(f"supervisor: {'running' if data['running'] else 'NOT running'}")
+    if data["status"]:
+        typer.echo(json.dumps(data["status"], indent=2, default=str))

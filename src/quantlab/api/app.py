@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hmac
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -677,6 +678,12 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                     for d in decisions
                 ],
             }
+
+    @app.get("/api/paper/supervisor", dependencies=auth)
+    def paper_supervisor() -> dict[str, Any]:
+        from quantlab.oms.supervisor import read_status
+
+        return read_status(ctx.supervisor_status_file(), datetime.now(UTC))
 
     # The only trading write in the API (DEC-0028): engaging the kill switch can only *reduce* risk.
     # Disengaging, orders and limits stay CLI-only (CLAUDE.md §4).

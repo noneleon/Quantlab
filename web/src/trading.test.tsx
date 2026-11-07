@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import type { PaperOrderDetail, PaperPortfolio, RiskStatus } from "./api";
-import { EngageOutcome, OrderDetailView, OrdersView, PortfolioView, RiskView } from "./pages/Trading";
+import { EngageOutcome, OrderDetailView, OrdersView, PortfolioView, RiskView, SupervisorLine } from "./pages/Trading";
 
 const risk = (engaged: boolean): RiskStatus => ({
   kill_switch: { engaged, reason: engaged ? "halt" : null, at: engaged ? "2026-11-09T15:00:00Z" : null },
@@ -71,5 +71,16 @@ describe("trading console (UI-006)", () => {
     expect(html).toContain("spread");
     expect(html).toContain("SIMULATED · simulated");
     expect(html).not.toMatch(/<(button|input|select|form)\b/);
+  });
+
+  it("supervisor status warns when it is not running or found differences", () => {
+    const base = { account: "paper", heartbeat_at: "2026-11-09T15:00:00Z", ticks: 3, last_reconcile_at: "2026-11-09T15:00:00Z",
+      last_reconcile_clean: true, last_equity: 1, kill_switch_engaged_by_supervisor: null, errors: [] };
+    expect(renderToStaticMarkup(<SupervisorLine data={{ running: true, status: base }} />)).toContain('class="notice"');
+    const down = renderToStaticMarkup(<SupervisorLine data={{ running: false, status: { ...base, last_reconcile_clean: false } }} />);
+    expect(down).toContain("NOT running");
+    expect(down).toContain("DIFFERENCES");
+    expect(down).toContain('class="warning"');
+    expect(renderToStaticMarkup(<SupervisorLine data={{ running: false, status: null }} />)).toContain("quantlab paper supervise");
   });
 });

@@ -452,3 +452,10 @@ def test_engage_reason_length_is_bounded(ctx, client):
         "/api/risk/kill-switch/engage", headers=h, json={"reason": "x" * 501, "confirm": "ENGAGE KILL SWITCH"}
     )
     assert r.status_code == 422
+
+
+def test_supervisor_status_endpoint(ctx, client):
+    h = auth(ctx)
+    r = client.get("/api/paper/supervisor", headers=h)
+    assert r.status_code == 200 and r.json() == {"running": False, "status": None}
+    assert client.post("/api/paper/supervisor", headers=h).status_code == 405
