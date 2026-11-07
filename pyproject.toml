@@ -33,6 +33,9 @@ research = [
 ibkr = [
     "ib_async>=2.1,<3",  # BSD-2; TWS API client for IB Gateway / TWS (DATA-019)
 ]
+optimize = [
+    "optuna>=4.8,<6",  # MIT; Bayesian (TPE) and multi-objective search (OPT-002)
+]
 
 [dependency-groups]
 dev = [
@@ -43,6 +46,7 @@ dev = [
     "mypy>=1.13",
     "import-linter>=2.1",
     "ib_async>=2.1,<3",  # adapter type-checks and translation tests (no network)
+    "optuna>=4.8,<6",  # OPT-002 tests
 ]
 
 [build-system]

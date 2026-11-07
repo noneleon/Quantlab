@@ -105,3 +105,31 @@ def test_chart_datasets_with_benchmark_rebased():
     assert b["stats"]["common_days"] == 5
     with pytest.raises(MetricsError):
         chart_datasets(equity[:1])
+
+
+def test_compare_runs_rebases_and_correlates():
+    from quantlab.analytics.comparison import compare_runs
+
+    base = [(ts(i), 100.0 * (1.01**i)) for i in range(5)]
+    double = [(ts(i), 50.0 * (1.02**i)) for i in range(5)]
+    out = compare_runs(
+        [
+            {"id": "a", "label": "A", "equity": base, "metrics": {"sharpe": 1.0}},
+            {
+                "id": "b",
+                "label": "B",
+                "equity": double,
+                "metrics": {"sharpe": 2.0},
+                "provenance": "synthetic",
+            },
+        ]
+    )
+    assert out["equity"][0]["equity"][0][1] == 1.0 and out["equity"][1]["equity"][-1][1] == pytest.approx(
+        1.02**4
+    )
+    assert out["common_days"] == 4 and out["runs"][1]["metrics"]["sharpe"] == 2.0
+    assert (
+        out["correlation"] is None or len(out["correlation"]) == 2
+    )  # constant returns: undefined correlation
+    with pytest.raises(MetricsError):
+        compare_runs([{"id": "a", "label": "A", "equity": base, "metrics": {}}])

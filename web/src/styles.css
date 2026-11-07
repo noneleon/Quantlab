@@ -72,3 +72,6 @@ td.neg { color: var(--bad); }
 .notice { margin: 4px 0 8px; color: var(--warn); }
 .inline-form select { padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 @media (max-width: 760px) { .editor-layout { grid-template-columns: 1fr; } }
+table.heatmap td.heat { color: var(--text); min-width: 4em; }
+.grid-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 24px; }
+button.action { padding: 5px 12px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; margin-bottom: 8px; }

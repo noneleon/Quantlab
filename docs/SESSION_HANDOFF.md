@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0021 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0023 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -32,10 +32,13 @@
 - CHANGE-0020: Windows CI fix (tests wrote CRLF) + editor preserves CRLF/LF.
 - CHANGE-0021 (Phase 4a, DEC-0025): `quantlab optimize sweep|walk-forward|list|show`, `backtest robustness`;
   objectives/constraints, DSR, PBO (CSCV), sensitivity, stationary bootstrap, trade Monte Carlo; migration 0004.
+- CHANGE-0022: fix race on strategy_versions under parallel trials (CI #59).
+- CHANGE-0023 (Phase 4b): Optuna TPE (`--tpe N`, `--extra-objective` → Pareto), optimization pages, run comparison
+  (`/compare`), robustness panel.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 447 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: unchanged since CHANGE-0020 (20 passed). Optimization tested on the fake engine with synthetic equity only.
+Python: `uv run pytest` → 453 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: 21 passed, typecheck + build OK; browser check of optimization, compare and robustness pages (fake engine).
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -63,6 +66,7 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-1. Phase 4b (DEC-0025): optimization views (UI-005: trials table, 2-D heatmap, walk-forward windows + OOS curve,
-   DSR/PBO panel, robustness panel), Optuna search (OPT-002, optional extra), multi-run comparison (AN-004).
+1. Phase 4c (DEC-0025): strategy lifecycle states with gates (STR-004: Research → Backtested → Validated (walk-forward
+   OOS + overfitting thresholds) → Paper → Live-candidate; transitions audited, no automatic live) and promoting a
+   notebook prototype into a registered strategy (RES-006).
 2. Owner: first real LEAN Docker run (KI-0002), golden cases (KI-0053), IBKR paper check (KI-0043/0044).

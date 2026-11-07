@@ -126,3 +126,39 @@ def test_walk_forward_rolling_is_oos_separation(opt):
         service.walk_forward(spec(space=Space.parse(["start=2020-01-01"])), wf)
     with pytest.raises(OptimizationError, match="no complete walk-forward window"):
         WalkForwardSpec(date(2020, 1, 1), date(2020, 2, 1), 120, 60).windows()
+
+
+def test_tpe_search_is_seeded_distinct_and_finds_the_peak(opt):
+    service, _ = opt
+    space = Space.parse(["fast=2:18:2"])
+    a = service.sweep(spec(space=space, method="tpe", samples=6, seed=1))
+    b = service.sweep(spec(space=space, method="tpe", samples=6, seed=1))
+    ta = [t.json("parameters")["fast"] for t in service.trials(a.id)]
+    assert len(ta) == 6 and len(set(ta)) == 6  # duplicates are never re-run
+    assert ta == [t.json("parameters")["fast"] for t in service.trials(b.id)]  # same seed, same proposals
+    s = a.json("summary")
+    assert s["method"] == "tpe" and s["pareto"] is None and s["best"]["parameters"]["fast"] in ta
+    small = service.sweep(spec(space=Space.parse(["fast=8,10"]), method="tpe", samples=5, seed=2))
+    assert small.json("summary")["trials"] == 2  # never more trials than distinct points
+
+
+def test_multi_objective_pareto_front(opt):
+    service, _ = opt
+    result = service.sweep(
+        spec(
+            space=Space.parse(["fast=4:16:2"]),
+            method="tpe",
+            samples=5,
+            seed=3,
+            extra_objectives=(Objective.parse("-max_drawdown"),),
+        )
+    )
+    pareto = result.json("summary")["pareto"]
+    assert pareto and all(len(p["objectives"]) == 2 for p in pareto)
+    for p in pareto:  # nobody on the front is dominated by another front member
+        assert not any(
+            all(x >= y for x, y in zip(q["objectives"], p["objectives"], strict=True)) and q != p
+            for q in pareto
+        )
+    with pytest.raises(OptimizationError, match="need method 'tpe'"):
+        service.sweep(spec(extra_objectives=(Objective.parse("cagr"),)))

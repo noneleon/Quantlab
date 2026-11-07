@@ -516,6 +516,14 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             ],
         }
 
+    @app.get("/api/compare", dependencies=auth)
+    def compare_backtests(runs: str) -> dict[str, Any]:
+        """AN-004: ?runs=<id>,<id>[,...] (2-10 runs)."""
+        try:
+            return ctx.read_only_backtests().compare_many([r for r in runs.split(",") if r])
+        except BacktestError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
     @app.get("/api/backtests/{run_id}/robustness", dependencies=auth)
     def backtest_robustness(
         run_id: str,

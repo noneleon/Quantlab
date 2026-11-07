@@ -247,6 +247,121 @@ export interface SaveResult {
 
 export type Point = [string, number | null];
 
+export interface OptimizationSummaryRow {
+  id: string;
+  kind: "sweep" | "walk_forward";
+  strategy: string;
+  status: string;
+  created_at: string;
+  finished_at: string | null;
+  objective: string | null;
+}
+
+export interface TrialView {
+  seq: number;
+  parameters: Record<string, string>;
+  objective: number | null;
+  run_id: string | null;
+  metrics: Record<string, number | null>;
+  objectives?: number[];
+}
+
+export interface OptimizationTrialRow {
+  seq: number;
+  window: number | null;
+  segment: "ALL" | "IS" | "OOS";
+  parameters: Record<string, string>;
+  run_id: string | null;
+  status: string;
+  objective: number | null;
+  metrics: Record<string, number | string | null>;
+}
+
+export interface WalkForwardWindow {
+  window: number;
+  is: [string, string];
+  oos: [string, string];
+  is_trials: number;
+  status?: string;
+  parameters?: Record<string, string>;
+  is_objective?: number | null;
+  oos_objective?: number | null;
+  is_cagr?: number | null;
+  oos_cagr?: number | null;
+  is_run?: string | null;
+  oos_run?: string | null;
+}
+
+export interface OptimizationDetail {
+  id: string;
+  kind: "sweep" | "walk_forward";
+  strategy: string;
+  status: string;
+  created_at: string;
+  finished_at: string | null;
+  error: string | null;
+  spec: Record<string, unknown> & { space: Record<string, string[]>; objective: string };
+  summary: {
+    objective: string;
+    warnings: string[];
+    dataset_version?: string | null;
+    // sweep
+    trials?: number;
+    method?: string;
+    status_counts?: Record<string, number>;
+    best?: TrialView | null;
+    top?: TrialView[];
+    pareto?: TrialView[] | null;
+    overfitting?: {
+      deflated_sharpe?: { probability: number; sharpe: number; sharpe_annual: number; expected_max_sharpe: number; trials: number; observations: number };
+      pbo?: { pbo: number; splits: number; blocks: number; trials: number };
+      deflated_sharpe_error?: string;
+      pbo_error?: string;
+    };
+    sensitivity?: {
+      parameters: string[];
+      marginal: Record<string, { value: string; mean: number; min: number; max: number; trials: number }[]>;
+      neighbourhood_ratio: number | null;
+    };
+    // walk-forward
+    windows?: WalkForwardWindow[];
+    oos_equity?: Point[];
+    oos_metrics?: Record<string, number | null>;
+    walk_forward_efficiency?: number | null;
+    parameter_changes?: number;
+    is_trials?: number;
+    oos_runs?: number;
+  } | null;
+  trials: OptimizationTrialRow[];
+}
+
+export interface CompareResult {
+  runs: { id: string; label: string; provenance: string | null; metrics: Record<string, number | string | null> }[];
+  equity: { id: string; label: string; equity: Point[] }[];
+  common_days: number;
+  correlation: (number | null)[][] | null;
+  conventions: string;
+  warnings: string[];
+}
+
+export interface Percentiles {
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+}
+
+export interface RobustnessResult {
+  run_id: string;
+  warnings: string[];
+  note: string;
+  bootstrap?: { samples: number; mean_block: number; seed: number; total_return: Percentiles; sharpe_annual: Percentiles; max_drawdown: Percentiles; probability_of_loss: number };
+  bootstrap_error?: string;
+  trade_monte_carlo?: { samples: number; trades: number; max_drawdown_shuffled: Percentiles; net_pnl_resampled: Percentiles; probability_of_net_loss: number };
+  trade_monte_carlo_error?: string;
+}
+
 export interface TradeStats {
   basis: string;
   trades: number;

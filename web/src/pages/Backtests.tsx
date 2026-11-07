@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import type { BacktestDetail, BacktestSummary } from "../api";
@@ -9,19 +10,23 @@ import { BacktestChartsSection } from "./BacktestCharts";
 
 export function BacktestList() {
   const { data, error, loading } = useApi<BacktestSummary[]>("/api/backtests?limit=200");
+  const [selected, setSelected] = useState<string[]>([]);
+  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-10)));
   if (error) return <ErrorBox error={error} />;
   if (loading || !data) return <Loading />;
   return (
     <section>
       <h1>Backtesting</h1>
       <p className="muted">History is immutable. Run with <code>quantlab backtest run</code>; reproduce with <code>quantlab backtest rerun</code>.</p>
+      <p>{selected.length >= 2 ? <Link to={`/compare?runs=${selected.join(",")}`}>Compare {selected.length} selected runs</Link> : <span className="muted">Select 2–10 succeeded runs to compare.</span>}</p>
       {data.length === 0 ? <Empty>No backtests yet.</Empty> : (
         <table>
-          <thead><tr><th>Run</th><th>Status</th><th>Data</th><th className="num">Return</th><th className="num">Sharpe</th>
+          <thead><tr><th>Compare</th><th>Run</th><th>Status</th><th>Data</th><th className="num">Return</th><th className="num">Sharpe</th>
             <th className="num">Max DD</th><th>Created</th><th>Rerun of</th></tr></thead>
           <tbody>
             {data.map((b) => (
               <tr key={b.id}>
+                <td><input type="checkbox" aria-label={`compare ${b.id}`} checked={selected.includes(b.id)} onChange={() => toggle(b.id)} disabled={b.status !== "succeeded"} /></td>
                 <td><Link to={`/backtests/${b.id}`}>{b.id}</Link></td><td><StatusBadge status={b.status} /></td>
                 <td><ProvenanceBadge provenance={b.data_provenance} /></td><td className="num">{pct(b.total_return)}</td>
                 <td className="num">{num(b.sharpe)}</td><td className="num">{pct(b.max_drawdown)}</td>

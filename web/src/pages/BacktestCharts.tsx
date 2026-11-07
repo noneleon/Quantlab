@@ -1,6 +1,6 @@
 import { useContext, useMemo, useState } from "react";
 
-import { apiGetText, type BacktestCharts } from "../api";
+import { apiGet, apiGetText, type BacktestCharts, type Percentiles, type RobustnessResult } from "../api";
 import type { ChartSeries } from "../components/TimeSeriesChart";
 import { TimeSeriesChart } from "../components/TimeSeriesChart";
 import { Empty, ErrorBox, Loading } from "../components/States";
@@ -117,6 +117,7 @@ export function BacktestChartsSection({ runId }: { runId: string }) {
         <tr><th>Expectancy</th><td className="num">{num(ts.expectancy)}</td></tr>
         <tr><th>Net P&amp;L (gross of fees)</th><td className="num">{num(ts.net_pnl, 2)}</td></tr>
       </tbody></table>
+      <RobustnessPanel runId={runId} />
       <h2>Orders</h2>
       {data.orders.length === 0 ? <Empty>No orders.</Empty> : (
         <table>
@@ -129,6 +130,52 @@ export function BacktestChartsSection({ runId }: { runId: string }) {
           </tbody>
         </table>
       )}
+    </>
+  );
+}
+
+function row(label: string, p: Percentiles, fmt: (v: number) => string) {
+  return <tr><th>{label}</th><td className="num">{fmt(p.p5)}</td><td className="num">{fmt(p.p25)}</td><td className="num">{fmt(p.p50)}</td><td className="num">{fmt(p.p75)}</td><td className="num">{fmt(p.p95)}</td></tr>;
+}
+
+/** OPT-004: bootstrap + trade Monte Carlo on demand (seeded; descriptive, not a forecast). */
+export function RobustnessPanel({ runId }: { runId: string }) {
+  const token = useContext(TokenContext);
+  const [result, setResult] = useState<RobustnessResult | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await apiGet<RobustnessResult>(`/api/backtests/${encodeURIComponent(runId)}/robustness?samples=500&seed=0`, token));
+    } catch (e) {
+      setError(e as Error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const b = result?.bootstrap;
+  const mc = result?.trade_monte_carlo;
+  return (
+    <>
+      <h2>Robustness</h2>
+      <p className="muted">Stationary bootstrap of daily returns and trade-order Monte Carlo (500 paths, seed 0). Describes this history; not a forecast.</p>
+      <button type="button" className="action" onClick={() => void run()} disabled={busy}>{busy ? "Resampling…" : "Run bootstrap + Monte Carlo"}</button>
+      {error ? <ErrorBox error={error} /> : null}
+      {result ? (
+        <>
+          {b ? (
+            <table className="narrow"><thead><tr><th>Bootstrap</th><th className="num">p5</th><th className="num">p25</th><th className="num">p50</th><th className="num">p75</th><th className="num">p95</th></tr></thead>
+              <tbody>{row("Total return", b.total_return, (v) => pct(v))}{row("Max drawdown", b.max_drawdown, (v) => pct(v))}{row("Sharpe (annual)", b.sharpe_annual, (v) => num(v))}
+                <tr><th>P(loss)</th><td className="num" colSpan={5}>{pct(b.probability_of_loss)}</td></tr></tbody></table>
+          ) : <p className="muted">Bootstrap: {result.bootstrap_error}</p>}
+          {mc ? (
+            <table className="narrow"><thead><tr><th>Trade Monte Carlo ({mc.trades} trades)</th><th className="num">p5</th><th className="num">p25</th><th className="num">p50</th><th className="num">p75</th><th className="num">p95</th></tr></thead>
+              <tbody>{row("Max drawdown (shuffled)", mc.max_drawdown_shuffled, (v) => pct(v))}{row("Net P&L (resampled)", mc.net_pnl_resampled, (v) => num(v, 2))}</tbody></table>
+          ) : <p className="muted">Trade Monte Carlo: {result.trade_monte_carlo_error}</p>}
+        </>
+      ) : null}
     </>
   );
 }

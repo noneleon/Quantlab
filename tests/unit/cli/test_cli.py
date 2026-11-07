@@ -225,3 +225,24 @@ def test_backtest_robustness_cli(home, tmp_path, monkeypatch):
     r = ql("backtest", "robustness", run_id, "--samples", "50", "--seed", "1")
     assert r.exit_code == 0 and "bootstrap (50 paths" in r.stdout and "P(loss)" in r.stdout
     assert "trade Monte Carlo" in r.stdout
+
+
+def test_optimize_tpe_cli(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_SYNTH", "1")
+    ql("strategy", "add", "opt", _optimizable(tmp_path))
+    r = ql(
+        "optimize",
+        "sweep",
+        "opt",
+        "-s",
+        "fast=4:16:2",
+        "--tpe",
+        "4",
+        "--seed",
+        "5",
+        "--extra-objective",
+        "-max_drawdown",
+    )
+    assert r.exit_code == 0, r.output
+    assert "pareto" in r.stdout and "trials 4" in r.stdout
+    assert ql("optimize", "sweep", "opt", "-s", "fast=4,6", "--tpe", "2", "--random", "2").exit_code == 1

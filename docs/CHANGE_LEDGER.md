@@ -406,3 +406,18 @@ Fix: `StrategyRegistry.record_version` inserts inside a savepoint and, on Integr
 session inserted. Regression test `test_concurrent_runs_record_one_strategy_version` (4 concurrent runs): fails 3/5
 times against the old code, passes 10/10 with the fix.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0023 — Phase 4b: Optuna TPE + multi-objective, optimization views, multi-run comparison
+Date: 2026-11-07 · Modules: optimize, analytics, backtest, api, cli, web · Feature IDs: OPT-002, UI-005, AN-004 ·
+Decision: DEC-0025
+Files added: `src/quantlab/analytics/comparison.py`, `web/src/pages/{Optimizations,Compare}.tsx`
+Files modified: `optimize/service.py` (method `tpe`, `extra_objectives`, Pareto front, first trial alone whenever
+trials run in parallel), `backtest/service.py` (`compare_many`), `api/app.py` (`/api/compare`), `cli/optimize.py`
+(`--tpe`, `--extra-objective`, Pareto output), `pyproject.toml` + `uv.lock` (extra `optimize` = optuna 5.0.0, MIT;
+also in the dev group), `web/src/{api.ts,App.tsx,modules.ts,modules.test.ts,components.test.tsx,styles.css,
+pages/Backtests.tsx,pages/BacktestCharts.tsx}` (run selection for comparison, robustness panel), tests, docs.
+Verification: browser (Playwright) on a scratch home with fake-engine studies (12-trial 2-D sweep, 4-window
+walk-forward): heatmap colours apply under the strict CSP (React sets styles via CSSOM), compare + robustness panels
+load; zero console/CSP errors. Synthetic numbers only.
+Tests: Python 453 passed, 1 skipped; web 21 passed, typecheck + build OK; ruff, mypy --strict, lint-imports clean.
+Result: PASS · Regression status: PASS

@@ -8,6 +8,8 @@ import { BacktestDetailPage, BacktestList } from "./pages/Backtests";
 import { Dashboard } from "./pages/Dashboard";
 import { DatasetDetailPage, DatasetList } from "./pages/Datasets";
 import { ModulePage } from "./pages/ModulePage";
+import { ComparePage } from "./pages/Compare";
+import { OptimizationDetailPage, OptimizationList } from "./pages/Optimizations";
 import { StrategyList } from "./pages/Strategies";
 
 // The editor (CodeMirror) is loaded on demand so the rest of the workstation stays small.
@@ -50,6 +52,9 @@ export function App({ token }: { token: string | null }) {
               <Route path="/strategies" element={<StrategyList />} />
               <Route path="/editor" element={<Suspense fallback={<Loading />}><EditorIndex /></Suspense>} />
               <Route path="/editor/:name" element={<Suspense fallback={<Loading />}><EditorPage /></Suspense>} />
+              <Route path="/optimizations" element={<OptimizationList />} />
+              <Route path="/optimizations/:id" element={<OptimizationDetailPage />} />
+              <Route path="/compare" element={<ComparePage />} />
               <Route path="/modules/:id" element={<ModulePage />} />
               <Route path="*" element={<p className="muted">Page not found.</p>} />
             </Routes>

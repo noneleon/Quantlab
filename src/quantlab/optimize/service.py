@@ -70,10 +70,14 @@ class StudySpec:
     dataset_version: str | None = None
     models: dict[str, Any] | None = None
     max_parallel: int = 1
+    # Further objectives (multi-objective TPE): the study then reports the Pareto front.
+    extra_objectives: tuple[Objective, ...] = ()
 
     def points(self) -> list[dict[str, str]]:
         if self.method == "grid":
             return self.space.grid()
+        if self.method == "tpe":
+            return [{d.name: d.values[0] for d in self.space.dimensions}]  # proposals come from Optuna
         if self.method == "random":
             if not self.samples:
                 raise OptimizationError("random search needs a number of samples")
@@ -94,6 +98,7 @@ class StudySpec:
             "dataset_version": self.dataset_version,
             "models": self.models,
             "max_parallel": self.max_parallel,
+            "extra_objectives": [o.expression for o in self.extra_objectives],
         }
 
 
@@ -204,10 +209,15 @@ class OptimizationService:
     def sweep(self, spec: StudySpec) -> Optimization:
         points = spec.points()
         self._check_parameters(spec, list(points[0]))
+        if spec.extra_objectives and spec.method != "tpe":
+            raise OptimizationError("multiple objectives need method 'tpe' (Optuna)")
         opt_id = self._start("sweep", spec.to_dict())
         try:
-            trials = [_Trial(i, {**spec.fixed, **p}) for i, p in enumerate(points)]
-            pinned = self._run_trials(opt_id, spec, trials, spec.dataset_version)
+            if spec.method == "tpe":
+                trials, pinned = self._run_tpe(opt_id, spec)
+            else:
+                trials = [_Trial(i, {**spec.fixed, **p}) for i, p in enumerate(points)]
+                pinned = self._run_trials(opt_id, spec, trials, spec.dataset_version)
             summary = self._study_summary(spec, trials)
             summary["dataset_version"] = pinned
         except Exception as exc:
@@ -337,10 +347,13 @@ class OptimizationService:
             return t
 
         remaining = list(trials)
-        if pinned is None and spec.dataset is not None and remaining:
-            first = run_one(remaining.pop(0), None)
+        # The first trial runs alone: it pins the dataset version and records the strategy version before any
+        # parallel trial starts (record_version is also safe under races; this keeps the common path simple).
+        if remaining and ((pinned is None and spec.dataset is not None) or spec.max_parallel > 1):
+            first = run_one(remaining.pop(0), pinned)
             self._persist(opt_id, first)
-            pinned = first.run.data_version if first.run else None
+            if pinned is None and spec.dataset is not None:
+                pinned = first.run.data_version if first.run else None
         if spec.max_parallel > 1 and len(remaining) > 1:
             with ThreadPoolExecutor(max_workers=spec.max_parallel) as pool:
                 for done in pool.map(lambda t: run_one(t, pinned), remaining):
@@ -398,6 +411,53 @@ class OptimizationService:
             )
             session.commit()
 
+    def _run_tpe(self, opt_id: str, spec: StudySpec) -> tuple[list[_Trial], str | None]:
+        """OPT-002: seeded Optuna TPE picks points of the same discrete space; trials are normal backtests."""
+        try:
+            import optuna
+        except ImportError as exc:  # pragma: no cover - extra not installed
+            raise OptimizationError(
+                "method 'tpe' needs the 'optimize' extra: `uv sync --extra optimize`"
+            ) from exc
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        if not spec.samples:
+            raise OptimizationError("method 'tpe' needs a number of trials (samples)")
+        objectives = (spec.objective, *spec.extra_objectives)
+        study = optuna.create_study(
+            directions=["maximize"] * len(objectives), sampler=optuna.samplers.TPESampler(seed=spec.seed)
+        )
+        trials: list[_Trial] = []
+        seen: dict[str, _Trial] = {}
+        pinned = spec.dataset_version
+        attempts = 0
+        while len(trials) < min(spec.samples, spec.space.size) and attempts < spec.samples * 5:
+            attempts += 1
+            proposal = study.ask()
+            point = {
+                d.name: proposal.suggest_categorical(d.name, list(d.values)) for d in spec.space.dimensions
+            }
+            key = _canonical(point)
+            if key in seen:  # already evaluated: tell Optuna the known result, run nothing
+                prior = seen[key]
+                self._tell(study, proposal, prior, objectives)
+                continue
+            trial = _Trial(len(trials), {**spec.fixed, **point})
+            pinned = self._run_trials(opt_id, spec, [trial], pinned)
+            seen[key] = trial
+            trials.append(trial)
+            self._tell(study, proposal, trial, objectives)
+        return trials, pinned
+
+    @staticmethod
+    def _tell(study: Any, proposal: Any, trial: _Trial, objectives: tuple[Objective, ...]) -> None:
+        import optuna
+
+        values = [o.evaluate(trial.metrics) for o in objectives]
+        if trial.status != "ok" or any(v is None for v in values):
+            study.tell(proposal, state=optuna.trial.TrialState.FAIL)
+        else:
+            study.tell(proposal, values if len(values) > 1 else values[0])
+
     @staticmethod
     def _best(trials: list[_Trial]) -> _Trial | None:
         ok = [t for t in trials if t.status == "ok" and t.objective is not None]
@@ -441,6 +501,19 @@ class OptimizationService:
 
     def _study_summary(self, spec: StudySpec, trials: list[_Trial]) -> dict[str, Any]:
         best = self._best(trials)
+        pareto = None
+        if spec.extra_objectives:
+            objectives = (spec.objective, *spec.extra_objectives)
+            evaluated = [(t, [o.evaluate(t.metrics) for o in objectives]) for t in trials if t.status == "ok"]
+            vectors = [(t, [float(v) for v in vs if v is not None]) for t, vs in evaluated if None not in vs]
+            pareto = [
+                {**(_trial_view(t) or {}), "objectives": vs}
+                for t, vs in vectors
+                if not any(
+                    all(a >= b for a, b in zip(other, vs, strict=True)) and other != vs
+                    for _, other in vectors
+                )
+            ]
         ranked = sorted(
             (t for t in trials if t.status == "ok" and t.objective is not None),
             key=lambda t: (-(t.objective or 0.0), t.seq),
@@ -454,6 +527,8 @@ class OptimizationService:
             "status_counts": counts,
             "best": _trial_view(best),
             "top": [_trial_view(t) for t in ranked[:10]],
+            "pareto": pareto,
+            "method": spec.method,
             "overfitting": self._overfitting(trials, best),
             "warnings": [
                 *self._provenance_warnings(trials),

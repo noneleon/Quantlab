@@ -34,7 +34,12 @@ DatasetOpt = Annotated[str | None, typer.Option(help="Dataset to run on (default
 RandomOpt = Annotated[
     int | None, typer.Option("--random", help="Random search: number of points (default: full grid).")
 ]
-SeedOpt = Annotated[int, typer.Option(help="Seed for random search.")]
+SeedOpt = Annotated[int, typer.Option(help="Seed for random / TPE search.")]
+TpeOpt = Annotated[int | None, typer.Option("--tpe", help="Bayesian (Optuna TPE) search: number of trials.")]
+ExtraObjOpt = Annotated[
+    list[str] | None,
+    typer.Option("--extra-objective", help="Additional objective (multi-objective TPE, Pareto front)."),
+]
 ParallelOpt = Annotated[int, typer.Option(min=1, max=16, help="Trials run concurrently (LEAN containers).")]
 
 
@@ -59,19 +64,24 @@ def _spec(
     random: int | None,
     seed: int,
     parallel: int,
+    tpe: int | None = None,
+    extra_objectives: list[str] | None = None,
 ) -> Any:
     from quantlab.optimize.objective import Constraint, ExpressionError, Objective
     from quantlab.optimize.service import StudySpec
     from quantlab.optimize.space import Space, SpaceError
 
+    if random and tpe:
+        fail("choose either --random or --tpe")
     try:
         return StudySpec(
             strategy=strategy,
             space=Space.parse(space),
             objective=Objective.parse(objective),
             constraints=tuple(Constraint.parse(c) for c in constraint or []),
-            method="random" if random else "grid",
-            samples=random,
+            method="tpe" if tpe else "random" if random else "grid",
+            samples=tpe or random,
+            extra_objectives=tuple(Objective.parse(o) for o in extra_objectives or []),
             seed=seed,
             fixed=_pairs(param, "parameter"),
             dataset=dataset,
@@ -111,6 +121,11 @@ def _print_summary(opt: Any) -> None:
             )
         if "pbo" in of:
             typer.echo(f"PBO (CSCV, {of['pbo']['splits']} splits): {of['pbo']['pbo']:.3f}")
+        for p in s.get("pareto") or []:
+            typer.echo(
+                f"pareto   {p['parameters']}  objectives {[round(v, 4) for v in p['objectives']]}  "
+                f"run {p['run_id']}"
+            )
         sens = s.get("sensitivity")
         if sens and sens.get("neighbourhood_ratio") is not None:
             typer.echo(f"neighbourhood ratio (plateau≈1, spike≪1): {sens['neighbourhood_ratio']:.3f}")
@@ -145,11 +160,26 @@ def sweep(
     random: RandomOpt = None,
     seed: SeedOpt = 0,
     parallel: ParallelOpt = 1,
+    tpe: TpeOpt = None,
+    extra_objective: ExtraObjOpt = None,
     home: HomeOpt = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Grid or random search over parameters; every trial is a recorded backtest."""
-    spec = _spec(strategy, space, objective, constraint, param, model, dataset, random, seed, parallel)
+    """Grid, random or Bayesian (TPE) search over parameters; every trial is a recorded backtest."""
+    spec = _spec(
+        strategy,
+        space,
+        objective,
+        constraint,
+        param,
+        model,
+        dataset,
+        random,
+        seed,
+        parallel,
+        tpe,
+        extra_objective,
+    )
     with context(home) as ctx:
         opt = ctx.optimizer().sweep(spec)
     if as_json:

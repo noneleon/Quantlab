@@ -316,3 +316,16 @@ def test_optimization_and_robustness_endpoints(ctx, client, monkeypatch):
     rob = client.get(f"/api/backtests/{run_id}/robustness?samples=20", headers=h).json()
     assert rob["run_id"] == run_id and rob["warnings"]
     assert client.get(f"/api/backtests/{run_id}/robustness?samples=999999", headers=h).status_code == 422
+
+
+def test_compare_endpoint(ctx, client):
+    with ctx.sessions() as s:
+        ctx.registry.register(s, "sma", EXAMPLE_STRATEGY)
+        s.commit()
+    a, b = ctx.backtests().run("sma"), ctx.backtests().run("sma", {"fast": "5"})
+    h = auth(ctx)
+    out = client.get(f"/api/compare?runs={a.id},{b.id}", headers=h).json()
+    assert [r["id"] for r in out["runs"]] == [a.id, b.id] and len(out["equity"]) == 2 and out["warnings"]
+    assert "fast=5" in out["runs"][1]["label"]
+    assert client.get(f"/api/compare?runs={a.id}", headers=h).status_code == 404
+    assert client.get(f"/api/compare?runs={a.id},{a.id}", headers=h).status_code == 404

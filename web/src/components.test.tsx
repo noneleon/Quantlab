@@ -70,4 +70,16 @@ describe("components", () => {
     expect(html).toContain("Template: pairs");
     expect(html).toContain("<form");
   });
+
+  it("objective heatmap prints every value and leaves missing cells empty", async () => {
+    const { Heatmap } = await import("./pages/Optimizations");
+    const t = (fast: string, slow: string, objective: number | null, status = "ok") =>
+      ({ seq: 0, window: null, segment: "ALL" as const, parameters: { fast, slow }, run_id: null, status, objective, metrics: {} });
+    const html = renderToStaticMarkup(<Heatmap trials={[t("5", "50", 1.5), t("10", "50", 0.5), t("5", "100", null, "run_failed")]} x="fast" y="slow" />);
+    expect(html).toContain("1.500");
+    expect(html).toContain("0.500");
+    expect(html).toContain("background-color:rgba(37, 99, 235, 0.870)");
+    expect(html).toContain("–");
+  });
 });
+

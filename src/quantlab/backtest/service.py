@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 import quantlab
 from quantlab.analytics.charts import Fill, chart_datasets
+from quantlab.analytics.comparison import compare_runs
 from quantlab.analytics.metrics import MetricsError, cross_check, equity_metrics
 from quantlab.analytics.report import render_report
 from quantlab.analytics.robustness import RobustnessError, stationary_bootstrap, trade_monte_carlo
@@ -434,6 +435,40 @@ class BacktestService:
             "charts": charts,
             "orders": raw["orders"],
         }
+
+    def compare_many(self, run_ids: builtins.list[str]) -> dict[str, Any]:
+        """AN-004: rebased equity, metrics and return correlations of several runs, with data provenance."""
+        if len(set(run_ids)) != len(run_ids):
+            raise BacktestError("each run may appear only once in a comparison")
+        if not 2 <= len(run_ids) <= 10:
+            raise BacktestError("compare 2 to 10 runs")
+        runs = []
+        warnings = []
+        for run_id in run_ids:
+            run = self.get(run_id)
+            manifest = run.json("manifest")
+            raw = self.results(run_id)
+            params = run.json("parameters")
+            label = f"{manifest['strategy']['name']} " + ",".join(
+                f"{k}={v}" for k, v in sorted(params.items())
+            )
+            runs.append(
+                {
+                    "id": run_id,
+                    "label": label[:80],
+                    "equity": raw["equity"],
+                    "metrics": run.json("metrics"),
+                    "provenance": run.data_provenance,
+                }
+            )
+            if not Provenance(run.data_provenance).is_real:
+                warnings.append(f"run {run_id}: {DataBinding(run.data_provenance).note}")
+        try:
+            out = compare_runs(runs)
+        except MetricsError as exc:
+            raise BacktestError(str(exc)) from exc
+        out["warnings"] = warnings
+        return out
 
     def robustness(
         self, run_id: str, *, samples: int = 1000, seed: int = 0, mean_block: float = 5.0
