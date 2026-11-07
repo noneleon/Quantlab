@@ -356,15 +356,22 @@ def paper_gateway(
     home: HomeOpt = None,
 ) -> None:
     """Serve the LEAN gateway (OMS-007): a LEAN algorithm's orders go through the OMS and risk gate."""
+    from contextlib import ExitStack
+
+    from quantlab.core.filelock import LockHeld, exclusive
     from quantlab.oms.gateway import Gateway, GatewayError, write_run_file
 
-    with context(home) as ctx, ctx.sessions() as session:
-        try:
+    with context(home) as ctx, ctx.sessions() as session, ExitStack() as stack:
+        run_file = ctx.settings.home / "run" / f"gateway-{deployment}.json"
+        try:  # one gateway per deployment: its run file and sell cap must not race another one
+            stack.enter_context(exclusive(run_file.with_name(run_file.name + ".lock")))
             gw = Gateway(ctx.paper_oms(session), ctx.sessions, deployment, port=port)
+        except LockHeld:
+            fail(f"a gateway for {deployment} is already running")
         except GatewayError as exc:
             fail(str(exc))
-        run_file = ctx.settings.home / "run" / f"gateway-{deployment}.json"
         write_run_file(run_file, gw.info)
+        stack.callback(run_file.unlink, missing_ok=True)  # the token is only valid while this gateway runs
         typer.echo(
             f"[PAPER] LEAN gateway for {deployment} on 127.0.0.1:{gw.info.port} "
             f"(connection details in {run_file}; Ctrl+C to stop)"
@@ -373,5 +380,3 @@ def paper_gateway(
             gw.serve()
         except KeyboardInterrupt:
             typer.echo("gateway stopped")
-        finally:
-            run_file.unlink(missing_ok=True)  # the token is only valid while this gateway runs

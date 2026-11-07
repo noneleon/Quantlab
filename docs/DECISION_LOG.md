@@ -277,3 +277,5 @@ them, so strategies never sell manual or other deployments' positions. Cash is t
 gateway cannot touch the kill switch, limits, credentials or mode; malformed input is answered with an error and never
 ends the gateway. (5) Orders of an earlier run that are still working stay under the risk gate and the supervisor,
 but the new run does not manage them (cancel by hand or with the kill switch).
+Amendment (CHANGE-0035): run ids are issued by the gateway; earlier runs' unfinished orders block new orders until
+cancelled (`cancel_orphans`) or resolved; refusals are audited and stay refused for the run.

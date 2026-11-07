@@ -666,3 +666,24 @@ Tests: socket-level tests against the gateway in a thread (risk rejection and ki
 idempotent reconnect, deployment-scoped cancel, auth refusal, snapshot), stable over repeated runs. Python 593
 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. Synthetic SIMULATED quotes only.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0035 — Phase 5c-1 follow-up: second gateway review fixed
+Date: 2026-11-07 · Modules: oms, cli · Feature IDs: OMS-007 · Decision: DEC-0031 (amended)
+Review (second trading-safety review, started before CHANGE-0034 was committed): the first round of fixes held; no
+BLOCKER; 1 MAJOR + 11 MINOR.
+Fixes (each with a regression test):
+- MAJOR: unfinished orders of an earlier run of the deployment ("orphans") are listed in `welcome`/`snapshot`, block
+  new orders from the new run, and can be cancelled with `cancel_orphans` (pending/unknown ones are left to
+  reconciliation and reported).
+- Run ids are issued by the gateway (`hello` without `run` = new algorithm start); a reconnect must present an id the
+  gateway issued or one known from its orders, so a reused or invented run id can no longer revive the collision.
+- Deployment orders are selected by `source = lean:<deployment>` and an exact-case key match (SQLite LIKE ignores
+  case); `lean:` keys are reserved case-insensitively.
+- The sell cap uses min(own, account position) and subtracts every unfinished own sell (pending/unknown included).
+- Refusals are audited (`gateway.order_refused`) and remembered per run, so a stale replay stays refused.
+- Error replies say `outcome: not_placed` or `unknown`; replays compare time in force too; this run's orders are
+  filtered in SQL; one gateway per deployment (lock in the CLI).
+Remaining (KI-0077): cash in the snapshot is the shared account's; the CLI keeps one DB session open for the quote
+provider (as the supervisor does); the per-deployment lock is not covered by an automated CLI test.
+Tests: Python 598 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean; gateway tests repeated.
+Result: PASS · Regression status: PASS

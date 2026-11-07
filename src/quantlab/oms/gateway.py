@@ -46,11 +46,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from quantlab.core.audit import AuditLog
+from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
 from quantlab.oms import queries
 from quantlab.oms.models import FillRecord, Order
-from quantlab.oms.service import OMS, OrderRequest, OrderType, Side, TimeInForce
-from quantlab.oms.states import TERMINAL, WORKING, OrderState
+from quantlab.oms.service import OMS, OMSError, OrderRequest, OrderType, Side, TimeInForce
+from quantlab.oms.states import TERMINAL, OrderState
 
 log = get_logger(__name__)
 
@@ -126,6 +128,9 @@ class Gateway:
         self.info = GatewayInfo(deployment, host, self._server.getsockname()[1], self._token)
         self._stop = threading.Event()
         self._run: str | None = None
+        self._issued: set[str] = set()  # run ids this gateway handed out
+        self._refused: dict[tuple[str, int], str] = {}  # (run, LEAN id) -> why: a replay stays refused
+        self._audit = AuditLog()
 
     @property
     def _deployment_prefix(self) -> str:
@@ -166,8 +171,17 @@ class Gateway:
             send({"type": "error", "message": "authentication failed"})
             return
         self._run = hello
+        with self._sessions() as session:
+            orphans = [o.id for o, st in self._orphans(session)]
         send(
-            {"type": "welcome", "account": self._oms.account, "mode": "paper", "deployment": self.deployment}
+            {
+                "type": "welcome",
+                "account": self._oms.account,
+                "mode": "paper",
+                "deployment": self.deployment,
+                "run": self._run,
+                "orphans": orphans,  # earlier runs' unfinished orders: no new orders until resolved
+            }
         )
         log.info("gateway.connected", deployment=self.deployment, run=self._run)
         sent_states: dict[str, str] = {}
@@ -200,9 +214,26 @@ class Gateway:
             return None
         if not hmac.compare_digest(str(msg.get("token", "")).encode(), self._token.encode()):
             return None
-        run = msg.get("run")
-        if msg.get("deployment") != self.deployment or not isinstance(run, str) or not RUN_RE.match(run):
+        if msg.get("deployment") != self.deployment:
             return None
+        run = msg.get("run")
+        if run is None:  # a new algorithm start: the gateway issues the run id (never reused)
+            run = "r" + new_id().lower()
+            self._issued.add(run)
+            return run
+        if not isinstance(run, str) or not RUN_RE.match(run):
+            return None
+        if run in self._issued:
+            return run  # a reconnect within the run
+        with self._sessions() as session:  # issued by an earlier gateway process: known by its orders
+            known = session.execute(
+                select(Order.id)
+                .where(Order.client_order_key.startswith(f"{self._deployment_prefix}{run}:", autoescape=True))
+                .limit(1)
+            ).first()
+        if known is None:
+            return None
+        self._issued.add(run)
         return run
 
     def _guarded(
@@ -221,7 +252,10 @@ class Gateway:
             log.warning("gateway.step_failed", deployment=self.deployment, error=repr(exc))
             if report:
                 ident = msg.get("id") if isinstance(msg, dict) else None
-                send({"type": "error", "id": ident, "message": _short(exc)})
+                # "not_placed": refused before anything was stored; "unknown": the order may exist (reconcile)
+                definite = isinstance(exc, GatewayError | OMSError | ValueError | TypeError | KeyError)
+                send({"type": "error", "id": ident, "message": _short(exc),
+                      "outcome": "not_placed" if definite else "unknown"})  # fmt: skip
 
     def _handle(self, msg: Any, send: Callable[[dict[str, Any]], None]) -> None:
         kind = msg.get("type") if isinstance(msg, dict) else None
@@ -231,11 +265,32 @@ class Gateway:
             self._cancel(msg, send)
         elif kind == "snapshot":
             send(self._snapshot())
+        elif kind == "cancel_orphans":
+            self._cancel_orphans(send)
         else:
             raise GatewayError(f"unknown message type {kind!r}")
 
     def _place(self, msg: dict[str, Any], send: Callable[[dict[str, Any]], None]) -> None:
         lean_id = _lean_id(msg)
+        assert self._run is not None
+        if (self._run, lean_id) in self._refused:
+            raise GatewayError(f"order id {lean_id} was refused earlier: {self._refused[self._run, lean_id]}")
+        try:
+            self._place_checked(msg, lean_id, send)
+        except GatewayError as exc:  # remembered and audited: a replay after a reconnect stays refused
+            self._refused[self._run, lean_id] = str(exc)
+            with self._sessions() as session:
+                self._audit.record(
+                    session, actor_type="system", actor=f"lean:{self.deployment}",
+                    action="gateway.order_refused", target=self._oms.account,
+                    details={"run": self._run, "id": lean_id, "reason": str(exc)},
+                )  # fmt: skip
+                session.commit()
+            raise
+
+    def _place_checked(
+        self, msg: dict[str, Any], lean_id: int, send: Callable[[dict[str, Any]], None]
+    ) -> None:
         quantity = _number(msg.get("quantity"), "quantity")
         if quantity == 0:
             raise GatewayError("quantity must not be 0")
@@ -254,11 +309,18 @@ class Gateway:
             existing = session.execute(
                 select(Order).where(Order.client_order_key == req.client_order_key)
             ).scalar_one_or_none()
+            if existing is None:
+                orphans = self._orphans(session)
+                if orphans:
+                    raise GatewayError(
+                        f"{len(orphans)} order(s) of an earlier run are still open "
+                        f"({', '.join(o.id for o, _ in orphans)}): send cancel_orphans or resolve them first"
+                    )
             if existing is not None:  # a replay within this run: same order, or refused
                 same = (existing.symbol, existing.side, existing.quantity, existing.order_type,
-                        existing.limit_price, existing.stop_price) == (
+                        existing.limit_price, existing.stop_price, existing.time_in_force) == (
                         req.symbol, req.side.value, req.quantity, req.order_type.value, req.limit_price,
-                        req.stop_price)  # fmt: skip
+                        req.stop_price, req.time_in_force.value)  # fmt: skip
                 if not same:
                     raise GatewayError(
                         f"order id {lean_id} was already used in this run with other parameters"
@@ -270,12 +332,15 @@ class Gateway:
         send(_order_message(lean_id, result.order.id, result.state.value, "; ".join(reasons)))
 
     def _check_own_position(self, session: Session, req: OrderRequest) -> None:
-        """A deployment sells only what it holds: its own net position minus its own working sells."""
-        held = self._own_positions(session).get(req.symbol, 0.0)
+        """A deployment sells only what it holds: the smaller of its own net position and the account's,
+        minus its own unfinished sells (working, pending or unknown)."""
+        own = self._own_positions(session).get(req.symbol, 0.0)
+        account = self._oms.book(session).quantity(req.symbol)
+        held = min(own, max(account, 0.0))
         working_sells = sum(
             o.quantity - queries.filled_quantity(session, o.id)
             for o, st in self._deployment_orders(session)
-            if o.symbol == req.symbol and o.side == Side.SELL.value and st in WORKING
+            if o.symbol == req.symbol and o.side == Side.SELL.value and st not in TERMINAL
         )
         if req.quantity > held - working_sells + 1e-9:
             raise GatewayError(
@@ -295,15 +360,21 @@ class Gateway:
         state = self._oms.cancel(order_id)
         send(_order_message(lean_id, order_id, state.value, ""))
 
-    def _deployment_orders(self, session: Session) -> list[tuple[Order, OrderState]]:
+    def _deployment_orders(
+        self, session: Session, prefix: str | None = None
+    ) -> list[tuple[Order, OrderState]]:
+        """Orders the gateway placed for this deployment (by source *and* key; SQL LIKE ignores case)."""
         rows = session.execute(
             select(Order).where(
                 Order.account == self._oms.account,
-                Order.client_order_key.startswith(self._deployment_prefix, autoescape=True),
+                Order.source == f"lean:{self.deployment}",
+                Order.client_order_key.startswith(prefix or self._deployment_prefix, autoescape=True),
             )
         ).scalars()
         out = []
         for o in rows:
+            if not o.client_order_key.startswith(prefix or self._deployment_prefix):  # exact case
+                continue
             state = queries.current_state(session, o.id)
             if state is not None:
                 out.append((o, state))
@@ -312,11 +383,35 @@ class Gateway:
     def _mine(self, session: Session) -> list[tuple[Order, OrderState, int]]:
         """This run's orders with their LEAN ids (unparsable keys are skipped, never fatal)."""
         out = []
-        for o, st in self._deployment_orders(session):
+        for o, st in self._deployment_orders(session, self._prefix):
             lean = _lean_of(o, self._prefix)
             if lean is not None:
                 out.append((o, st, lean))
         return out
+
+    def _orphans(self, session: Session) -> list[tuple[Order, OrderState]]:
+        """Unfinished orders of this deployment's earlier runs (a restarted algorithm does not know them)."""
+        return [
+            (o, st)
+            for o, st in self._deployment_orders(session)
+            if not o.client_order_key.startswith(self._prefix) and st not in TERMINAL
+        ]
+
+    def _cancel_orphans(self, send: Callable[[dict[str, Any]], None]) -> None:
+        with self._sessions() as session:
+            orphans = [(o.id, st) for o, st in self._orphans(session)]
+        results: dict[str, str] = {}
+        for order_id, st in orphans:
+            if st in (OrderState.SUBMITTED, OrderState.ACCEPTED, OrderState.PARTIALLY_FILLED):
+                try:
+                    results[order_id] = self._oms.cancel(order_id).value
+                except OMSError as exc:
+                    results[order_id] = f"not cancelled: {exc}"
+            else:  # pending / unknown outcome: only reconciliation can resolve it
+                results[order_id] = f"{st.value}: resolve with `quantlab paper reconcile`"
+        with self._sessions() as session:
+            remaining = [o.id for o, _ in self._orphans(session)]
+        send({"type": "orphans", "results": results, "remaining": remaining})
 
     def _own_positions(self, session: Session) -> dict[str, float]:
         ids = {o.id for o, _ in self._deployment_orders(session)}
@@ -375,11 +470,13 @@ class Gateway:
             cash = self._oms.book(session).cash
             positions = self._own_positions(session)
             open_ids = [lean for _o, st, lean in self._mine(session) if st not in TERMINAL]
+            orphans = [o.id for o, _ in self._orphans(session)]
         return {
             "type": "snapshot",
             "cash": cash,  # the shared paper account's cash
             "positions": [{"symbol": s, "quantity": q} for s, q in sorted(positions.items())],
             "open": open_ids,
+            "orphans": orphans,
         }
 
 

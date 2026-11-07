@@ -59,22 +59,30 @@ def gw(stack):  # noqa: F811
     t.join(timeout=5)
 
 
-def connect(g, token=None, deployment=None, run="run-1"):
+def connect(g, token=None, deployment=None, run=None):
+    """run=None: a new algorithm start (the gateway issues the run id in its welcome)."""
     c = Client(g.info.port)
-    c.send(type="hello", token=token or g.info.token, deployment=deployment or g.deployment, run=run)
+    hello = {"type": "hello", "token": token or g.info.token, "deployment": deployment or g.deployment}
+    if run is not None:
+        hello["run"] = run
+    c.send(**hello)
     return c
 
 
 def test_orders_go_through_the_risk_gate_and_fills_flow_back(stack, gw):  # noqa: F811
     c = connect(gw)
-    assert c.recv()["type"] == "welcome"
+    welcome = c.recv()
+    assert welcome["type"] == "welcome" and welcome["run"].startswith("r") and welcome["orphans"] == []
     c.send(type="place", id=1, symbol="spy", quantity=10, order_type="market")
     fill, _ = c.until(lambda m: m["type"] == "fill")
     assert (fill["id"], fill["quantity"], fill["price_state"]) == (1, 10, "SIMULATED")
     c.until(lambda m: m["type"] == "order" and m["state"] == "FILLED")
     with stack["sessions"]() as s:
         order = stack["oms"].orders(s, limit=None)[0][0]
-        assert order.client_order_key == "lean:momentum-1:run-1:1" and order.source == "lean:momentum-1"
+        assert (
+            order.client_order_key == f"lean:momentum-1:{welcome['run']}:1"
+            and order.source == "lean:momentum-1"
+        )
         assert stack["oms"].book(s).quantity("SPY") == 10  # booked from the broker's fill
     c.send(type="place", id=2, symbol="SPY", quantity=-4)  # negative = sell
     fill, _ = c.until(lambda m: m["type"] == "fill" and m["id"] == 2)
@@ -99,11 +107,11 @@ def test_risk_rejection_and_kill_switch_reach_the_algorithm(stack, gw):  # noqa:
 
 def test_a_replayed_place_after_reconnect_is_never_sent_twice(stack, gw):  # noqa: F811
     c = connect(gw)
-    c.recv()
+    run = c.recv()["run"]
     c.send(type="place", id=7, symbol="SPY", quantity=5)
     c.until(lambda m: m["type"] == "fill")
     c.close()
-    c2 = connect(gw)
+    c2 = connect(gw, run=run)  # reconnect within the same run
     assert c2.recv()["type"] == "welcome"
     replay, seen = c2.until(lambda m: m["type"] == "order" and m["id"] == 7)  # state + fill replayed
     assert replay["state"] == "FILLED"
@@ -210,12 +218,12 @@ def test_construction_guards(stack, tmp_path):  # noqa: F811
 
 def test_a_restarted_algorithm_reusing_lean_ids_gets_new_orders(stack, gw):  # noqa: F811
     """BLOCKER: LEAN numbers orders from 1 on every start; a new run must never inherit the old order 1."""
-    c = connect(gw, run="run-a")
+    c = connect(gw)
     c.recv()
     c.send(type="place", id=1, symbol="SPY", quantity=5)
     c.until(lambda m: m["type"] == "order" and m["id"] == 1 and m["state"] == "FILLED")
     c.close()
-    c2 = connect(gw, run="run-b")  # the algorithm restarted
+    c2 = connect(gw)  # the algorithm restarted: a new run
     c2.recv()
     c2.send(type="snapshot")
     snap, seen = c2.until(lambda m: m["type"] == "snapshot")
@@ -284,3 +292,99 @@ def test_lean_keys_are_reserved_for_the_gateway(stack):  # noqa: F811
 
     with pytest.raises(OMSError, match="reserved"):
         stack["oms"].submit(req("lean:momentum-1:run-1:1"))
+
+
+# ---- second gateway review (CHANGE-0035) -----------------------------------------------------------
+
+
+def test_run_ids_are_issued_by_the_gateway_and_unknown_ones_refused(stack, gw):  # noqa: F811
+    c = connect(gw, run="made-up-run")
+    assert c.recv() == {"type": "error", "message": "authentication failed"}
+    c.close()
+    a = connect(gw)
+    run_a = a.recv()["run"]
+    a.close()
+    b = connect(gw)
+    assert b.recv()["run"] != run_a  # a new start never reuses a run id
+    b.close()
+
+
+def test_orders_of_an_earlier_run_block_new_orders_until_cancelled(stack, gw):  # noqa: F811
+    """MAJOR: a restarted algorithm must not stack new orders on top of ones it no longer knows."""
+    c = connect(gw)
+    c.recv()
+    c.send(
+        type="place",
+        id=1,
+        symbol="SPY",
+        quantity=2,
+        order_type="limit",
+        limit_price=10.0,
+        time_in_force="gtc",
+    )
+    first, _ = c.until(lambda m: m["type"] == "order" and m["state"] == "ACCEPTED")
+    c.close()
+    c2 = connect(gw)  # crash + restart
+    welcome = c2.recv()
+    assert welcome["orphans"] == [first["order_id"]]
+    c2.send(type="place", id=1, symbol="SPY", quantity=2)
+    err, _ = c2.until(lambda m: m["type"] == "error")
+    assert "earlier run are still open" in err["message"] and err["outcome"] == "not_placed"
+    c2.send(type="cancel_orphans")
+    res, _ = c2.until(lambda m: m["type"] == "orphans")
+    assert res["results"] == {first["order_id"]: "CANCELLED"} and res["remaining"] == []
+    c2.send(type="place", id=2, symbol="SPY", quantity=2)
+    c2.until(lambda m: m["type"] == "order" and m["id"] == 2 and m["state"] == "FILLED")
+    c2.close()
+
+
+def test_a_refused_order_stays_refused_and_is_audited(stack, gw):  # noqa: F811
+    from quantlab.core.audit import AuditEntry
+
+    c = connect(gw)
+    run = c.recv()["run"]
+    c.send(type="place", id=1, symbol="SPY", quantity=-5)  # sell cap: holds nothing
+    c.until(lambda m: m["type"] == "error")
+    c.send(type="place", id=2, symbol="SPY", quantity=5)
+    c.until(lambda m: m["type"] == "order" and m["id"] == 2 and m["state"] == "FILLED")
+    c.close()
+    c2 = connect(gw, run=run)
+    c2.recv()
+    c2.send(type="place", id=1, symbol="SPY", quantity=-5)  # stale replay: it now holds 5, still refused
+    err, _ = c2.until(lambda m: m["type"] == "error")
+    assert "was refused earlier" in err["message"]
+    with stack["sessions"]() as s:
+        assert s.query(AuditEntry).filter_by(action="gateway.order_refused").count() == 1
+    c2.close()
+
+
+def test_case_variants_of_lean_keys_are_reserved_and_never_counted(stack, gw):  # noqa: F811
+    from quantlab.oms.service import OMSError
+
+    with pytest.raises(OMSError, match="reserved"):
+        stack["oms"].submit(req("LEAN:momentum-1:x:1"))
+    c = connect(gw)
+    c.recv()
+    c.send(type="snapshot")
+    snap, _ = c.until(lambda m: m["type"] == "snapshot")
+    assert snap["positions"] == []
+    c.close()
+
+
+def test_a_replay_differing_only_in_time_in_force_is_refused(stack, gw):  # noqa: F811
+    c = connect(gw)
+    c.recv()
+    c.send(type="place", id=1, symbol="SPY", quantity=1, order_type="limit", limit_price=10.0)
+    c.until(lambda m: m["type"] == "order" and m["state"] == "ACCEPTED")
+    c.send(
+        type="place",
+        id=1,
+        symbol="SPY",
+        quantity=1,
+        order_type="limit",
+        limit_price=10.0,
+        time_in_force="gtc",
+    )
+    err, _ = c.until(lambda m: m["type"] == "error")
+    assert "other parameters" in err["message"]
+    c.close()
