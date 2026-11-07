@@ -105,3 +105,84 @@ def test_datasets_endpoint(ctx, client, tmp_path):
     [d] = client.get("/api/datasets", headers=auth(ctx)).json()
     assert d["name"] == "spy" and d["provenance"] == "synthetic" and d["versions"] == 1
     assert d["latest_rows"] == 6 and d["latest_validation_ok"] is True
+
+
+@pytest.fixture
+def with_dataset(ctx, tmp_path):
+    from quantlab.data.providers.base import BarRequest, LicenseInfo
+    from quantlab.data.providers.csv_file import CsvFileProvider
+    from quantlab.data.schema import AssetClass, PriceAdjustment, Provenance, Resolution
+    from tests.unit.data.conftest import csv_text, daily_rows
+
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    with ctx.sessions() as s:
+        ctx.data.create_dataset(
+            s,
+            "spy",
+            asset_class=AssetClass.EQUITY,
+            market="usa",
+            resolution=Resolution.DAILY,
+            provenance=Provenance.SYNTHETIC,
+            price_adjustment=PriceAdjustment.RAW,
+            source="fixture",
+            license=LicenseInfo("test", False),
+        )
+        p = CsvFileProvider(csv, calendar="XNYS", symbol="SPY")
+        ctx.data.import_bars(s, "spy", p, p.fetch_bars(BarRequest((), Resolution.DAILY)))
+        s.commit()
+    return "spy"
+
+
+def test_dataset_detail_and_bars(ctx, client, with_dataset):
+    detail = client.get("/api/datasets/spy", headers=auth(ctx)).json()
+    [v] = detail["version_history"]
+    assert v["rows"] == 6 and v["symbols"] == ["SPY"] and v["validation"]["ok"] is True
+    assert client.get("/api/datasets/nope", headers=auth(ctx)).status_code == 404
+
+    bars = client.get("/api/datasets/spy/bars?symbol=spy", headers=auth(ctx)).json()
+    assert bars["symbol"] == "SPY" and bars["provenance"] == "synthetic" and len(bars["bars"]) == 6
+    assert bars["bars"][0]["ts"].startswith("2024-07-01T20:00:00") and bars["truncated"] is False
+    tail = client.get("/api/datasets/spy/bars?symbol=SPY&limit=2", headers=auth(ctx)).json()
+    assert tail["truncated"] is True and [b["close"] for b in tail["bars"]] == [105.0, 106.0]
+    assert client.get("/api/datasets/spy/bars?symbol=SPY", headers={}).status_code == 401
+    assert client.get("/api/datasets/spy/bars?symbol=SPY&limit=0", headers=auth(ctx)).status_code == 422
+
+
+def test_security_headers(client):
+    r = client.get("/api/health")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in r.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_ui_not_built_page(client):
+    r = client.get("/")
+    assert r.status_code == 200 and "web UI has not been built" in r.text
+
+
+@pytest.fixture
+def ui_client(ctx, tmp_path):
+    ui = tmp_path / "dist"
+    (ui / "assets").mkdir(parents=True)
+    (ui / "index.html").write_text("<!doctype html><div id=root>QuantLab UI</div>")
+    (ui / "assets" / "app.js").write_text("console.log(1)")
+    (tmp_path / "secret.txt").write_text("outside the UI dir")
+    return TestClient(create_app(ctx, ui), base_url="http://127.0.0.1")
+
+
+def test_ui_served_same_origin_with_spa_fallback(ctx, ui_client):
+    assert "QuantLab UI" in ui_client.get("/").text
+    assert "QuantLab UI" in ui_client.get("/data/spy").text  # client-side route
+    js = ui_client.get("/assets/app.js")
+    assert js.status_code == 200 and "javascript" in js.headers["content-type"]
+    assert "default-src 'self'" in ui_client.get("/").headers["content-security-policy"]
+    # API paths never fall back to the UI and keep requiring the token
+    assert ui_client.get("/api/nope", headers=auth(ctx)).status_code == 404
+    assert ui_client.get("/api/datasets").status_code == 401
+    # no path traversal out of the UI directory
+    assert "outside the UI dir" not in ui_client.get("/../secret.txt").text
+    assert "outside the UI dir" not in ui_client.get("/%2e%2e/secret.txt").text

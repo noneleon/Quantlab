@@ -32,3 +32,25 @@ jobs:
         run: uv run lint-imports
       - name: Tests
         run: uv run pytest --cov --cov-report=term-missing
+
+  web:
+    name: web UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install (locked)
+        run: npm ci
+      - name: Type-check
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build

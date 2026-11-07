@@ -102,3 +102,13 @@ Decision: notebooks use `quantlab.research.Research`, a read-only facade over Da
 backtests), analytics (same metric code as backtests) and backtest history; frames carry provenance in `attrs` and non-real
 data emits `NonRealDataWarning`. JupyterLab/matplotlib live in the `research` optional dependency group so the base install
 and CI stay light; `quantlab research` binds 127.0.0.1 and leaves Jupyter's token auth on.
+
+### DEC-0018 — Web UI served same-origin by `quantlab serve`; token via URL fragment; strict CSP
+State: ACCEPTED (implementation of UI-001; owner may revisit) · 2026-11-07
+Decision: React 19 + TypeScript + Vite app in `web/`, built to `web/dist` (not committed) and served by the API process
+(no CORS, one port). `quantlab serve` prints `http://127.0.0.1:<port>/#token=<token>`; fragments are never sent to the
+server, so tokens stay out of access logs; the UI moves the token to sessionStorage and removes it from the URL, and calls
+the API with `Authorization: Bearer`. Responses carry CSP `default-src 'self'` (no inline script/style), `frame-ancestors
+'none'`, `nosniff`, `no-referrer`. TradingView Lightweight Charts' attribution logo injects inline CSS, so it is disabled
+and the NOTICE attribution + link is rendered as text under each chart. Toolchain pinned to established majors
+(Vite 7, TypeScript 5.9, Vitest 4.0); component tests render statically (no jsdom) — see KI-0033.

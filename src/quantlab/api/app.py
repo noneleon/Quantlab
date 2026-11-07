@@ -6,22 +6,30 @@ Security model (docs/SECURITY_POLICY.md):
   in the OS keyring (``secret://quantlab/api/token``, created by ``quantlab init``). If no token is
   configured the API **fails closed** (503) instead of running unauthenticated.
 * Host-header allow-list (DNS-rebinding protection for a localhost service). No CORS.
-* Read-only for M1: no endpoint starts runs or changes state yet. Nothing here can trade.
+* Read-only: no endpoint starts runs or changes state yet. Nothing here can trade.
+* Serves the built web UI (``web/dist``) same-origin (DEC-0018) with a strict Content-Security-Policy; the UI
+  receives the token through a URL fragment printed by ``quantlab serve`` and sends it as a bearer header.
 """
 
 from __future__ import annotations
 
 import hmac
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
 
 import quantlab
 from quantlab.backtest.models import BacktestRun
 from quantlab.backtest.service import BacktestError
 from quantlab.bootstrap import AppContext
+from quantlab.data.catalog import DataError
 from quantlab.strategies.registry import StrategyError
 
 LOCAL_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
@@ -35,6 +43,43 @@ class StrategyOut(BaseModel):
     language: str
     description: str
     archived: bool
+
+
+UI_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+    "font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+)
+# FastAPI's interactive docs load assets from a CDN; they keep a relaxed policy (developer convenience only).
+_DOCS_PATHS = ("/api/docs", "/api/openapi.json")
+UI_NOT_BUILT = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>QuantLab</title></head>
+<body style="font-family: system-ui; max-width: 640px; margin: 48px auto;">
+<h1>QuantLab API is running</h1>
+<p>The web UI has not been built. Build it once (needs Node.js 22):</p>
+<pre>cd web
+npm ci
+npm run build</pre>
+<p>then restart <code>quantlab serve</code>. The API itself is available under <code>/api/</code>.</p>
+</body></html>"""
+
+
+class SecurityHeaders(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if not request.url.path.startswith(_DOCS_PATHS):
+            response.headers.setdefault("Content-Security-Policy", UI_CSP)
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+
+def default_ui_dir() -> Path | None:
+    """``web/dist`` of a source checkout (editable install), if it has been built."""
+    candidate = Path(quantlab.__file__).resolve().parents[2] / "web" / "dist"
+    return candidate if (candidate / "index.html").is_file() else None
 
 
 class DatasetOut(BaseModel):
@@ -54,6 +99,20 @@ class DatasetOut(BaseModel):
     latest_start: str | None
     latest_end: str | None
     latest_validation_ok: bool | None
+
+
+class DatasetDetailOut(DatasetOut):
+    version_history: list[dict[str, Any]]
+
+
+class BarsOut(BaseModel):
+    dataset: str
+    version: str
+    provenance: str
+    price_adjustment: str
+    symbol: str
+    truncated: bool
+    bars: list[dict[str, Any]]
 
 
 class BacktestSummaryOut(BaseModel):
@@ -98,7 +157,7 @@ def _summary(run: BacktestRun) -> dict[str, Any]:
     }
 
 
-def create_app(ctx: AppContext) -> FastAPI:
+def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     app = FastAPI(
         title="QuantLab",
         version=quantlab.__version__,
@@ -109,6 +168,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     allowed_hosts = list(LOCAL_HOSTS)
     if ctx.settings.server.remote_access:
         allowed_hosts.append(ctx.settings.server.host)
+    app.add_middleware(SecurityHeaders)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
     def require_token(authorization: Annotated[str | None, Header()] = None) -> None:
@@ -149,35 +209,104 @@ def create_app(ctx: AppContext) -> FastAPI:
                 for s in ctx.registry.list(session, include_archived=include_archived)
             ]
 
+    def _dataset_out(d: Any, versions: list[Any]) -> dict[str, Any]:
+        latest = versions[-1] if versions else None
+        return dict(
+            name=d.name,
+            asset_class=d.asset_class,
+            market=d.market,
+            resolution=d.resolution,
+            calendar=d.calendar,
+            provenance=d.provenance,
+            price_adjustment=d.price_adjustment,
+            source=d.source,
+            license_terms=d.license_terms,
+            redistribution_allowed=d.redistribution_allowed,
+            versions=len(versions),
+            latest_version=latest.content_hash[:20] if latest else None,
+            latest_rows=latest.row_count if latest else None,
+            latest_start=latest.start_ts.isoformat() if latest else None,
+            latest_end=latest.end_ts.isoformat() if latest else None,
+            latest_validation_ok=latest.json("validation")["ok"] if latest else None,
+        )
+
     @app.get("/api/datasets", dependencies=auth)
     def list_datasets() -> list[DatasetOut]:
-        catalog = ctx.data
-        out = []
         with ctx.sessions() as session:
-            for d in catalog.list_datasets(session):
-                versions = catalog.versions(session, d)
-                latest = versions[-1] if versions else None
-                out.append(
-                    DatasetOut(
-                        name=d.name,
-                        asset_class=d.asset_class,
-                        market=d.market,
-                        resolution=d.resolution,
-                        calendar=d.calendar,
-                        provenance=d.provenance,
-                        price_adjustment=d.price_adjustment,
-                        source=d.source,
-                        license_terms=d.license_terms,
-                        redistribution_allowed=d.redistribution_allowed,
-                        versions=len(versions),
-                        latest_version=latest.content_hash[:20] if latest else None,
-                        latest_rows=latest.row_count if latest else None,
-                        latest_start=latest.start_ts.isoformat() if latest else None,
-                        latest_end=latest.end_ts.isoformat() if latest else None,
-                        latest_validation_ok=latest.json("validation")["ok"] if latest else None,
-                    )
-                )
-        return out
+            return [
+                DatasetOut(**_dataset_out(d, ctx.data.versions(session, d)))
+                for d in ctx.data.list_datasets(session)
+            ]
+
+    @app.get("/api/datasets/{name}", dependencies=auth)
+    def get_dataset(name: str) -> DatasetDetailOut:
+        with ctx.sessions() as session:
+            try:
+                d = ctx.data.get(session, name)
+            except DataError as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+            versions = ctx.data.versions(session, d)
+            history = [
+                {
+                    "version": v.content_hash,
+                    "created_at": v.created_at.isoformat(),
+                    "rows": v.row_count,
+                    "start": v.start_ts.isoformat(),
+                    "end": v.end_ts.isoformat(),
+                    "symbols": sorted(v.json("symbols")),
+                    "conflict_policy": v.conflict_policy,
+                    "source": v.source,
+                    "notes": v.json("notes"),
+                    "validation": v.json("validation"),
+                }
+                for v in versions
+            ]
+            return DatasetDetailOut(**_dataset_out(d, versions), version_history=history)
+
+    @app.get("/api/datasets/{name}/bars", dependencies=auth)
+    def get_bars(
+        name: str,
+        symbol: str,
+        version: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=100_000)] = 5_000,
+    ) -> BarsOut:
+        """Most recent ``limit`` bars of one symbol (read-only)."""
+        with ctx.sessions() as session:
+            try:
+                d = ctx.data.get(session, name)
+                frame, resolved = ctx.data.read(session, name, version=version, symbols=[symbol])
+            except (DataError, ValueError) as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        truncated = len(frame) > limit
+        frame = frame.tail(limit)
+        bars = [
+            {
+                "ts": ts.isoformat(),
+                "open": o,
+                "high": h,
+                "low": lo,
+                "close": c,
+                "volume": None if v != v else v,  # NaN -> null
+            }
+            for ts, o, h, lo, c, v in zip(
+                frame["ts"],
+                frame["open"],
+                frame["high"],
+                frame["low"],
+                frame["close"],
+                frame["volume"],
+                strict=True,
+            )
+        ]
+        return BarsOut(
+            dataset=d.name,
+            version=resolved.content_hash,
+            provenance=d.provenance,
+            price_adjustment=d.price_adjustment,
+            symbol=symbol.upper(),
+            truncated=truncated,
+            bars=bars,
+        )
 
     @app.get("/api/backtests", dependencies=auth)
     def list_backtests(
@@ -208,5 +337,25 @@ def create_app(ctx: AppContext) -> FastAPI:
             cross_checks=run.json("cross_checks"),
             manifest=run.json("manifest"),
         )
+
+    # ---- web UI (same origin) ---------------------------------------------------------------------
+    if ui_dir is not None and (ui_dir / "index.html").is_file():
+        index = ui_dir / "index.html"
+        if (ui_dir / "assets").is_dir():
+            app.mount("/assets", StaticFiles(directory=ui_dir / "assets"), name="assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa(path: str) -> Response:
+            if path.startswith("api/") or path == "api":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+            candidate = (ui_dir / path).resolve()
+            if path and candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
+                return FileResponse(candidate)
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})  # client-side routes
+    else:
+
+        @app.get("/", include_in_schema=False)
+        def ui_not_built() -> HTMLResponse:
+            return HTMLResponse(UI_NOT_BUILT)
 
     return app

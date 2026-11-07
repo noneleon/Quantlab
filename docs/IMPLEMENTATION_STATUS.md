@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0011)
+Last updated: 2026-11-07 (CHANGE-0012)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -33,7 +33,7 @@ Last updated: 2026-11-07 (CHANGE-0011)
 | CORE-006 | In-process event bus + ULID ids + Clock abstraction | core | C | 1 | `src/quantlab/core/ids.py`, `src/quantlab/core/clock.py` | CORE-001 | `tests/unit/core/test_ids_clock.py` | IN_PROGRESS | ids + clock TESTED; event bus not started (needed by OMS, Phase 5) |
 | CORE-007 | Job runner (background runs, cancellation, progress) | core | C | 1 | — | CORE-004 | — | PLANNED | |
 | CORE-008 | CLI (`quantlab`) | cli | C | 1 | `src/quantlab/cli/main.py`, `src/quantlab/bootstrap.py` | CORE-*, BT-* | `tests/unit/cli/test_cli.py`, `tests/unit/test_bootstrap.py` | TESTED | Commands: init, serve, strategy add/list/show/archive, backtest run/list/show/rerun, engine probe/pull, api token; `serve`/`engine pull` only smoke-tested manually; CLI coverage 77 % |
-| CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | `src/quantlab/api/app.py` | CORE-*, SEC-003 | `tests/unit/api/test_app.py` + manual uvicorn smoke test | IN_PROGRESS | Read-only REST done + TESTED (health, strategies, datasets, backtests list/detail); no write endpoints, no WebSocket yet |
+| CORE-009 | REST + WebSocket API with local token auth | api | C | 1 | `src/quantlab/api/app.py` | CORE-*, SEC-003 | `tests/unit/api/test_app.py` + manual uvicorn smoke test | IN_PROGRESS | Read-only REST done + TESTED (health, strategies, datasets list/detail/bars, backtests list/detail) + same-origin UI serving with CSP; no write endpoints, no WebSocket yet |
 | CORE-010 | Audit log (append-only, hash-chained) | core | C | 1 | `src/quantlab/core/audit.py`, migration `0001` | CORE-004 | `tests/unit/core/test_db_audit.py` | TESTED | Append lock is per-process; multi-process writers would need DB-level serialisation |
 
 ## ENG — Trading engine integration
@@ -195,14 +195,14 @@ Last updated: 2026-11-07 (CHANGE-0011)
 ## UI — Workstation
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| UI-001 | App shell, workspaces, resizable panels, search | web | C | 2 | — | CORE-009 | — | PLANNED | |
-| UI-002 | Backtests list + run detail (charts, stats, orders) | web | C | 3 | — | BT-003, AN-002 | — | PLANNED | |
+| UI-001 | App shell, workspaces, resizable panels, search | web | C | 2 | `web/` (React 19 + TS + Vite), served by `quantlab serve` | CORE-009 | `web/src/*.test.ts(x)` (16 vitest) + manual Playwright smoke | IN_PROGRESS | Shell, navigation for all 18 modules, token flow, paper-mode indicator done; no resizable panels, workspaces or search yet |
+| UI-002 | Backtests list + run detail (charts, stats, orders) | web | C | 3 | `web/src/pages/Backtests.tsx` | BT-003, AN-002 | vitest + Playwright smoke | IN_PROGRESS | List/detail with metrics, cross-checks, engine stats, manifest done; equity chart and orders need AN-002/API additions |
 | UI-003 | Algorithm editor (Monaco) + strategy library | web | C | 3 | — | STR-001 | — | PLANNED | |
-| UI-004 | Market data browser & quality reports | web | C | 2 | — | DATA-005 | — | PLANNED | |
+| UI-004 | Market data browser & quality reports | web | C | 2 | `web/src/pages/Datasets.tsx`, `GET /api/datasets/{name}[/bars]` | DATA-005 | `tests/unit/api/test_app.py`, vitest, Playwright smoke | TESTED | Read-only (imports via CLI); close-price line chart only |
 | UI-005 | Optimization views | web | C | 4 | — | OPT-* | — | PLANNED | |
 | UI-006 | Portfolio, orders, risk, paper/live consoles, kill switch | web | C | 5 | — | PORT/OMS/RISK | — | PLANNED | |
 | UI-007 | ML, AI assistant, logs/monitoring, settings, project mgmt views | web | C | 7–8 | — | — | — | PLANNED | |
-| UI-008 | "Unavailable feature" indicator convention (no dead buttons) | web | C | 2 | — | UI-001 | — | PLANNED | |
+| UI-008 | "Unavailable feature" indicator convention (no dead buttons) | web | C | 2 | `web/src/modules.ts`, `pages/ModulePage.tsx` | UI-001 | `modules.test.ts`, `components.test.tsx` | TESTED | Every module listed; planned ones show phase + feature IDs and contain no controls |
 
 ## OPS — Monitoring & reliability
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |

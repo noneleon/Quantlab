@@ -24,9 +24,15 @@ uv run quantlab engine pull
 uv run quantlab strategy add sma strategies/examples/sma_crossover
 uv run quantlab backtest run sma
 uv run quantlab backtest list
-uv run quantlab serve        # local read-only API on 127.0.0.1:8765 (token: quantlab api token --show)
+uv run quantlab serve        # API + web UI on 127.0.0.1:8765; prints the URL with the access token
 ```
 Runs on LEAN's bundled sample data are labelled `sample` — they are not performance claims.
+
+## Web UI
+Build once (Node.js 22), then `quantlab serve` serves it and prints the link to open:
+```
+cd web && npm ci && npm run build
+```
 
 ## Your own data (Phase 2a)
 ```

@@ -159,7 +159,7 @@ def serve(
     """Run the local API server (127.0.0.1 by default, token required)."""
     import uvicorn
 
-    from quantlab.api.app import create_app
+    from quantlab.api.app import create_app, default_ui_dir
 
     overrides: dict[str, Any] = {}
     if host is not None or port is not None:
@@ -168,13 +168,21 @@ def serve(
         ctx = AppContext.open(home, overrides=overrides or None)
     except EXPECTED as exc:
         fail(str(exc))
-    if ctx.api_token() is None:
+    token = ctx.api_token()
+    if token is None:
         ctx.close()
         fail("no API token configured; run `quantlab init` (or set QUANTLAB_SECRET__API__TOKEN)")
+    ui_dir = ctx.settings.server.ui_dir or default_ui_dir()
+    server = ctx.settings.server
+    display_host = f"[{server.host}]" if ":" in server.host else server.host  # IPv6 literal
+    base = f"http://{display_host}:{server.port}"
+    if ui_dir is not None and (ui_dir / "index.html").is_file():
+        # The token travels in the URL fragment, which browsers never send to the server (not logged).
+        typer.echo(f"QuantLab UI: {base}/#token={token.get_secret_value()}")
+    else:
+        typer.echo(f"QuantLab API: {base}/api/  (web UI not built: cd web && npm ci && npm run build)")
     try:
-        uvicorn.run(
-            create_app(ctx), host=ctx.settings.server.host, port=ctx.settings.server.port, log_config=None
-        )
+        uvicorn.run(create_app(ctx, ui_dir), host=server.host, port=server.port, log_config=None)
     finally:
         ctx.close()
 

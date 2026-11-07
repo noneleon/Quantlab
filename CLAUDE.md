@@ -52,4 +52,5 @@ User data/results/secrets live under `QUANTLAB_HOME` (outside git).
 - Tests: `uv run pytest` (coverage: `uv run pytest --cov`)
 - Lint/format/types/boundaries: `uv run ruff check .` · `uv run ruff format --check .` · `uv run mypy` · `uv run lint-imports`
 - App: `uv run quantlab --help` (init, strategy, data, backtest, engine, api, serve, research)
+- Web UI: `cd web && npm ci && npm run build` (tests: `npm test`, types: `npm run typecheck`); `quantlab serve` prints the URL
 - Research extra: `uv sync --extra research` then `uv run quantlab research` (JupyterLab on 127.0.0.1)

@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0011 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0012 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -11,10 +11,14 @@
 - CHANGE-0011 (2c): `quantlab.research.Research` notebook API (catalog-only, provenance in attrs, NonRealDataWarning),
   `analytics.statistics` (distribution/VaR/ES/correlation/rolling vol), `quantlab research` JupyterLab launcher
   (optional extra), starter notebook verified by real headless execution.
+- CHANGE-0012 (2d): `web/` React UI (dashboard, market data browser with chart/validation, backtest list/detail, strategy
+  list, honest "planned" pages for all other modules), served same-origin by `quantlab serve` with strict CSP; token via
+  `#token=` fragment (DEC-0018). Verified in real Chromium with Playwright.
 
 ## Tests (actually executed)
-`uv run pytest` → 278 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI #33 failed (README code block
-formatting) → fixed by excluding *.md from ruff; CI #35 green on ubuntu + windows.
+Python: `uv run pytest` → 282 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: `npm run typecheck`, `npm test` (16 passed), `npm run build` ok. Manual Playwright smoke (see CHANGE-0012).
+CI for CHANGE-0012: see latest run on the PR (new `web` job).
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -37,7 +41,7 @@ uv run quantlab backtest rerun <run-id>
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 2d: UI-001/004/008 — web app shell (React + TypeScript + Vite under `web/`) talking only to the local API with the
-token: dataset browser with validation/completeness, backtest list/detail, explicit "unavailable" states (no dead buttons).
-Needs a small API addition for the UI to read the token-protected endpoints from the browser (same-origin serving of the
-built UI by `quantlab serve`). Then 2e network data providers, DATA-008 corporate actions, RES-003 QuantBook, RES-005 reports.
+Phase 2e: DATA-011 network data providers behind the DataProvider protocol (start with one free, licence-clear source;
+record ToS/licence; rate limiting; never silently mark data as real without the user's declaration), then DATA-008
+corporate actions (split/dividend factor files) so LEAN exports can carry real adjustments. Also open: first real LEAN run
+(owner), RES-003 QuantBook, UI equity chart (needs equity series in the API, AN-002).

@@ -34,3 +34,6 @@
 | KI-0030 | Low | engine | Dataset runs copy the whole export into the container on every run (cheap for daily, slow for large minute datasets). | OPEN |
 | KI-0031 | Low | research | The `research` extra (JupyterLab) is not installed or tested in CI; verified manually via nbconvert only. | OPEN — optional CI job |
 | KI-0032 | Low | research | ipykernel warns that the local kernel uses TCP without encryption (Jupyter default on localhost). | OPEN — acceptable for local use; revisit for remote research |
+| KI-0033 | Low | web | No DOM-level component tests (jsdom/happy-dom dropped after an npm resolver crash); interactive behaviour is covered only by the manual Playwright smoke script, not in CI. | OPEN — add a CI e2e job (Playwright) |
+| KI-0034 | Low | web | vitest pinned to `~4.0` because npm 10.9 crashes resolving vitest ≥ 4.1 optional peers. | OPEN — re-test on npm/vitest updates |
+| KI-0035 | Low | web | `web/dist` is not committed; users need Node.js 22 to build the UI once (`cd web && npm ci && npm run build`). | OPEN — consider shipping built assets in releases |

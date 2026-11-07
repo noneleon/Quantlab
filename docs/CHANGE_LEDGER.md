@@ -192,3 +192,25 @@ the new README snippet was not ruff-formatted. The fresh-clone check caught it, 
 ran anyway. Fix (commit "Exclude Markdown from ruff"): `extend-exclude = ["docs", "*.md"]`; CI run #35 green on
 ubuntu + windows. Process fix: push is now chained with `&&` after every fresh-clone check.
 Result: PASS (after fix) · Regression status: PASS
+
+### CHANGE-0012 — Phase 2d: web UI shell, dataset browser, backtest views, same-origin serving
+Date: 2026-11-07 · Modules: web (new), api, cli, core (config) · Feature IDs: UI-001 (partial), UI-002 (partial), UI-004, UI-008,
+CORE-009
+Files added: `web/{package.json,package-lock.json,tsconfig.json,vite.config.ts,index.html}`,
+`web/src/{main.tsx,App.tsx,api.ts,hooks.ts,format.ts,modules.ts,styles.css}`, `web/src/components/{Badges,States,PriceChart}.tsx`,
+`web/src/pages/{Dashboard,Datasets,Backtests,Strategies,ModulePage}.tsx`, `web/src/{api,modules}.test.ts`,
+`web/src/components.test.tsx`
+Files modified: `src/quantlab/api/app.py` (`GET /api/datasets/{name}`, `/api/datasets/{name}/bars`, security headers
+middleware, UI static serving with SPA fallback and "UI not built" page, `default_ui_dir`), `src/quantlab/cli/main.py`
+(`serve` prints the token URL and serves the UI), `src/quantlab/core/config.py` (`server.ui_dir`),
+`tests/unit/api/test_app.py`, `tests/unit/test_repo_hygiene.py` (covers `web/`), `.github/workflows/ci.yml` (`web` job:
+npm ci, typecheck, test, build), docs. Decision: DEC-0018.
+Tooling notes: npm 10.9 crashed (`Cannot read properties of null (reading 'edgesOut')`) resolving vitest 4.1's optional
+peers; bisected to vitest ≥ 4.1 → pinned `~4.0`. jsdom/testing-library dropped; components tested with static rendering.
+Tests: Python 282 passed, 1 skipped; ruff, mypy --strict, lint-imports clean. Web: `tsc --noEmit` clean, vitest 16 passed,
+`vite build` ok. Manual Playwright (Chromium) smoke against a real `quantlab serve` with a synthetic dataset and a
+fake-engine backtest: token removed from URL and kept across reload; new tab without token shows auth help; dashboard,
+dataset (chart, completeness, missing-session warning) and backtest pages render; planned module page has 0 controls;
+token absent from access log and quantlab.log. Found and fixed: Lightweight Charts' logo `<style>` violated the CSP →
+logo disabled, NOTICE attribution rendered as text (test added); re-run had 0 console errors.
+Result: PASS · Regression status: PASS

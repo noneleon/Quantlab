@@ -19,9 +19,11 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_no_source_or_test_file_is_gitignored():
     candidates = [
         str(p.relative_to(ROOT))
-        for base in ("src", "tests", "tools", "strategies")
+        for base in ("src", "tests", "tools", "strategies", "web")
         for p in (ROOT / base).rglob("*")
-        if p.is_file() and "__pycache__" not in p.parts and p.suffix in {".py", ".mako", ".typed", ".toml"}
+        if p.is_file()
+        and not {"__pycache__", "node_modules", "dist"} & set(p.parts)
+        and p.suffix in {".py", ".mako", ".typed", ".toml", ".ts", ".tsx", ".css", ".html", ".json"}
     ]
     assert candidates
     result = subprocess.run(
