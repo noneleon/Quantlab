@@ -347,3 +347,31 @@ def paper_supervisor_status(home: HomeOpt = None, as_json: JsonOpt = False) -> N
     typer.echo(f"supervisor: {'running' if data['running'] else 'NOT running'}")
     if data["status"]:
         typer.echo(json.dumps(data["status"], indent=2, default=str))
+
+
+@paper_app.command("gateway")
+def paper_gateway(
+    deployment: Annotated[str, typer.Option(help="Deployment name (lowercase letters, digits, '-').")],
+    port: Annotated[int, typer.Option(help="Local TCP port (0 = any free port).")] = 0,
+    home: HomeOpt = None,
+) -> None:
+    """Serve the LEAN gateway (OMS-007): a LEAN algorithm's orders go through the OMS and risk gate."""
+    from quantlab.oms.gateway import Gateway, GatewayError, write_run_file
+
+    with context(home) as ctx, ctx.sessions() as session:
+        try:
+            gw = Gateway(ctx.paper_oms(session), ctx.sessions, deployment, port=port)
+        except GatewayError as exc:
+            fail(str(exc))
+        run_file = ctx.settings.home / "run" / f"gateway-{deployment}.json"
+        write_run_file(run_file, gw.info)
+        typer.echo(
+            f"[PAPER] LEAN gateway for {deployment} on 127.0.0.1:{gw.info.port} "
+            f"(connection details in {run_file}; Ctrl+C to stop)"
+        )
+        try:
+            gw.serve()
+        except KeyboardInterrupt:
+            typer.echo("gateway stopped")
+        finally:
+            run_file.unlink(missing_ok=True)  # the token is only valid while this gateway runs

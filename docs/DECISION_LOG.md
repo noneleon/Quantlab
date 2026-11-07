@@ -263,3 +263,17 @@ finds a position difference; configurable via `[supervisor] engage_kill_switch_o
 the highest of the start-of-day rows and the samples. (5) Errors never stop the loop; they are kept in the status file
 and a stale heartbeat (more than three intervals) shows the supervisor as not running in the CLI, API and console.
 Strategy deployments (start/pause/stop of algorithms) need the LEAN gateway (OMS-007) and are not part of this.
+
+### DEC-0031 — LEAN gateway protocol and deployment scope (OMS-007)
+State: ACCEPTED (owner chose "finish Phase 5" = OMS-007 on 2026-11-07; implements DEC-0007 option A)
+Decisions: (1) A LEAN algorithm reaches QuantLab only through `quantlab paper gateway --deployment <name>`: newline
+JSON over TCP on a loopback address, one plugin connection at a time, authenticated by a random per-start token in an
+owner-only run file (`QUANTLAB_HOME/run/gateway-<name>.json`, deleted on stop). (2) Every `place` is an `OMS.submit`
+(risk gate, kill switch, stored decision); orders are keyed `lean:<deployment>:<run>:<LEAN id>` with a run id per
+algorithm start (LEAN restarts its ids at 1), so reconnect replays are idempotent and restarts never collide; a replay
+with different parameters is refused. `lean:` keys are reserved for the gateway. (3) A connection sees, cancels and
+replays only its run's orders; its positions are its deployment's own (from its fills) and a sell may not exceed
+them, so strategies never sell manual or other deployments' positions. Cash is the shared paper account's. (4) The
+gateway cannot touch the kill switch, limits, credentials or mode; malformed input is answered with an error and never
+ends the gateway. (5) Orders of an earlier run that are still working stay under the risk gate and the supervisor,
+but the new run does not manage them (cancel by hand or with the kill switch).

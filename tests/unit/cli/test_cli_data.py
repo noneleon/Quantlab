@@ -274,6 +274,8 @@ def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
     assert positions["positions"][0]["quantity"] == 5
     assert "FILLED" in ql("paper", "orders").stdout
     assert ql("paper", "reconcile").exit_code == 0
+    bad_gw = ql("paper", "gateway", "--deployment", "Bad Name")
+    assert bad_gw.exit_code == 1 and "deployment names" in bad_gw.output
     sup = ql("paper", "supervise", "--ticks", "1")
     assert sup.exit_code == 0 and "ticks 1" in sup.output, sup.output
     status = json.loads(ql("paper", "supervisor-status", "--json").stdout)

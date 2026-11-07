@@ -147,7 +147,7 @@ Last updated: 2026-11-07 (CHANGE-0025)
 | OMS-004 | Idempotency keys & duplicate prevention | oms | C | 5 | `orders.client_order_key` unique; `(broker, exec_id)` unique for fills | OMS-003 | `test_oms_risk.py`, CLI test | TESTED | A repeated key returns the existing order and sends nothing |
 | OMS-005 | Timeouts, expiry auto-cancel, SUBMIT_UNKNOWN resolution | oms | C | 5 | `OMS.submit` (SubmitUnknown / unexpected adapter errors → SUBMIT_UNKNOWN), `OMS.reconcile`, paper DAY expiry | OMS-002 | `test_oms_risk.py` (incl. crash after PENDING_SUBMIT) | TESTED | Never resubmits; resolution only from broker facts. No timer-based expiry daemon yet |
 | OMS-006 | Modify/cancel, reserved buying power | oms | C | 5 | `OMS.cancel`, `OMS.cancel_all`, gate "buying power" | OMS-002, RISK-001 | `test_oms_risk.py` | IN_PROGRESS | Cancel, cancel-all and reserved buying power done; modify not yet |
-| OMS-007 | LEAN ↔ OMS gateway brokerage plugin | oms | LI | 5 | — | DEC-0007 approval | — | BLOCKED | Awaiting decision DEC-0007 |
+| OMS-007 | LEAN ↔ OMS gateway brokerage plugin | oms | LI | 5 | `oms/gateway.py`, `quantlab paper gateway` (DEC-0031) | DEC-0007 | `test_gateway.py` | IN_PROGRESS | Server side tested over real sockets; C# QuantLabBrokerage plugin (5c-2) not built yet |
 
 ## BRK — Brokerage
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |

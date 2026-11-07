@@ -647,3 +647,22 @@ Fixes (regression tests confirmed failing on the previous code):
 Remaining: KI-0076.
 Tests: Python 579 passed, 1 skipped; web 28 passed; ruff, mypy --strict, lint-imports (5 contracts), tsc, build clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0034 — Phase 5c-1: LEAN → OMS gateway service (OMS-007, server side)
+Date: 2026-11-07 · Modules: oms, cli · Feature IDs: OMS-007 · Decision: DEC-0031 (DEC-0007 option A)
+Environment: a .NET 10 SDK (10.0.403) was installed user-space in the session scratchpad after the owner approved
+allowing `builds.dotnet.microsoft.com` in the environment (needed for 5c-2/5c-3); a system-wide apt install was
+refused by the session's permission classifier and was not attempted another way.
+Change: `oms/gateway.py` (protocol, auth, run-scoped idempotent keys, own-position sell cap, fills-then-states push
+with replay per run, snapshot, strict input validation, per-message error containment, loopback-only bind),
+`write_run_file`; `quantlab paper gateway --deployment`; `OMS.submit` reserves `lean:` keys.
+Safety review (trading-safety-reviewer, before commit): 1 BLOCKER (LEAN ids restart per algorithm run: old keys
+collided, new orders were silently treated as duplicates and old fills replayed against them), 2 MAJOR (client
+input or DB errors could end the gateway; account-wide positions exposed and sellable), 5 MINOR — all fixed with
+regression tests (restart with reused ids, conflicting replay, sell cap, slow pre-auth client, malformed numbers /
+NaN / deep nesting / over-long input, reserved keys, loopback-only hosts). A second review of the fixes was started
+before commit; its outcome is recorded in the next entry if it finds anything.
+Tests: socket-level tests against the gateway in a thread (risk rejection and kill switch reach the algorithm,
+idempotent reconnect, deployment-scoped cancel, auth refusal, snapshot), stable over repeated runs. Python 593
+passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. Synthetic SIMULATED quotes only.
+Result: PASS · Regression status: PASS

@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0033 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0034 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -51,9 +51,11 @@
 - CHANGE-0032 (5b-4, DEC-0030): `quantlab paper supervise` — events, reconcile (engages the kill switch on position
   differences), equity samples / start-of-day at the open, DAY expiry; heartbeat in CLI/API/console. Migration 0007.
   CHANGE-0033 fixed its safety-review findings (missed-close DAY expiry, checked quotes for equity, health status).
+- CHANGE-0034 (5c-1, DEC-0031): LEAN → OMS gateway service (`quantlab paper gateway --deployment`); the C# plugin
+  (5c-2) is next. A .NET 10 SDK lives in the session scratchpad only (`dotnet-install.sh`, host allowed in the env).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 579 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 593 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 28 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
@@ -82,6 +84,6 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 5 remaining: OMS-007 (LEAN → OMS gateway, C#) needs .NET (KI-0055/0064); then Phase 6 planning (live gates,
-LIVE-003) only with explicit owner approval.
+Phase 5c: 5c-2 C# QuantLabBrokerage plugin against QuantConnect.* 2.5.18229 (net10.0), then 5c-3 native launcher /
+C# algorithms. Phase 6 (live gates, LIVE-003) only with explicit owner approval.
 Owner actions: `quantlab risk init` + review limits; first real LEAN run (KI-0002); IBKR paper check — market data (KI-0043/0044) and the paper broker adapter (KI-0075).

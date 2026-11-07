@@ -201,6 +201,8 @@ class OMS:
     def submit(self, req: OrderRequest) -> SubmitResult:
         if not req.client_order_key.strip():
             raise OMSError("client_order_key is required (idempotency)")
+        if req.client_order_key.startswith("lean:") != req.source.startswith("lean:"):
+            raise OMSError("keys starting with 'lean:' are reserved for the LEAN gateway (OMS-007)")
         with self._sessions() as session:
             existing = session.execute(
                 select(Order).where(Order.client_order_key == req.client_order_key)
