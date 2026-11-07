@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantlab.data.calendars import session_dates, sessions
+from quantlab.data.calendars import SPECIAL_CALENDARS, session_bounds, session_dates, sessions
 from quantlab.data.schema import BAR_COLUMNS, PRICE_COLUMNS, Resolution
 
 MAX_EXAMPLES = 10
@@ -169,6 +169,8 @@ def validate_bars(
                     Issue("warning", "stale_prices", sym, stale, f"{stale_run}+ identical consecutive closes")
                 )
 
+        if resolution is Resolution.MINUTE and calendar not in SPECIAL_CALENDARS:
+            _check_minutes(group, sym, calendar, report)
         if resolution is Resolution.DAILY and calendar != "none":
             session_close_dates = session_dates(group["ts"], calendar, Resolution.DAILY)
             expected = sessions(calendar, session_close_dates.min(), session_close_dates.max())
@@ -203,3 +205,45 @@ def validate_bars(
 
     report.rows_out = len(df)
     return df, report
+
+
+def _check_minutes(group: pd.DataFrame, symbol: str, calendar: str, report: ValidationReport) -> None:
+    """Regular-session minute coverage (bar END times in (open, close]); extended-hours bars only counted."""
+    ends = pd.to_datetime(group["ts"], utc=True)
+    days = session_dates(group["ts"], calendar, Resolution.MINUTE)
+    bounds = session_bounds(calendar, min(days), max(days))
+    expected_total = present_total = 0
+    gaps: list[str] = []
+    outside = 0
+    by_day = dict(tuple(ends.groupby(list(days))))
+    for day, open_utc, close_utc in bounds:
+        expected = int((close_utc - open_utc).total_seconds() // 60)
+        stamps = by_day.get(day, pd.Series(dtype="datetime64[ns, UTC]"))
+        regular = stamps[(stamps > pd.Timestamp(open_utc)) & (stamps <= pd.Timestamp(close_utc))]
+        outside += len(stamps) - len(regular)
+        expected_total += expected
+        present_total += regular.nunique()
+        if regular.nunique() < expected:
+            gaps.append(f"{day.isoformat()} ({expected - regular.nunique()} missing)")
+    if gaps:
+        report.issues.append(
+            Issue(
+                "warning",
+                "missing_minutes",
+                symbol,
+                len(gaps),
+                f"sessions with missing regular-session minutes on {calendar}",
+                tuple(gaps[:MAX_EXAMPLES]),
+            )
+        )
+    if outside:
+        report.issues.append(
+            Issue(
+                "warning",
+                "outside_regular_session",
+                symbol,
+                outside,
+                "bars outside regular trading hours (extended hours)",
+            )
+        )
+    report.completeness[symbol] = round(present_total / expected_total, 6) if expected_total else 1.0

@@ -137,6 +137,24 @@ class RiskSettings(_Section):
     limits_file: Path | None = None  # None -> QUANTLAB_HOME/risk_limits.toml
 
 
+class MarketDataSettings(_Section):
+    """Provider selection (DEC-0021). Strategies never see which provider is active."""
+
+    historical: Literal["tiingo", "ibkr"] = "tiingo"  # source for `quantlab data fetch`
+    realtime: Literal["mock", "ibkr"] = "mock"  # source for real-time quotes
+    require_live: bool = False  # reject anything but LIVE quotes (live trading always requires LIVE)
+    mock_dataset: str | None = None  # catalog dataset replayed by the mock real-time provider
+    stale_after_s: float = Field(default=15.0, gt=0)
+
+    @model_validator(mode="after")
+    def _mock_cannot_be_live(self) -> MarketDataSettings:
+        if self.require_live and self.realtime == "mock":
+            raise ValueError(
+                "market_data.require_live=true is impossible with realtime='mock' (mock data is SIMULATED)"
+            )
+        return self
+
+
 class AiSettings(_Section):
     provider: Literal["none", "anthropic", "openai", "ollama"] = "none"
     api_key_ref: str | None = None  # must be a secret:// reference, never the key itself
@@ -199,6 +217,7 @@ class Settings(BaseSettings):
     trading: TradingSettings = TradingSettings()
     brokers: BrokersSettings = BrokersSettings()
     risk: RiskSettings = RiskSettings()
+    market_data: MarketDataSettings = MarketDataSettings()
     ai: AiSettings = AiSettings()
     logging: LoggingSettings = LoggingSettings()
 

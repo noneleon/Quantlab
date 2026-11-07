@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -42,6 +42,8 @@ LICENSE = LicenseInfo(
 )
 DEFAULT_START = date(1962, 1, 2)  # earliest Tiingo EOD history; historical mode requires a startDate
 MAX_RETRIES = 3
+INTRADAY_RESPONSE_CAP = 10_000  # observed 2026-11-07: larger ranges return only the most recent 10 000 bars
+INTRADAY_WINDOW_DAYS = 14  # <= 10 sessions x 390 minutes, far below the cap
 
 
 class TiingoProvider:
@@ -107,10 +109,12 @@ class TiingoProvider:
 
     # ---- DataProvider ----------------------------------------------------------------------------
     def fetch_bars(self, request: BarRequest) -> RawBars:
-        if request.resolution is not Resolution.DAILY:
-            raise ProviderError("the Tiingo EOD provider supports daily resolution only")
         if not request.symbols:
             raise ProviderError("Tiingo requires at least one symbol")
+        if request.resolution is Resolution.MINUTE:
+            return self._fetch_minutes(request)
+        if request.resolution is not Resolution.DAILY:
+            raise ProviderError("Tiingo supports daily (EOD) and minute (IEX intraday) resolution")
         start = (request.start.date() if request.start else DEFAULT_START).isoformat()
         end = (request.end.date() if request.end else self._clock().date()).isoformat()
         frames, actions = [], []
@@ -133,6 +137,81 @@ class TiingoProvider:
         )
         action_frame = pd.DataFrame(actions, columns=["symbol", "ex_date", "kind", "value"])
         return RawBars(frame, f"tiingo:{','.join(request.symbols)}", notes, action_frame)
+
+    # ---- intraday (IEX) --------------------------------------------------------------------------
+    def _fetch_minutes(self, request: BarRequest) -> RawBars:
+        """1-minute regular-session bars from Tiingo's IEX endpoint, fetched in windows below the cap.
+
+        Verified 2026-11-07 against the real API: ``date`` is the bar *start* (first bar 13:30Z = 09:30 ET)
+        and one response holds at most 10 000 bars, keeping the most RECENT ones — so a full response is
+        treated as possibly truncated and the window is split, never accepted as complete.
+        """
+        if request.start is None:
+            raise ProviderError(
+                "intraday fetches need --start (Tiingo IEX history is limited and capped per request)"
+            )
+        start = request.start.date()
+        end = (request.end or self._clock()).date()
+        frames = []
+        for raw_symbol in request.symbols:
+            symbol = normalize_symbol(raw_symbol)
+            records: list[dict[str, Any]] = []
+            day = start
+            while day <= end:
+                window_end = min(end, day + timedelta(days=INTRADAY_WINDOW_DAYS - 1))
+                records.extend(self._minute_window(symbol, day, window_end))
+                day = window_end + timedelta(days=1)
+            frames.append(self._parse_minutes(symbol, records))
+        frame = pd.concat(frames, ignore_index=True)
+        fetched = self._clock().strftime("%Y-%m-%dT%H:%M:%SZ")
+        notes = (
+            f"fetched from Tiingo IEX intraday 1min {start}..{end} at {fetched}",
+            "IEX-only volume (not consolidated); regular session only; bar start times shifted to bar end",
+        )
+        return RawBars(frame, f"tiingo-iex:{','.join(request.symbols)}", notes)
+
+    def _minute_window(self, symbol: str, first: date, last: date) -> list[dict[str, Any]]:
+        records = self._get(
+            f"/iex/{symbol.lower()}/prices",
+            {
+                "startDate": first.isoformat(),
+                "endDate": last.isoformat(),
+                "resampleFreq": "1min",
+                "columns": "open,high,low,close,volume",
+            },
+        )
+        if not isinstance(records, list):
+            raise ProviderError(f"Tiingo returned an unexpected intraday payload for {symbol}")
+        if len(records) >= INTRADAY_RESPONSE_CAP:
+            if first >= last:
+                raise ProviderError(
+                    f"Tiingo intraday response for {symbol} on {first} hit the {INTRADAY_RESPONSE_CAP}"
+                    "-bar cap; refusing possibly truncated data"
+                )
+            middle = first + (last - first) // 2
+            return self._minute_window(symbol, first, middle) + self._minute_window(
+                symbol, middle + timedelta(1), last
+            )
+        return records
+
+    def _parse_minutes(self, symbol: str, records: list[dict[str, Any]]) -> pd.DataFrame:
+        rows = []
+        for rec in records:
+            try:
+                start = datetime.fromisoformat(str(rec["date"]).replace("Z", "+00:00")).astimezone(UTC)
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "ts": start + timedelta(minutes=1),
+                        **{k: float(rec[k]) for k in ("open", "high", "low", "close")},
+                        "volume": float(rec["volume"]) if rec.get("volume") is not None else float("nan"),
+                    }
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ProviderError(f"Tiingo intraday record for {symbol} is malformed: {exc}") from exc
+        frame = pd.DataFrame(rows, columns=list(BAR_COLUMNS))
+        frame["ts"] = pd.to_datetime(frame["ts"], utc=True)
+        return frame
 
     def _parse(self, symbol: str, records: list[dict[str, Any]]) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         rows, actions = [], []

@@ -129,3 +129,16 @@ Decision: `TiingoProvider` behind the DataProvider protocol: raw OHLCV + `divCas
 `quantlab secret set`, env fallback); polite pacing + 429 retry; Tiingo's personal-use licence enforced (datasets marked
 redistributable are refused); no real Tiingo data in the repository. Cloud development uses a personal environment
 "Quantlab" that allows the Tiingo hosts, with the key held by the environment proxy.
+
+### DEC-0021 — Market-data migration Tiingo → IBKR by configuration; orders stay behind OMS + risk gate
+State: ACCEPTED (owner requirements 2026-11-07; slicing is an implementation decision the owner may revisit)
+Decisions: (1) `MarketDataProvider` = historical (`fetch_bars`, existing DataProvider) + real-time (`RealtimeProvider`:
+snapshot/stream/status) with an explicit `DataState` on every quote; (2) providers are chosen in `[market_data]`
+(historical: tiingo|ibkr, realtime: mock|ibkr, require_live) and built by `data.factory`; strategies never see the
+provider; (3) historical data from any provider enters only via the versioned catalog (local cache), so backtests stay
+independent of live feeds and a migration cannot overwrite existing versions, strategies or modules; (4) `QuoteGuard`
+refuses non-LIVE data when live data is required — delayed data is never substituted silently; (5) IBKR account,
+positions, executions and order submit/modify/cancel are a **BrokerAdapter** behind the OMS and the central risk gate
+(DEC-0007), not part of the market-data provider; paper trading first (DEC-0010). Delivery: slice A (interface, Tiingo
+intraday, mock streaming, config switch, comparison) → slice B (IBKR market data) → slice C (Phase 5: IBKR broker adapter,
+OMS, risk gate, paper trading).

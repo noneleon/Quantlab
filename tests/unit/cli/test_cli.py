@@ -111,3 +111,15 @@ def test_api_token_commands(home):
 def test_serve_refuses_non_loopback_without_remote_access(home):
     r = ql("serve", "--host", "0.0.0.0")
     assert r.exit_code == 1 and "remote_access" in r.output
+
+
+def test_backtest_compare(home):
+    ql("strategy", "add", "sma", EXAMPLE_STRATEGY)
+    a = json.loads(ql("backtest", "run", "sma", "--json").stdout)["id"]
+    b = json.loads(ql("backtest", "run", "sma", "-p", "fast=5", "--json").stdout)["id"]
+    report = json.loads(ql("backtest", "compare", a, b, "--json").stdout)
+    assert report["same_strategy_code"] and not report["same_parameters"]
+    assert report["metrics"]["total_return"]["diff"] == 0.0  # fake engine: identical synthetic results
+    assert report["a"]["provenance"] == "sample"
+    text = ql("backtest", "compare", a, b).stdout
+    assert "not a like-for-like comparison" in text and "total_return" in text

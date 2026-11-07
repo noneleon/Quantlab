@@ -148,7 +148,7 @@ def test_data_fetch_tiingo_via_cli(home, monkeypatch):
 
     from tests.unit.data.test_tiingo import PAYLOAD
 
-    assert "secret set tiingo/api-key" in ql("data", "fetch", "spy", "-s", "SPY").output  # dataset/key checks
+    assert "unknown dataset" in ql("data", "fetch", "spy", "-s", "SPY").output  # dataset checked first
     ql(*CREATE)
     r = ql("data", "fetch", "spy", "-s", "SPY")
     assert r.exit_code == 1 and "secret set tiingo/api-key" in r.output
@@ -174,3 +174,67 @@ def test_data_fetch_tiingo_via_cli(home, monkeypatch):
     assert summary["created"] and summary["rows"] == 5
     assert len(json.loads(ql("data", "actions", "spy", "--json").stdout)) == 2
     assert ql("data", "fetch", "spy", "-s", "SPY", "--provider", "yahoo").exit_code == 1
+
+
+def test_md_commands_label_simulated_and_refuse_when_live_required(home, tmp_path):
+    ql(*CREATE)
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    ql("data", "import", "spy", csv, "--symbol", "SPY")
+    stream = ql("md", "stream", "SPY", "--dataset", "spy", "--count", "3")
+    lines = [line for line in stream.stdout.splitlines() if line.strip()]
+    assert stream.exit_code == 0 and len(lines) == 3 and all(line.startswith("[SIMULATED]") for line in lines)
+    snap = json.loads(ql("md", "snapshot", "SPY", "--dataset", "spy", "--json").stdout)
+    assert snap["quotes"][0]["state"] == "SIMULATED" and snap["rejected"] == []
+    refused = ql("md", "stream", "SPY", "--dataset", "spy", "--require-live")
+    assert refused.exit_code == 1 and "SIMULATED data rejected" in refused.output
+    assert ql("md", "snapshot", "SPY", "--dataset", "spy", "--require-live").exit_code == 1
+    status = ql("md", "status", "--dataset", "spy").stdout
+    assert "real-time provider:  mock" in status and "data state: SIMULATED" in status
+    assert "needs a dataset" in ql("md", "stream", "SPY").output
+
+
+def test_data_compare_cli(home, tmp_path):
+    ql(*CREATE)
+    ql(*[a if a != "spy" else "spy2" for a in CREATE])
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    ql("data", "import", "spy", csv, "--symbol", "SPY")
+    csv.write_text(csv_text(daily_rows()[:-1]))
+    ql("data", "import", "spy2", csv, "--symbol", "SPY")
+    report = json.loads(ql("data", "compare", "spy", "spy2", "--json").stdout)
+    [row] = report["symbols"]
+    assert (row["rows_a"], row["rows_b"], row["overlap"], row["close_rel_diff_max"]) == (6, 5, 5, 0.0)
+    assert "common" in ql("data", "compare", "spy", "spy2").stdout
+
+
+def test_since_last_fetch(home, monkeypatch):
+    import httpx
+
+    import quantlab.data.providers.tiingo as tiingo
+    from tests.unit.data.test_tiingo import PAYLOAD
+
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json=PAYLOAD)
+
+    real_init = tiingo.TiingoProvider.__init__
+    monkeypatch.setattr(
+        tiingo.TiingoProvider,
+        "__init__",
+        lambda self, key, **kw: real_init(
+            self, key, transport=httpx.MockTransport(handler), min_interval_s=0, **kw
+        ),
+    )
+    ql(*CREATE)
+    runner.invoke(app, ["secret", "set", "tiingo/api-key"], input="k\n")
+    assert ql("data", "fetch", "spy", "-s", "SPY", "--since-last").exit_code == 1  # nothing stored yet
+    assert (
+        ql("data", "fetch", "spy", "-s", "SPY", "--start", "2024-07-01", "--end", "2024-07-08").exit_code == 0
+    )
+    r = ql("data", "fetch", "spy", "-s", "SPY", "--since-last", "--end", "2024-07-09")
+    assert r.exit_code == 0 and "unchanged" in r.stdout  # same synthetic payload -> no new version
+    assert seen[-1]["startDate"] == "2024-07-08"  # restarts at the last stored day
+    assert ql("data", "fetch", "spy", "-s", "SPY", "--start", "2024-07-01", "--since-last").exit_code == 1

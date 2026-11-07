@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0014)
+Last updated: 2026-11-07 (CHANGE-0015)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -66,13 +66,18 @@ Last updated: 2026-11-07 (CHANGE-0014)
 | DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | `src/quantlab/data/corporate_actions.py`, catalog/storage/lean_export integration, `quantlab data import --actions`, `data actions` | DATA-003 | `tests/unit/data/test_corporate_actions.py` (golden vs LEAN's AAPL factor file), `test_actions_integration.py` | VERIFIED | Factor computation verified: real Tiingo AAPL history 1998–2021 → same 41 rows as LEAN's factor file (max rel. diff 2.6e-6). Splits + cash dividends only; LEAN reading the files still unverified (KI-0028) |
 | DATA-009 | LEAN-format exporter (zipped CSV per version) | data | LI | 2 | `src/quantlab/data/lean_export.py`, `DataCatalog.lean_export`, `quantlab data lean-export` | DATA-004 | `tests/unit/data/test_lean_export.py` (golden round-trip vs LEAN sample bytes) | TESTED | Equities only (daily/hour/minute/second trade bars); neutral map/factor files; **not yet read by a real LEAN run** (KI-0028) |
 | DATA-010 | User-defined custom datasets | data | C | 2 | — | DATA-001 | — | PLANNED | |
-| DATA-011 | Free/low-cost provider adapters (e.g. Stooq/Tiingo/Alpha Vantage/Binance public) | data | X | 2 | `src/quantlab/data/providers/tiingo.py`, `DataCatalog.fetch`, `quantlab data fetch` | DATA-001, DATA-008, SEC-001 | `tests/unit/data/test_tiingo.py` (mock transport, synthetic Tiingo-format payloads), `test_cli_data.py` | VERIFIED | **Tiingo EOD only** (daily equities): verified 2026-11-07 against the real API (raw closes, divCash, splitFactor = new shares per old). Other providers not implemented. Personal-use licence, no redistribution |
+| DATA-011 | Free/low-cost provider adapters (e.g. Stooq/Tiingo/Alpha Vantage/Binance public) | data | X | 2 | `src/quantlab/data/providers/tiingo.py`, `DataCatalog.fetch`, `quantlab data fetch [--since-last]` | DATA-001, DATA-008, SEC-001 | `tests/unit/data/test_tiingo.py` (mock transport, synthetic Tiingo-format payloads), `test_cli_data.py` | VERIFIED | **Tiingo only**: EOD daily (raw + dividends/splits) and IEX 1-minute regular-session bars (IEX-only volume; 14-day windows, capped responses split, never accepted). Verified against the real API 2026-11-07 |
 | DATA-012 | IBKR historical data adapter | data | X | 5 | — | BRK-002 | — | PLANNED | Needs IBKR market data subscriptions; pacing limits |
-| DATA-013 | Real-time streaming + recording | data | X | 5 | — | DATA-012 | — | PLANNED | |
+| DATA-013 | Real-time streaming + recording | data | X | 5 | `src/quantlab/data/market_data.py` (RealtimeProvider, Quote), `providers/mock_stream.py`, `quantlab md` | DATA-018 | `tests/unit/market/test_market_data.py`, `test_cli_data.py` | IN_PROGRESS | Interface + SIMULATED mock replay done; IBKR Level I streaming = DATA-019; recording not started |
 | DATA-014 | Point-in-time universes, delisted symbols | data | X | 7 | — | DATA-008 | — | PLANNED | Survivorship-free data usually paid (Norgate/CRSP/QC library) |
 | DATA-015 | Options/futures chains & continuous futures | data | LI/X | 7 | — | DATA-009 | — | PLANNED | Licensed data required |
 | DATA-016 | Data export (Parquet/CSV) for zero lock-in | data | C | 2 | `DataCatalog.export`, `quantlab data export` | DATA-003 | `test_catalog.py`, `test_cli_data.py` | TESTED | Refuses licence-restricted data without `--acknowledge-license`; audited |
-| DATA-017 | Delayed/stale market data detection | data | C | 5 | — | DATA-013 | — | PLANNED | |
+| DATA-017 | Delayed/stale market data detection | data | C | 5 | `market_data.normalize_quote`, `QuoteGuard` | DATA-018 | `tests/unit/market/test_market_data.py` | TESTED | Stale (by exchange time), clock skew, crossed, no-price flags; guard refuses non-LIVE when live is required. Real-feed behaviour verified only with IBKR (DATA-019) |
+| DATA-018 | Provider-agnostic MarketDataProvider (historical + real-time), DataState LIVE/DELAYED/FROZEN/SIMULATED, quote normalisation, QuoteGuard | data | C | 2 | `src/quantlab/data/market_data.py` | DATA-001 | `tests/unit/market/test_market_data.py` | TESTED | Real-time side exercised with the mock provider only |
+| DATA-019 | IBKR market data provider (TWS/IB Gateway): historical bars, Level I streaming, market-data-type state, reconnection, pacing | data | X | 2f | — | DATA-018 | — | PLANNED | Next slice (B); cannot be verified without the owner's IB Gateway |
+| DATA-020 | Cross-provider comparison (`data compare`, `backtest compare`) | data/backtest | C | 2f | `src/quantlab/data/compare.py`, `BacktestService.compare_results` | DATA-018 | `test_market_data.py`, `test_cli_data.py`, `tests/unit/cli/test_cli.py` | VERIFIED | Real check: Tiingo vs LEAN sample (QuantConnect) SPY daily 2013–2021, 1888/1888 bars, max close diff 0.114 % |
+| DATA-021 | Mock real-time provider (SIMULATED replay of catalog bars) | data | C | 2f | `src/quantlab/data/providers/mock_stream.py` | DATA-018 | `test_market_data.py` | TESTED | Synthetic bid/ask from close ± spread |
+| DATA-022 | Provider selection by configuration (`[market_data]`) | data/core | C | 2f | `core/config.py` (MarketDataSettings), `data/factory.py` | DATA-018 | `test_market_data.py` | TESTED | `require_live` + mock rejected by config validation |
 
 ## RES — Research environment
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |

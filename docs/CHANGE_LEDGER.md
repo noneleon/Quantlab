@@ -254,3 +254,25 @@ Real verification (scratch home only; data not committed — Tiingo forbids redi
 - CLI: `data create` → `data fetch` (566 rows, 10 actions) → `data lean-export`: factor rows equal LEAN's to its precision.
 Tests: Python 316 passed, 1 skipped; web unchanged (16); ruff, mypy --strict, lint-imports clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0015 — Market-data migration slice A: provider-agnostic interface, Tiingo intraday, mock streaming, config switch
+Date: 2026-11-07 · Modules: data, core (config), backtest, cli · Feature IDs: DATA-018, DATA-020, DATA-021, DATA-022,
+DATA-011 (minute), DATA-013 (partial), DATA-017, DATA-005 (minute coverage)
+Problem: owner requirements for a Tiingo (dev) → IBKR (prod) migration by configuration (see DEC-0021).
+Research (real Tiingo API, 2026-11-07): IEX 1-minute `date` = bar start (390 bars 13:30Z–19:59Z); a response holds at most
+10 000 bars and silently keeps the most recent ones (6-month request started 2024-05-24) → windowed fetching + cap
+detection; hourly bucketing ambiguous → minute only; intraday volume IEX-only.
+Files added: `src/quantlab/data/{market_data,factory,compare}.py`, `src/quantlab/data/providers/mock_stream.py`,
+`src/quantlab/cli/market.py` (`quantlab md status|snapshot|stream`), `tests/unit/market/{__init__,test_market_data}.py`
+Files modified: `data/providers/tiingo.py` (IEX minute bars), `data/validation.py` + `data/calendars.py`
+(`session_bounds`, minute coverage: missing minutes, extended-hours bars), `core/config.py` (`[market_data]`),
+`backtest/service.py` (`compare_results`), `cli/{data,main,common}.py` (`data fetch` via factory + `--since-last`,
+`data compare`, `backtest compare`, `md` group, MarketDataError reported cleanly), tests, docs. Decision: DEC-0021.
+Bugs found: `MarketDataError` surfaced as a traceback in the CLI (now a one-line error).
+Real verification (scratch home; Tiingo data not committed): SPY 1-minute 2024-06-24..07-12 → 5 850 bars, 100 %
+regular-session coverage; validation flagged 180 bars Tiingo returned after the 2024-07-03 13:00 ET early close; mock
+stream labelled SIMULATED and refused under `--require-live`; Tiingo vs LEAN sample (QuantConnect) SPY daily 2013–2021:
+1 888/1 888 common bars, max close difference 0.114 %.
+Not verified: same-strategy results across providers through real LEAN (no Docker daemon here); IBKR (slice B).
+Tests: Python 335 passed, 1 skipped; ruff, mypy --strict, lint-imports clean.
+Result: PASS · Regression status: PASS (one CLI test updated: `data fetch` now checks the dataset before the API key)

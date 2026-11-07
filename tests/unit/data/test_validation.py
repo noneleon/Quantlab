@@ -81,3 +81,38 @@ def test_empty_frame_is_error():
     empty = pd.DataFrame(columns=["symbol", "ts", "open", "high", "low", "close", "volume"])
     _, report = validate_bars(empty, Resolution.DAILY, "XNYS")
     assert not report.ok and report.errors[0].check == "empty"
+
+
+def minute_frame(day, minutes, start="13:31", extra=()):
+    ends = [pd.Timestamp(f"{day}T{start}:00Z") + pd.Timedelta(minutes=i) for i in range(minutes)]
+    ends += [pd.Timestamp(e) for e in extra]
+    prices = [
+        100.0 + (i % 7) * 0.01 for i in range(len(ends))
+    ]  # synthetic, varying (no stale-price warnings)
+    return pd.DataFrame(
+        {
+            "symbol": "SPY",
+            "ts": ends,
+            "open": prices,
+            "high": prices,
+            "low": prices,
+            "close": prices,
+            "volume": 1.0,
+        }
+    )
+
+
+def test_minute_coverage_full_session_and_early_close():
+    _, full = validate_bars(minute_frame("2024-07-02", 390), Resolution.MINUTE, "XNYS")
+    assert full.ok and full.completeness == {"SPY": 1.0} and full.issues == []
+    _, early = validate_bars(minute_frame("2024-07-03", 210), Resolution.MINUTE, "XNYS")  # 13:00 ET close
+    assert early.completeness == {"SPY": 1.0}
+
+
+def test_missing_minutes_and_extended_hours_are_warnings():
+    frame = minute_frame("2024-07-02", 380, extra=["2024-07-02T12:00:00Z"])
+    _, report = validate_bars(frame, Resolution.MINUTE, "XNYS")
+    assert report.ok
+    assert {i.check for i in report.warnings} == {"missing_minutes", "outside_regular_session"}
+    assert report.completeness["SPY"] == round(380 / 390, 6)
+    assert report.warnings[0].examples[0].startswith("2024-07-02 (10 missing)")

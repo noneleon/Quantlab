@@ -112,3 +112,18 @@ def session_dates(ts: pd.Series, calendar: str, resolution: Resolution = Resolut
     if calendar in SPECIAL_CALENDARS:
         return start.dt.date
     return start.dt.tz_convert(_exchange_calendar(calendar).tz).dt.date
+
+
+def session_bounds(code: str, start: date, end: date) -> list[tuple[date, datetime, datetime]]:
+    """(session date, open UTC, close UTC) of regular sessions (empty for the special calendars)."""
+    if code in SPECIAL_CALENDARS or end < start:
+        return []
+    cal = _exchange_calendar(code)
+    first, last = max(start, cal.first_session.date()), min(end, cal.last_session.date())
+    if last < first:
+        return []
+    schedule = cal.schedule.loc[pd.Timestamp(first) : pd.Timestamp(last)]
+    return [
+        (ts.date(), row["open"].to_pydatetime().astimezone(UTC), row["close"].to_pydatetime().astimezone(UTC))
+        for ts, row in schedule.iterrows()
+    ]

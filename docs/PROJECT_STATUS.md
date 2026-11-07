@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Market data & research (2a data foundation, 2b LEAN export/backtests on datasets, 2c research API + Jupyter, 2d web UI shell done; 2e corporate actions + Tiingo provider done; Phase 2 functionally complete except RES-003/005 and UI polish).
 Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
-**Last change:** CHANGE-0014 (2026-11-07)
+**Last change:** CHANGE-0015 (2026-11-07)
 **Overall health:** Core, LEAN engine adapter (never run against real LEAN), strategies, backtests, analytics, CLI, read-only API and the data catalog are implemented and tested (CI green). No trading or portfolio yet; the web UI is read-only.
 
 ## Phase progress
@@ -11,6 +11,7 @@ Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
 | 0 | Repository & architecture audit | DONE — approved by owner 2026-11-06 |
 | 1 | Core infrastructure + M1 | IN PROGRESS — 1a (config, logging, paths, skeleton, CI) + 1b (DB, migrations, audit, ids/clock, secrets) + 1c (LEAN engine adapter) + 1d (strategies, backtests, metrics) + 1e (CLI, read-only API) done; M1 acceptance pending |
 | 2 | Market data & research | IN PROGRESS — 2a (providers, CSV import, validation, versioned catalog, export) + 2b (LEAN export, backtests on datasets) + 2c (research API, statistics, JupyterLab) + 2d (web UI shell, dataset/backtest views) + 2e (corporate actions, Tiingo provider) done |
+| 2f | Market-data migration (Tiingo → IBKR) | IN PROGRESS — slice A done; next B (IBKR market data), then C in Phase 5 |
 | 3–9 | — | Not started |
 
 ## What exists
@@ -27,7 +28,7 @@ Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
 - `web/` (UI-001/002/004/008): React UI served by `quantlab serve` (token URL printed at start).
 - Packaging: `pyproject.toml` + `uv.lock`, Python 3.11 (CORE-001). CI: `.github/workflows/ci.yml` (MEM-004, green on ubuntu + windows).
 - `tools/env_check.py` environment probe.
-- Tests: 316 Python passing + 16 web (vitest) + 1 Docker-gated skip (`uv run pytest`), 92 % coverage; 3 import-linter contracts in CI.
+- Tests: 335 Python passing + 16 web (vitest) + 1 Docker-gated skip (`uv run pytest`), 92 % coverage; 3 import-linter contracts in CI.
 - PR noneleon/Quantlab#1 open from this branch (opened by owner).
 
 ## Decisions

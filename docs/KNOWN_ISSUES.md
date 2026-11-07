@@ -26,7 +26,7 @@
 | KI-0022 | Low | api | Starlette deprecation warning: TestClient with `httpx` (suggests `httpx2`). Test-only. | OPEN — revisit on dependency update |
 | KI-0023 | Low | cli | `quantlab serve` and `engine pull` have no automated test (manual smoke only); CLI coverage 77 %. | OPEN |
 | KI-0024 | Medium | data | Each import rewrites the whole dataset version (copy-on-write) and hashes rows in a Python loop; fine for daily data, slow for large minute/second datasets. | OPEN — partitioned versions / vectorised hashing before intraday bulk imports |
-| KI-0025 | Medium | data | Gap detection only for daily bars; intraday gaps (missing minutes within sessions) are not checked. | OPEN |
+| KI-0025 | Medium | data | Gap detection only for daily bars. | RESOLVED for minute bars (CHANGE-0015: regular-session coverage); hour/second still unchecked |
 | KI-0026 | Medium | data | QuantLab calendars (exchange_calendars) are not reconciled with LEAN's market-hours database; forex `weekdays` calendar is an approximation. | OPEN — compare when LEAN export (DATA-009) lands |
 | KI-0027 | Low | data | pandas 3.1 deprecation warnings raised inside exchange_calendars and duckdb `.df()`; harmless now, may break on pandas 4. | OPEN — track upstream |
 | KI-0028 | High | data/engine | A real LEAN run has never read a QuantLab export. Unverified: 2-column map files, neutral factor files, benchmark (LEAN's default SPY benchmark has no data unless SPY is in the dataset — strategies should `set_benchmark` to a dataset symbol), `--network none`. | OPEN — first Docker run with `--dataset` |
@@ -42,3 +42,6 @@
 | KI-0038 | Medium | data | Direction of Tiingo `splitFactor` unconfirmed. | RESOLVED (CHANGE-0014: 4.0 on AAPL 2020-08-31 = new shares per old) |
 | KI-0039 | Low | data | Validation still flags `price_jump` on days explained by a recorded split (e.g. AAPL 2020-08-31). | OPEN — suppress jumps matched by corporate actions |
 | KI-0040 | Low | data | Tiingo `splitFactor` may also encode "distributions" (per Tiingo docs); such events are recorded as splits. | OPEN — review on first occurrence |
+| KI-0041 | Medium | data | Tiingo IEX returns 390 minute bars on early-close days; bars after the early close are kept but flagged `outside_regular_session` (LEAN treats them as extended hours). | OPEN — decide: drop or keep flagged |
+| KI-0042 | Low | data | Tiingo intraday: hourly resampling semantics unverified (not used); minute data only. | DOCUMENTED |
+| KI-0043 | High | data | IBKR provider (DATA-019) and broker adapter not implemented; the Tiingo→IBKR switch currently fails clearly with "not implemented". | OPEN — slices B/C |

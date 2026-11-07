@@ -25,6 +25,7 @@ from quantlab.backtest.models import BacktestRun
 from quantlab.bootstrap import AppContext, initialize
 from quantlab.cli.common import EXPECTED, HomeOpt, JsonOpt, context, emit_json, fail
 from quantlab.cli.data import data_app
+from quantlab.cli.market import md_app
 from quantlab.cli.secret_commands import secret_app
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuantLab — self-hosted quant platform.")
@@ -38,6 +39,7 @@ app.add_typer(data_app, name="data")
 app.add_typer(engine_app, name="engine")
 app.add_typer(api_app, name="api")
 app.add_typer(secret_app, name="secret")
+app.add_typer(md_app, name="md")
 
 
 def _fmt_pct(value: float | None) -> str:
@@ -336,6 +338,36 @@ def backtest_show(run_id: str, home: HomeOpt = None, as_json: JsonOpt = False) -
             )
         else:
             _print_run(run)
+
+
+@backtest_app.command("compare")
+def backtest_compare(run_a: str, run_b: str, home: HomeOpt = None, as_json: JsonOpt = False) -> None:
+    """Compare two runs' results (e.g. the same strategy on Tiingo vs IBKR data), with their data sources."""
+    from quantlab.backtest.service import BacktestService
+
+    with context(home) as ctx:
+        service = ctx.read_only_backtests()
+        report = BacktestService.compare_results(service.get(run_a), service.get(run_b))
+    if as_json:
+        emit_json(report)
+        return
+    for side in ("a", "b"):
+        info = report[side]
+        typer.echo(
+            f"{side.upper()} {info['id']}  {info['status']}  data {info['dataset'] or 'sample'} "
+            f"({info['provenance']}) {info['start']} → {info['end']}"
+        )
+    if not report["same_strategy_code"] or not report["same_parameters"]:
+        typer.secho(
+            "warning: different strategy code or parameters — not a like-for-like comparison",
+            fg=typer.colors.YELLOW,
+        )
+    for key, row in report["metrics"].items():
+        diff = "-" if row["diff"] is None else f"{row['diff']:+.4f}"
+        typer.echo(f"  {key:<18} A {row['a']!s:<22} B {row['b']!s:<22} diff {diff}")
+    typer.echo(
+        f"  {'total orders':<18} A {report['total_orders']['a']!s:<22} B {report['total_orders']['b']!s}"
+    )
 
 
 @backtest_app.command("rerun")

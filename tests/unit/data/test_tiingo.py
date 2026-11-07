@@ -153,6 +153,8 @@ def test_malformed_payloads(payload):
 def test_only_daily_and_requires_symbols():
     p, _ = provider(lambda r: httpx.Response(200, json=PAYLOAD))
     with pytest.raises(ProviderError, match="daily"):
+        p.fetch_bars(BarRequest(("SPY",), Resolution.HOUR))
+    with pytest.raises(ProviderError, match="--start"):
         p.fetch_bars(BarRequest(("SPY",), Resolution.MINUTE))
     with pytest.raises(ProviderError, match="symbol"):
         p.fetch_bars(BarRequest((), Resolution.DAILY))
@@ -186,3 +188,76 @@ def test_fetch_into_catalog_stores_bars_and_actions(db_session, tmp_path):
         catalog.fetch(db_session, "spy-redist", p, DAILY)
     with pytest.raises(DataError, match="minute"):
         catalog.fetch(db_session, "spy", p, BarRequest(("SPY",), Resolution.MINUTE))
+
+
+def minute_records(day, count, start="13:30"):
+    base = pd.Timestamp(f"{day}T{start}:00Z")
+    return [
+        {
+            "date": (base + pd.Timedelta(minutes=i)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "open": 10.0,
+            "high": 11.0,
+            "low": 9.0,
+            "close": 10.5,
+            "volume": 100,
+        }
+        for i in range(count)
+    ]
+
+
+def test_minute_bars_shift_start_to_end_and_chunk_requests():
+    windows = []
+
+    def handler(request):
+        params = dict(request.url.params)
+        windows.append((params["startDate"], params["endDate"]))
+        assert request.url.path == "/iex/spy/prices" and params["resampleFreq"] == "1min"
+        assert params["columns"] == "open,high,low,close,volume"
+        return httpx.Response(200, json=minute_records(params["startDate"], 2))
+
+    p, _ = provider(handler)
+    raw = p.fetch_bars(
+        BarRequest(
+            ("SPY",), Resolution.MINUTE, datetime(2024, 6, 1, tzinfo=UTC), datetime(2024, 6, 30, tzinfo=UTC)
+        )
+    )
+    assert windows == [
+        ("2024-06-01", "2024-06-14"),
+        ("2024-06-15", "2024-06-28"),
+        ("2024-06-29", "2024-06-30"),
+    ]
+    assert raw.frame["ts"].iloc[0] == pd.Timestamp("2024-06-01T13:31:00Z")  # bar start 13:30 -> end 13:31
+    assert any("IEX-only volume" in n for n in raw.notes) and raw.actions is None
+
+
+def test_capped_response_is_split_never_accepted():
+    calls = []
+
+    def handler(request):
+        params = dict(request.url.params)
+        calls.append((params["startDate"], params["endDate"]))
+        if params["startDate"] != params["endDate"]:
+            return httpx.Response(200, json=minute_records(params["startDate"], 10_000))  # looks truncated
+        return httpx.Response(200, json=minute_records(params["startDate"], 390))
+
+    p, _ = provider(handler)
+    raw = p.fetch_bars(
+        BarRequest(
+            ("SPY",), Resolution.MINUTE, datetime(2024, 7, 1, tzinfo=UTC), datetime(2024, 7, 2, tzinfo=UTC)
+        )
+    )
+    assert calls == [("2024-07-01", "2024-07-02"), ("2024-07-01", "2024-07-01"), ("2024-07-02", "2024-07-02")]
+    assert len(raw.frame) == 780
+
+
+def test_single_day_at_cap_is_refused():
+    p, _ = provider(lambda r: httpx.Response(200, json=minute_records("2024-07-01", 10_000)))
+    with pytest.raises(ProviderError, match="truncated"):
+        p.fetch_bars(
+            BarRequest(
+                ("SPY",),
+                Resolution.MINUTE,
+                datetime(2024, 7, 1, tzinfo=UTC),
+                datetime(2024, 7, 1, tzinfo=UTC),
+            )
+        )

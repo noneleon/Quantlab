@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0014 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0015 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -18,11 +18,13 @@
   read-time adjustment from one golden-tested factor computation; calendar history fix (pre-2006 data was rejected).
 - CHANGE-0014 (2e part 2): Tiingo EOD provider (`quantlab data fetch`), `quantlab secret` CLI; verified against the real
   API; Tiingo AAPL history reproduces LEAN's AAPL factor file.
+- CHANGE-0015 (migration slice A, DEC-0021): `MarketDataProvider` + DataState/QuoteGuard, Tiingo 1-minute bars, mock
+  SIMULATED streaming (`quantlab md`), `[market_data]` provider switch, `data compare` / `backtest compare`,
+  minute-coverage validation.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 316 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: typecheck, `npm test` (16 passed), build ok. Real Tiingo API verification: see CHANGE-0014.
-CI for CHANGE-0014: see latest run on the PR.
+Python: `uv run pytest` → 335 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: unchanged (16 passed). Real-data checks: see CHANGE-0014/0015. CI for CHANGE-0015: see latest run on the PR.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -50,7 +52,8 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Close Phase 2 (remaining: RES-003 QuantBook, RES-005 research reports, UI equity chart + KI-0039 jump suppression) or start
-Phase 3 (backtesting depth: platform-configured fee/slippage/brokerage models via the `quantlab_lean` helper, ENG-009/
-BT-005, AN-002 charts, AN-003 reports). Highest-value owner action remains the first real LEAN run on Docker (KI-0002/0028):
-`quantlab data fetch` now gives real data for it.
+Migration slice B (DATA-019): `IBKRProvider` implementing `MarketDataProvider` via the TWS API (library choice to verify:
+`ib_async`), historical bars → catalog, Level I streaming with `reqMarketDataType` mapped to LIVE/FROZEN/DELAYED (+
+detection of IB's "delayed data displayed" fallback → DELAYED, refused when live is required), reconnection with
+backoff, historical pacing limits. Test against a fake IB client; real verification needs the owner's IB Gateway (paper).
+Then slice C in Phase 5 (BrokerAdapter, OMS, risk gate, paper trading) — orders never bypass the risk gate (DEC-0007).

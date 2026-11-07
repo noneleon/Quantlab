@@ -130,8 +130,14 @@ def data_import(
 def data_fetch(
     name: str,
     symbol: Annotated[list[str], typer.Option("--symbol", "-s", help="Ticker(s) to fetch.")],
-    provider: Annotated[str, typer.Option(help="Data provider (tiingo).")] = "tiingo",
+    provider: Annotated[
+        str | None,
+        typer.Option(help="Historical provider (default: market_data.historical in quantlab.toml)."),
+    ] = None,
     start: Annotated[str | None, typer.Option(help="First date YYYY-MM-DD (default: full history).")] = None,
+    since_last: Annotated[
+        bool, typer.Option("--since-last", help="Start at the last stored date (incremental update).")
+    ] = False,
     end: Annotated[str | None, typer.Option(help="Last date YYYY-MM-DD (default: today).")] = None,
     on_conflict: Annotated[
         str, typer.Option(help="reject | replace values that differ from the latest version.")
@@ -139,38 +145,41 @@ def data_fetch(
     home: HomeOpt = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Download daily bars + corporate actions from a provider into a dataset (new validated version)."""
-    if provider != "tiingo":
-        fail("only --provider tiingo is supported so far")
+    """Download bars (+ corporate actions) into a dataset as a new validated version; cached locally."""
+    if start is not None and since_last:
+        fail("use either --start or --since-last")
     if on_conflict not in ("reject", "replace"):
         fail("--on-conflict must be 'reject' or 'replace'")
     policy: Literal["reject", "replace"] = "replace" if on_conflict == "replace" else "reject"
-    from quantlab.core.secret_store import SecretNotFoundError
-    from quantlab.data.providers.tiingo import API_KEY_REF, TiingoProvider
+    from quantlab.data.factory import historical_provider
 
     def day(value: str | None) -> datetime | None:
         return None if value is None else datetime.fromisoformat(value).replace(tzinfo=UTC)
 
     with context(home) as ctx, ctx.sessions() as session:
-        try:
-            key = ctx.secrets.get(API_KEY_REF)
-        except SecretNotFoundError:
-            fail("Tiingo API key not configured; run `quantlab secret set tiingo/api-key`")
         dataset = ctx.data.get(session, name)
-        source = TiingoProvider(key, calendar=dataset.calendar)
+        first = day(start)
+        if since_last:
+            latest = ctx.data.latest(session, dataset)
+            if latest is None:
+                fail("--since-last needs an existing version; run a first fetch with --start")
+            first = latest.end_ts.replace(hour=0, minute=0, second=0, microsecond=0)  # refetch the last day
+        source = historical_provider(ctx.settings, ctx.secrets, dataset.calendar, provider)
         try:
             result = ctx.data.fetch(
                 session,
                 name,
                 source,
-                BarRequest(tuple(symbol), Resolution.DAILY, day(start), day(end)),
+                BarRequest(tuple(symbol), Resolution(dataset.resolution), first, day(end)),
                 on_conflict=policy,
             )
         except DataValidationError as exc:
             session.rollback()
             fail(f"{exc} (report: {exc.quarantine_dir / 'report.json'})")
         finally:
-            source.close()
+            close = getattr(source, "close", None)
+            if close is not None:
+                close()
         session.commit()
         version = result.version
         summary: dict[str, Any] = {
@@ -192,6 +201,49 @@ def data_fetch(
         typer.secho(f"  warning {w}", fg=typer.colors.YELLOW)
     for note in summary["notes"]:
         typer.echo(f"  note    {note}")
+
+
+@data_app.command("compare")
+def data_compare(
+    dataset_a: str,
+    dataset_b: str,
+    symbol: Annotated[list[str] | None, typer.Option("--symbol", "-s", help="Only these symbols.")] = None,
+    tolerance: Annotated[
+        float, typer.Option(help="Relative close difference considered a mismatch.")
+    ] = 0.001,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Compare two datasets (e.g. Tiingo vs IBKR) on common bars: coverage, price and volume differences."""
+    from quantlab.data.compare import compare_bars
+
+    with context(home) as ctx, ctx.sessions() as session:
+        da, db = ctx.data.get(session, dataset_a), ctx.data.get(session, dataset_b)
+        if da.resolution != db.resolution:
+            fail(f"resolutions differ ({da.resolution} vs {db.resolution})")
+        fa, va = ctx.data.read(session, dataset_a, symbols=symbol)
+        fb, vb = ctx.data.read(session, dataset_b, symbols=symbol)
+        rows = [c.to_dict() for c in compare_bars(fa, fb, tolerance=tolerance)]
+    report = {
+        "a": {"dataset": dataset_a, "version": va.content_hash[:20], "provenance": da.provenance},
+        "b": {"dataset": dataset_b, "version": vb.content_hash[:20], "provenance": db.provenance},
+        "symbols": rows,
+    }
+    if as_json:
+        emit_json(report)
+        return
+    typer.echo(
+        f"A = {dataset_a} @ {va.content_hash[:12]} ({da.provenance})   B = {dataset_b} @ "
+        f"{vb.content_hash[:12]} ({db.provenance})"
+    )
+    for r in rows:
+        diff = "-" if r["close_rel_diff_max"] is None else f"{r['close_rel_diff_max']:.4%}"
+        typer.echo(
+            f"{r['symbol']:<8} A {r['rows_a']:>7}  B {r['rows_b']:>7}  common {r['overlap']:>7}  "
+            f"max close diff {diff}"
+        )
+        for note in r["notes"]:
+            typer.secho(f"         {note}", fg=typer.colors.YELLOW)
 
 
 @data_app.command("list")

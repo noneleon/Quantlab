@@ -25,6 +25,11 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `brokers.ibkr.port_paper` | `4002` | IB Gateway paper (TWS paper: 7497) |
 | `brokers.ibkr.port_live` | `4001` | IB Gateway live (TWS live: 7496) |
 | `brokers.ibkr.client_id` | `17` | |
+| `market_data.historical` | `tiingo` | `tiingo` or `ibkr` (IBKR: DATA-019, not implemented yet — fails clearly); default for `quantlab data fetch` |
+| `market_data.realtime` | `mock` | `mock` (SIMULATED replay of a catalog dataset) or `ibkr` (not implemented yet) |
+| `market_data.require_live` | `false` | refuse any quote that is not LIVE; `true` with `realtime = "mock"` is rejected |
+| `market_data.mock_dataset` | unset | catalog dataset replayed by the mock real-time provider |
+| `market_data.stale_after_s` | `15.0` | LIVE quotes older than this (by exchange time) are flagged `stale` |
 | `risk.limits_file` | `{home}/risk_limits.toml` | changes require UI confirmation + audit |
 | `ai.provider` | `none` | `anthropic`, `openai`, `ollama`, `none` |
 | `ai.api_key_ref` | unset | must start with `secret://` |
@@ -42,6 +47,10 @@ port = 8765
 [engine.lean]
 launcher = "docker"
 # image = "quantconnect/lean@sha256:<digest>"
+
+[market_data]          # development defaults; production: historical = "ibkr", realtime = "ibkr", require_live = true
+historical = "tiingo"
+realtime = "mock"
 
 [logging]
 level = "INFO"

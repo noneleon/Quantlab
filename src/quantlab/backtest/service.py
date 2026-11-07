@@ -258,6 +258,58 @@ class BacktestService:
                 diffs += stat_diffs or ["orders, equity curve or status differ (statistics identical)"]
         return ReproducibilityReport(original.id, rerun.id, inputs_same, results_same, diffs)
 
+    @staticmethod
+    def compare_results(a: BacktestRun, b: BacktestRun) -> dict[str, Any]:
+        """Cross-data compatibility of two runs (e.g. same strategy on Tiingo vs IBKR data).
+
+        Unlike ``compare`` (bit-for-bit reproducibility), this reports metric differences and states each
+        run's data provenance/version, so differences in coverage or feed characteristics stay visible.
+        """
+        ma, mb = a.json("metrics") or {}, b.json("metrics") or {}
+        keys = (
+            "total_return",
+            "cagr",
+            "annual_volatility",
+            "sharpe",
+            "sortino",
+            "max_drawdown",
+            "observations",
+        )
+        metrics = {}
+        for key in keys:
+            va, vb = ma.get(key), mb.get(key)
+            diff = vb - va if isinstance(va, int | float) and isinstance(vb, int | float) else None
+            metrics[key] = {"a": va, "b": vb, "diff": diff}
+        sa, sb = a.json("engine_statistics") or {}, b.json("engine_statistics") or {}
+        data_a, data_b = a.json("manifest").get("data", {}), b.json("manifest").get("data", {})
+        same_strategy = (
+            a.json("manifest")["strategy"]["tree_hash"] == b.json("manifest")["strategy"]["tree_hash"]
+        )
+        return {
+            "a": {
+                "id": a.id,
+                "status": a.status,
+                "provenance": a.data_provenance,
+                "data_version": a.data_version,
+                "dataset": (data_a.get("dataset") or {}).get("name"),
+                "start": ma.get("start"),
+                "end": ma.get("end"),
+            },
+            "b": {
+                "id": b.id,
+                "status": b.status,
+                "provenance": b.data_provenance,
+                "data_version": b.data_version,
+                "dataset": (data_b.get("dataset") or {}).get("name"),
+                "start": mb.get("start"),
+                "end": mb.get("end"),
+            },
+            "same_strategy_code": same_strategy,
+            "same_parameters": a.json("parameters") == b.json("parameters"),
+            "metrics": metrics,
+            "total_orders": {"a": sa.get("Total Orders"), "b": sb.get("Total Orders")},
+        }
+
     # ---- internals -----------------------------------------------------------------------------
     def _new_run_dir(self, run_id: str) -> Path:
         run_dir = self._settings.layout.runs_dir / run_id
