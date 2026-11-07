@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0032 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0033 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -50,9 +50,10 @@
   CHANGE-0031 fixed its safety-review findings (rejections reported as Cancelled; manual TWS orders refreshed).
 - CHANGE-0032 (5b-4, DEC-0030): `quantlab paper supervise` — events, reconcile (engages the kill switch on position
   differences), equity samples / start-of-day at the open, DAY expiry; heartbeat in CLI/API/console. Migration 0007.
+  CHANGE-0033 fixed its safety-review findings (missed-close DAY expiry, checked quotes for equity, health status).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 570 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 579 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 28 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note

@@ -499,6 +499,8 @@ export const ENGAGE_CONFIRMATION = "ENGAGE KILL SWITCH";
 
 export interface SupervisorStatus {
   running: boolean;
+  healthy: boolean;
+  error?: string;
   heartbeat_age_s?: number | null;
   status: {
     account: string;
@@ -506,6 +508,7 @@ export interface SupervisorStatus {
     ticks: number;
     last_reconcile_at: string | null;
     last_reconcile_clean: boolean | null;
+    last_reconcile_error: string | null;
     last_equity: number | null;
     kill_switch_engaged_by_supervisor: string | null;
     errors: string[];

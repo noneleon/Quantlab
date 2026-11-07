@@ -8,6 +8,7 @@ as ``strategy add`` do not need.
 from __future__ import annotations
 
 import secrets
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -142,10 +143,12 @@ class AppContext:
 
         paper = self.settings.paper
         provider: list[Any] = []  # built on first use: cancelling orders must never depend on market data
-        failed: list[str] = []  # a failed build/connect is remembered for this OMS (no repeated timeouts)
+        retry_at: list[float] = [
+            0.0
+        ]  # after a failed build/connect: no new attempt for 30 s (no timeout storm)
 
         def quote(symbol: str) -> Quote | None:
-            if failed:
+            if time.monotonic() < retry_at[0]:
                 return None
             try:
                 if not provider:
@@ -155,7 +158,8 @@ class AppContext:
                 log.warning("paper.quote_unavailable", symbol=symbol, error=str(exc))
                 return None
             except Exception as exc:  # e.g. IB Gateway down, catalog unreadable: fail closed the same way
-                failed.append(repr(exc))
+                retry_at[0] = time.monotonic() + 30.0
+                provider.clear()  # rebuilt (reconnected) on the next attempt
                 log.warning("paper.quote_source_failed", symbol=symbol, error=repr(exc))
                 return None
             return quotes[0] if quotes else None
@@ -199,6 +203,7 @@ class AppContext:
             equity_every_s=sup.equity_every_s,
             calendar=sup.calendar,
             engage_on_mismatch=sup.engage_kill_switch_on_mismatch,
+            equity_quote_max_age_s=sup.equity_quote_max_age_s,
         )
 
     def ibkr_paper_broker(self) -> IBKRPaperBroker:

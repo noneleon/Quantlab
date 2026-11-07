@@ -254,6 +254,7 @@ class SupervisorSettings(_Section):
     engage_kill_switch_on_mismatch: bool = (
         True  # reconcile finds a position difference -> engage (risk-reducing)
     )
+    equity_quote_max_age_s: float = Field(default=60.0, gt=0)  # older quotes never feed equity samples
 
 
 class LifecycleSettings(_Section):

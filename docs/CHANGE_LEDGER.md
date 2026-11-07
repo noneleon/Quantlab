@@ -623,3 +623,27 @@ Safety review: a trading-safety review was still running when this was committed
 started with `quantlab paper supervise`); its outcome and any fixes are recorded in the next ledger entry.
 Tests: Python 570 passed, 1 skipped; web 28 passed; ruff, mypy --strict, lint-imports (5 contracts), tsc, build clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0033 — Phase 5b-4 follow-up: supervisor safety-review findings fixed
+Date: 2026-11-07 · Modules: oms, brokers, bootstrap, core.config, web · Feature IDs: LIVE-001, OMS-005, RISK-002
+Review (trading-safety-reviewer, started before CHANGE-0032 was committed): no BLOCKER — the supervisor cannot submit
+orders or disengage the kill switch; the lock refactor is equivalent. 4 MAJOR + 6 MINOR.
+Fixes (regression tests confirmed failing on the previous code):
+- MAJOR: DAY expiry looks back over recent sessions (a close missed while the supervisor was down is caught up after
+  a restart) and only expires DAY orders **created before** that close (`OMS.expire_day_orders(closed_at=)`, paper
+  broker expires only those ids); the last expired session is restored from the status file after a restart.
+- MAJOR: equity samples (permanent; they feed the high-water mark and start-of-day equity) use only checked quotes:
+  no stale/crossed/no-price flags, bid ≤ ask, not DELAYED/FROZEN, age within `[supervisor] equity_quote_max_age_s`;
+  otherwise nothing is recorded. Samples store the quote states (`supervisor:SIMULATED`), so synthetic prices stay
+  labelled.
+- MAJOR: a quote-source failure is retried after 30 s (and the provider rebuilt) instead of disabling quotes for the
+  supervisor's lifetime.
+- MAJOR: a failed reconcile sets `last_reconcile_clean = null` with the error; the status has `healthy` (no errors in
+  the last tick and a clean reconcile within two intervals); the console is only green when healthy, and shows a
+  warning when the status cannot be read.
+- MINOR: status writes are retried and never stop the loop; an unknown calendar fails at start-up; heartbeats in the
+  future are not "running"; corrupt status files are reported; lock/tmp names keep the full file name (dotted
+  account names).
+Remaining: KI-0076.
+Tests: Python 579 passed, 1 skipped; web 28 passed; ruff, mypy --strict, lint-imports (5 contracts), tsc, build clean.
+Result: PASS · Regression status: PASS

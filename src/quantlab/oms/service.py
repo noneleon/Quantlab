@@ -48,6 +48,7 @@ from quantlab.core.audit import AuditEntry, AuditLog, encode_details
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
+from quantlab.data.market_data import DataState, Quote
 from quantlab.oms import queries
 from quantlab.oms.models import DailyEquity, EquitySample, FillRecord, OmsAccount, Order, OrderEvent
 from quantlab.oms.states import TERMINAL, WORKING, OrderState, can_transition
@@ -333,35 +334,73 @@ class OMS:
             session.commit()
         return CancelAllResult(out, still)
 
-    def record_equity(self, *, source: str, start_of_day: bool = False) -> float | None:
-        """Mark the confirmed book with current quotes and store the equity sample (supervisor, LIVE-001).
+    def record_equity(
+        self, *, source: str, start_of_day: bool = False, max_quote_age_s: float = 60.0
+    ) -> float | None:
+        """Mark the confirmed book with *checked* quotes and store the equity sample (supervisor, LIVE-001).
 
-        ``start_of_day`` also records today's start-of-day equity if it is not recorded yet. Returns None (and
-        records nothing) when a held symbol has no quote: an unmarked equity is never stored.
+        Samples are permanent and feed the drawdown high-water mark (and, with ``start_of_day``, today's
+        start-of-day equity), so a held symbol whose quote is missing, flagged (stale/crossed/...), crossed,
+        DELAYED/FROZEN or older than ``max_quote_age_s`` means nothing is recorded (returns None). The quote
+        states used are stored with the sample (e.g. ``supervisor:SIMULATED``).
         """
         with self._sessions() as session:
             book = self.book(session)
             held = sorted(s for s, p in book.positions.items() if abs(p.quantity) > 1e-9)
-            equity = book.snapshot(self.marks(held))["equity"]
+            now = self._clock.now()
+            marks: dict[str, float] = {}
+            states: set[str] = set()
+            for sym in held:
+                q = self._quotes(sym)
+                price = self._checked_mark(q, now, max_quote_age_s)
+                if q is None or price is None:
+                    return None
+                marks[sym] = price
+                states.add(q.state.value)
+            equity = book.snapshot(marks)["equity"]
             if equity is None:
                 return None
-            now = self._clock.now()
+            label = f"{source}:{'/'.join(sorted(states)) or 'CASH'}"[:32]
             session.add(
-                EquitySample(id=new_id(), account=self.account, equity=equity, source=source, created_at=now)
+                EquitySample(id=new_id(), account=self.account, equity=equity, source=label, created_at=now)
             )
             if start_of_day:
                 self._start_of_day(session, now, equity)
             session.commit()
             return float(equity)
 
-    def expire_day_orders(self) -> bool:
-        """End of session: DAY orders expire at brokers that do not do it themselves (local paper)."""
+    @staticmethod
+    def _checked_mark(q: Quote | None, now: datetime, max_age_s: float) -> float | None:
+        if q is None or q.state in (DataState.DELAYED, DataState.FROZEN):
+            return None
+        if set(q.flags) & {"stale", "clock_skew", "crossed", "no_price"}:
+            return None
+        if q.bid is not None and q.ask is not None and q.bid > q.ask:
+            return None
+        age = (now - (q.exchange_ts or q.received_ts)).total_seconds()
+        if not -2.0 <= age <= max_age_s:
+            return None
+        price = q.mid or q.last
+        return price if price is not None and price > 0 else None
+
+    def expire_day_orders(self, *, closed_at: datetime) -> list[str]:
+        """A session closed at ``closed_at``: DAY orders created before it expire, at brokers that do not
+        expire orders themselves (the local paper broker). Later orders belong to the next session."""
         expire = getattr(self._broker, "expire_day_orders", None)
         if expire is None:
-            return False
-        expire()
-        self.process_events()
-        return True
+            return []
+        with self._sessions() as session:
+            ids = [
+                o.id
+                for o, st in self.orders(session, limit=None)
+                if st in WORKING
+                and o.time_in_force == TimeInForce.DAY.value
+                and (o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=UTC)) < closed_at
+            ]
+        if ids:
+            expire(set(ids))
+            self.process_events()
+        return ids
 
     def process_events(self) -> int:
         """Apply broker events, commit, then acknowledge them.

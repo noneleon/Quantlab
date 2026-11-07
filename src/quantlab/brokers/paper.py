@@ -184,10 +184,10 @@ class PaperBroker:
         return [_report(e) for e in self._state["executions"]]
 
     # ---- session ------------------------------------------------------------------------------------
-    def _expire_day_orders_unlocked(self) -> None:
-        """End of session: DAY orders expire."""
+    def _expire_day_orders_unlocked(self, order_ids: set[str] | None = None) -> None:
+        """End of session: DAY orders expire (only ``order_ids`` when given: the closed session's orders)."""
         for order_id, w in list(self._state["working"].items()):
-            if w["time_in_force"] == TimeInForce.DAY:
+            if w["time_in_force"] == TimeInForce.DAY and (order_ids is None or order_id in order_ids):
                 del self._state["working"][order_id]
                 self._emit(OrderExpired(order_id, self._now()))
         self._save()
@@ -213,9 +213,9 @@ class PaperBroker:
         with self._locked():
             self._acknowledge_unlocked(through_seq)
 
-    def expire_day_orders(self) -> None:
+    def expire_day_orders(self, order_ids: set[str] | None = None) -> None:
         with self._locked():
-            self._expire_day_orders_unlocked()
+            self._expire_day_orders_unlocked(order_ids)
 
     def positions(self) -> list[BrokerPosition]:
         with self._locked():

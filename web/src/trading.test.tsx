@@ -75,12 +75,17 @@ describe("trading console (UI-006)", () => {
 
   it("supervisor status warns when it is not running or found differences", () => {
     const base = { account: "paper", heartbeat_at: "2026-11-09T15:00:00Z", ticks: 3, last_reconcile_at: "2026-11-09T15:00:00Z",
-      last_reconcile_clean: true, last_equity: 1, kill_switch_engaged_by_supervisor: null, errors: [] };
-    expect(renderToStaticMarkup(<SupervisorLine data={{ running: true, status: base }} />)).toContain('class="notice"');
-    const down = renderToStaticMarkup(<SupervisorLine data={{ running: false, status: { ...base, last_reconcile_clean: false } }} />);
+      last_reconcile_clean: true, last_reconcile_error: null, last_equity: 1, kill_switch_engaged_by_supervisor: null, errors: [] };
+    expect(renderToStaticMarkup(<SupervisorLine data={{ running: true, healthy: true, status: base }} />)).toContain('class="notice"');
+    const down = renderToStaticMarkup(<SupervisorLine data={{ running: false, healthy: false, status: { ...base, last_reconcile_clean: false } }} />);
     expect(down).toContain("NOT running");
     expect(down).toContain("DIFFERENCES");
     expect(down).toContain('class="warning"');
-    expect(renderToStaticMarkup(<SupervisorLine data={{ running: false, status: null }} />)).toContain("quantlab paper supervise");
+    const failing = renderToStaticMarkup(<SupervisorLine data={{ running: true, healthy: false,
+      status: { ...base, last_reconcile_clean: null, last_reconcile_error: "ConnectionError()" } }} />);
+    expect(failing).toContain("FAILED");
+    expect(failing).toContain('class="warning"'); // running but unhealthy is never green
+    expect(renderToStaticMarkup(<SupervisorLine data={{ running: false, healthy: false, status: null }} />)).toContain("quantlab paper supervise");
+    expect(renderToStaticMarkup(<SupervisorLine data={{ running: false, healthy: false, status: null, error: "bad json" }} />)).toContain("unavailable");
   });
 });

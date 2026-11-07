@@ -240,11 +240,13 @@ export function RiskView({ data, onEngaged }: { data: RiskStatus; onEngaged: (r:
 
 export function SupervisorLine({ data }: { data: SupervisorStatus }) {
   const st = data.status;
+  if (data.error) return <div className="warning" role="alert">Supervisor status unavailable: {data.error}</div>;
   if (!st) return <p className="muted">Supervisor: never started — run <code>quantlab paper supervise</code>.</p>;
   return (
-    <div className={data.running && st.last_reconcile_clean !== false ? "notice" : "warning"} role="status">
+    <div className={data.healthy ? "notice" : "warning"} role="status">
       Supervisor: <strong>{data.running ? "running" : "NOT running"}</strong> · last heartbeat {dateTime(st.heartbeat_at)}
-      {" "}· last reconcile {st.last_reconcile_clean === null ? "–" : st.last_reconcile_clean ? "clean" : "DIFFERENCES"} ({dateTime(st.last_reconcile_at)})
+      {" "}· last reconcile {st.last_reconcile_error ? "FAILED" : st.last_reconcile_clean === null ? "–" : st.last_reconcile_clean ? "clean" : "DIFFERENCES"}
+      {" "}(last successful {dateTime(st.last_reconcile_at)})
       {st.kill_switch_engaged_by_supervisor ? <> · engaged the kill switch at {dateTime(st.kill_switch_engaged_by_supervisor)}</> : null}
       {st.errors.length ? <> · last error: <code>{st.errors[st.errors.length - 1]}</code></> : null}
     </div>
@@ -262,6 +264,7 @@ export function RiskPage() {
     <>
       {outcome ? <EngageOutcome result={outcome} /> : null}
       {sup.data ? <SupervisorLine data={sup.data} /> : null}
+      {sup.error ? <div className="warning" role="alert">Supervisor status could not be loaded: {sup.error.message}</div> : null}
       <RiskView data={data} onEngaged={(r) => { setOutcome(r); setRefresh((n) => n + 1); }} />
     </>
   );
