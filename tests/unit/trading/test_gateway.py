@@ -388,3 +388,20 @@ def test_a_replay_differing_only_in_time_in_force_is_refused(stack, gw):  # noqa
     err, _ = c.until(lambda m: m["type"] == "error")
     assert "other parameters" in err["message"]
     c.close()
+
+
+def test_a_failure_after_the_oms_took_the_order_is_never_reported_as_not_placed(stack, gw, monkeypatch):  # noqa: F811
+    """Plugin review MAJOR: e.g. a JSON error while applying broker events after the order was sent."""
+    real = stack["oms"].submit
+
+    def submit_then_fail(req):
+        real(req)
+        raise ValueError("broker state unreadable")
+
+    monkeypatch.setattr(stack["oms"], "submit", submit_then_fail)
+    c = connect(gw)
+    c.recv()
+    c.send(type="place", id=1, symbol="SPY", quantity=1)
+    err, _ = c.until(lambda m: m["type"] == "error" and m.get("reply") == "place")
+    assert err["outcome"] == "unknown" and "outcome unknown" in err["message"]
+    c.close()

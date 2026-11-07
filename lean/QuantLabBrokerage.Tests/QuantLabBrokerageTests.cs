@@ -184,7 +184,67 @@ namespace QuantLab.Brokerages.Tests
             using var factory = new QuantLabBrokerageFactory();
             var job = new QuantConnect.Packets.LiveNodePacket();
             Assert.Throws<ArgumentException>(() => factory.CreateBrokerage(job, null!));
-            Assert.Equal(AccountType.Cash, factory.GetBrokerageModel(null!).AccountType);
+            Assert.IsType<QuantLabBrokerageModel>(factory.GetBrokerageModel(null!));
+        }
+    
+
+        // ---- safety review of the plugin (CHANGE-0037) ---------------------------------------------------
+
+        [Fact]
+        public void SellFillsAreNegativeAndCloseThePosition()
+        {
+            var buy = Market(5);
+            Assert.True(_brokerage.PlaceOrder(buy));
+            WaitFor(e => e.OrderId == buy.Id && e.Status == OrderStatus.Filled);
+            var sell = Market(-5);
+            Assert.True(_brokerage.PlaceOrder(sell));
+            var fill = WaitFor(e => e.OrderId == sell.Id && e.Status == OrderStatus.Filled);
+            Assert.Equal(-5m, fill.FillQuantity);
+            Assert.Equal(49.99m, fill.FillPrice);
+            Assert.Empty(_brokerage.GetAccountHoldings());
+        }
+
+        [Fact]
+        public void ADroppedConnectionIsReestablishedAutomaticallyInTheSameRun()
+        {
+            _brokerage.ReconnectDelay = TimeSpan.FromMilliseconds(200);
+            var run = _brokerage.Run;
+            _brokerage.Client.DropConnection(); // network failure
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < deadline && !_messages.Any(m => m.Code == "QuantLabDisconnected")) Thread.Sleep(20);
+            while (DateTime.UtcNow < deadline && !_brokerage.IsConnected) Thread.Sleep(50);
+            Assert.True(_brokerage.IsConnected);
+            Assert.Equal(run, _brokerage.Run);
+            var order = Market(1);
+            Assert.True(_brokerage.PlaceOrder(order));
+            WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.Filled);
+        }
+
+        [Fact]
+        public void AnIntentionalDisconnectDoesNotReconnectOrBreakTheNextConnection()
+        {
+            _brokerage.ReconnectDelay = TimeSpan.FromMilliseconds(100);
+            _brokerage.Disconnect();
+            Thread.Sleep(500);
+            Assert.False(_brokerage.IsConnected); // no automatic reconnect after an intentional disconnect
+            Assert.DoesNotContain(_messages, m => m.Code == "QuantLabDisconnected");
+            _brokerage.Connect();
+            Thread.Sleep(300); // the old reader has finished by now and must not mark the new connection dead
+            Assert.True(_brokerage.IsConnected);
+            var order = Market(1);
+            Assert.True(_brokerage.PlaceOrder(order));
+            WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.Filled);
+        }
+
+        [Fact]
+        public void BrokerageModelRefusesUpdatesAndUnsupportedOrders()
+        {
+            var model = new QuantLabBrokerageModel();
+            Assert.Equal(AccountType.Cash, model.AccountType);
+            Assert.False(model.CanUpdateOrder(null!, Limit(1, 10m), null!, out var update));
+            Assert.Equal("QuantLabNoUpdates", update.Code);
+            Assert.False(model.CanSubmitOrder(null!, WithId(new MarketOnOpenOrder(Spy, 1, DateTime.UtcNow)), out var submit));
+            Assert.Equal("QuantLabUnsupported", submit.Code);
         }
     }
 }

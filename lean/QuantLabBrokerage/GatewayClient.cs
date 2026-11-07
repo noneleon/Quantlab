@@ -51,6 +51,7 @@ namespace QuantLab.Brokerages
         private NetworkStream? _stream;
         private Thread? _reader;
         private volatile bool _connected;
+        private int _generation; // a reader of an older connection never touches a newer one
 
         public GatewayClient(GatewayEndpoint endpoint, TimeSpan timeout)
         {
@@ -109,6 +110,11 @@ namespace QuantLab.Brokerages
                     CloseSocket();
                     throw new GatewayException("QuantLab gateway refused the connection: " + Describe(welcome));
                 }
+                if (welcome.TryGetProperty("mode", out var mode) && mode.GetString() != "paper")
+                {
+                    CloseSocket();
+                    throw new GatewayException("QuantLab gateway is not in paper mode; refusing to trade");
+                }
                 Run = welcome.GetProperty("run").GetString();
                 Account = welcome.TryGetProperty("account", out var a) ? a.GetString() ?? "" : "";
                 var orphans = new List<string>();
@@ -119,7 +125,9 @@ namespace QuantLab.Brokerages
                 Orphans = orphans;
                 _stream.ReadTimeout = Timeout.Infinite;
                 _connected = true;
-                _reader = new Thread(ReadLoop) { IsBackground = true, Name = "QuantLabGatewayReader" };
+                var generation = _generation;
+                var stream = _stream;
+                _reader = new Thread(() => ReadLoop(stream, generation)) { IsBackground = true, Name = "QuantLabGatewayReader" };
                 _reader.Start();
             }
         }
@@ -143,8 +151,24 @@ namespace QuantLab.Brokerages
 
         public void Send(object message)
         {
-            if (!_connected) throw new GatewayException("not connected to the QuantLab gateway");
-            lock (_sync) WriteLine(message);
+            lock (_sync)
+            {
+                if (!_connected || _stream == null) throw new GatewayException("not connected to the QuantLab gateway");
+                try
+                {
+                    WriteLine(message);
+                }
+                catch (Exception exc) when (exc is IOException or ObjectDisposedException or SocketException)
+                {
+                    throw new GatewayException($"sending to the QuantLab gateway failed: {exc.Message}");
+                }
+            }
+        }
+
+        /// <summary>Tests only: drop the socket as a network failure would.</summary>
+        internal void DropConnection()
+        {
+            lock (_sync) _tcp?.Client.Shutdown(SocketShutdown.Both);
         }
 
         private void WriteLine(object message)
@@ -173,12 +197,12 @@ namespace QuantLab.Brokerages
             }
         }
 
-        private void ReadLoop()
+        private void ReadLoop(NetworkStream stream, int generation)
         {
             string reason = "connection closed";
             try
             {
-                using var reader = new StreamReader(_stream!, Encoding.UTF8, false, 4096, leaveOpen: true);
+                using var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, leaveOpen: true);
                 string? line;
                 while ((line = reader.ReadLine()) != null)
                 {
@@ -192,6 +216,7 @@ namespace QuantLab.Brokerages
                             if (!reply.Task.IsCompleted && match(msg)) { reply.TrySetResult(msg); break; }
                         }
                     }
+                    if (generation != Volatile.Read(ref _generation)) return; // superseded by a reconnect
                     MessageReceived?.Invoke(msg);
                 }
             }
@@ -199,7 +224,11 @@ namespace QuantLab.Brokerages
             {
                 reason = exc.Message;
             }
-            _connected = false;
+            lock (_sync)
+            {
+                if (generation != _generation) return; // an older connection: the current one is unaffected
+                _connected = false;
+            }
             Disconnected?.Invoke(reason);
         }
 
@@ -209,6 +238,7 @@ namespace QuantLab.Brokerages
         private void CloseSocket()
         {
             _connected = false;
+            _generation++; // an intentional close: the old reader ends silently (no Disconnected event)
             try { _stream?.Dispose(); } catch (IOException) { }
             try { _tcp?.Dispose(); } catch (SocketException) { }
             _stream = null;

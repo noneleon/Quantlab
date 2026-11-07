@@ -706,3 +706,27 @@ Not verified: no real LEAN engine has loaded the plugin yet (needs 5c-3, native 
 Safety review: a trading-safety review was still running when this was committed; its outcome and any fixes are
 recorded in the next entry.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0037 — Phase 5c-2 follow-up: plugin safety-review findings fixed
+Date: 2026-11-07 · Modules: lean (C#), oms.gateway · Feature IDs: OMS-007 · Decision: DEC-0031
+Review (trading-safety-reviewer, started before CHANGE-0036 was committed): no BLOCKER; the risk-gate path holds.
+4 MAJOR + 9 MINOR, mostly ways LEAN's view of an order could drift from the order QuantLab works. Some points
+about how the LEAN engine reacts come from the reviewer's knowledge of LEAN and are not verified on a real engine.
+Fixes:
+- MAJOR: `QuantLabBrokerageModel` (cash account) refuses order updates and unsupported orders, so LEAN never
+  applies an update to its order object that QuantLab does not have (C# test).
+- MAJOR: the gateway reports `outcome: not_placed` only for refusals before `OMS.submit`; any failure inside or
+  after it is `unknown` (Python test, confirmed failing on the previous code).
+- MAJOR: automatic reconnect with back-off (same run); connection generations so a finished reader of an earlier
+  connection can never mark a new one dead; an intentional disconnect does not reconnect (C# tests).
+- MAJOR: a late `not_placed` reply is still turned into Invalid; place requests without a reply are re-sent after a
+  reconnect (idempotent within the run), so unknown outcomes resolve.
+- MINOR: order events are emitted only by the reader thread, and the gateway sends direct replies after the fills and
+  states it pushes, so LEAN sees fills before the final state; repeated states after a change are no longer dropped;
+  send failures are `GatewayException`s (unknown outcome); the client refuses a gateway not in paper mode; fills
+  without an exec id are ignored; fill timestamps are read as UTC; a sell-fill sign test was added.
+Remaining (KI-0077): cash is the shared account's; holdings are read at start-up only; not yet run inside a real
+LEAN engine.
+Tests: C# 14 passed (against the real Python gateway); Python 599 passed, 1 skipped; ruff, mypy --strict,
+lint-imports (5 contracts) clean.
+Result: PASS · Regression status: PASS

@@ -65,7 +65,11 @@ REJECTED_STATES = {OrderState.RISK_REJECTED.value, OrderState.REJECTED.value, Or
 
 
 class GatewayError(RuntimeError):
-    pass
+    """Refused before anything was stored: the order was definitely not placed."""
+
+
+class OutcomeUnknown(RuntimeError):
+    """Failed after the OMS may have stored (or sent) the order."""
 
 
 @dataclass(frozen=True)
@@ -197,10 +201,13 @@ class Gateway:
             except GatewayError as exc:
                 send({"type": "error", "message": str(exc)})
                 msg = None
-            if msg is not None:
-                self._guarded(send, functools.partial(self._handle, msg, send), msg)
+            replies: list[dict[str, Any]] = []
+            if msg is not None:  # replies are held back until fills and states are pushed (stream order)
+                self._guarded(replies.append, functools.partial(self._handle, msg, replies.append), msg)
             self._guarded(send, self._oms.process_events, report=False)
             self._guarded(send, lambda: self._push(send, sent_states, sent_fills), report=False)
+            for reply in replies:
+                send(reply)
 
     def _hello(self, reader: _LineReader) -> str | None:
         """The run id if the client authenticated within HELLO_TIMEOUT_S overall, else None."""
@@ -329,7 +336,12 @@ class Gateway:
                     )
             elif req.side is Side.SELL:
                 self._check_own_position(session, req)
-        result = self._oms.submit(req)  # risk gate first, always
+        try:
+            result = self._oms.submit(req)  # risk gate first, always
+        except Exception as exc:  # the order may have been stored (and even sent): never "not placed"
+            raise OutcomeUnknown(
+                f"order {lean_id}: {_short(exc)} (outcome unknown; reconciliation resolves it)"
+            ) from exc
         reasons = result.decision.reasons if result.decision is not None else []
         send(_order_message(lean_id, result.order.id, result.state.value, "; ".join(reasons), reply="place"))
 

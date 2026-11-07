@@ -26,9 +26,8 @@ namespace QuantLab.Brokerages
             [GatewayFileKey] = Config.Get(GatewayFileKey),
         };
 
-        /// <summary>A cash account (no margin, no shorting) — the QuantLab risk gate enforces the real limits.</summary>
-        public override IBrokerageModel GetBrokerageModel(IOrderProvider orderProvider) =>
-            new DefaultBrokerageModel(AccountType.Cash);
+        /// <summary>Cash account, no updates (QuantLabBrokerageModel); the QuantLab risk gate enforces the real limits.</summary>
+        public override IBrokerageModel GetBrokerageModel(IOrderProvider orderProvider) => new QuantLabBrokerageModel();
 
         public override IBrokerage CreateBrokerage(LiveNodePacket job, IAlgorithm algorithm)
         {
