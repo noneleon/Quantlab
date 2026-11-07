@@ -51,4 +51,5 @@ User data/results/secrets live under `QUANTLAB_HOME` (outside git).
 - Setup: `uv sync` (Python 3.11 via `uv python install 3.11`)
 - Tests: `uv run pytest` (coverage: `uv run pytest --cov`)
 - Lint/format/types/boundaries: `uv run ruff check .` · `uv run ruff format --check .` · `uv run mypy` · `uv run lint-imports`
-- App: `uv run quantlab --help` (init, strategy, backtest, engine, api, serve)
+- App: `uv run quantlab --help` (init, strategy, data, backtest, engine, api, serve, research)
+- Research extra: `uv sync --extra research` then `uv run quantlab research` (JupyterLab on 127.0.0.1)

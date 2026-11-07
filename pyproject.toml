@@ -24,6 +24,12 @@ dependencies = [
 [project.scripts]
 quantlab = "quantlab.cli.main:main"
 
+[project.optional-dependencies]
+research = [
+    "jupyterlab>=4.2",
+    "matplotlib>=3.9",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
@@ -88,7 +94,7 @@ name = "layered architecture (ARCHITECTURE.md section 7)"
 type = "layers"
 layers = [
     "quantlab.cli",
-    "quantlab.api",
+    "quantlab.api | quantlab.research",
     "quantlab.bootstrap",
     "quantlab.migrations",
     "quantlab.backtest",

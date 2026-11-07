@@ -175,3 +175,16 @@ Tests: `uv run pytest` → 263 passed, 1 skipped; ruff, mypy --strict (47 files)
 sample lines (daily, hour, minute SPY) → canonical frame → export reproduces LEAN's bytes exactly. Manual CLI smoke:
 `data lean-export` writes the expected tree and reuses/verifies it on the second call.
 Result: PASS — CI #29/#30 green on ubuntu + windows · Regression status: PASS (one existing test updated for the intended mount change)
+
+### CHANGE-0011 — Phase 2c: research API, statistics, JupyterLab launcher
+Date: 2026-11-07 · Modules: research (new), analytics, cli · Feature IDs: RES-001, RES-002, RES-004 (partial)
+Files added: `src/quantlab/research/{__init__,api,notebooks}.py`, `src/quantlab/analytics/statistics.py`,
+`tests/unit/research/{__init__,test_research}.py`, `tests/unit/analytics/test_statistics.py`
+Files modified: `src/quantlab/cli/main.py` (`quantlab research`), `pyproject.toml`/`uv.lock` (optional extra `research`:
+jupyterlab, matplotlib; layers contract `quantlab.api | quantlab.research` above bootstrap), docs. Decision: DEC-0017.
+Tests: `uv run pytest --cov` → 278 passed, 1 skipped (real Docker), 92 %; ruff, mypy --strict (51 files), lint-imports clean.
+Manual verification: installed the extra, created a synthetic `spy-daily` dataset, executed the starter notebook headless
+(`jupyter nbconvert --execute`): all cells produced output (datasets, provenance attrs + warning, distribution, metrics,
+backtests). Found and fixed: the provenance warning pointed at `api.py` instead of the notebook cell (stacklevel); test
+added. Base environment restored afterwards (`uv sync`).
+Result: PASS · Regression status: PASS

@@ -42,6 +42,18 @@ uv run quantlab strategy add sma-daily strategies/examples/sma_daily
 uv run quantlab backtest run sma-daily --dataset spy-daily
 ```
 
+## Research notebooks
+```
+uv sync --extra research
+uv run quantlab research      # JupyterLab on 127.0.0.1, workspace QUANTLAB_HOME/notebooks
+```
+```python
+from quantlab.research import Research
+qr = Research.open()
+closes = qr.closes("spy-daily")          # same dataset versions as backtests; provenance in closes.attrs
+qr.distribution(closes["SPY"]), qr.metrics(closes["SPY"])
+```
+
 ## Check your machine
 ```
 python tools/env_check.py

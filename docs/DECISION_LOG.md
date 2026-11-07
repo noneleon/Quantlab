@@ -95,3 +95,10 @@ Decision: mount the export read-only at `/QuantLab/dataset`; the container entry
 (tick/second/minute/hour/daily) and all map/factor files under `/Lean/Data/*/*/`, copies the export in, then starts LEAN.
 Exports carry neutral map/factor files; strategies use `DataNormalizationMode.RAW` until corporate actions (DATA-008).
 Consequence: per-run copy cost (KI-0030); behaviour verified with a real shell against a fake tree, not yet with LEAN.
+
+### DEC-0017 — Research reads only the versioned catalog; JupyterLab is an optional extra
+State: ACCEPTED (implementation of RES-001/002; owner may revisit) · 2026-11-07
+Decision: notebooks use `quantlab.research.Research`, a read-only facade over DataCatalog (same dataset versions as
+backtests), analytics (same metric code as backtests) and backtest history; frames carry provenance in `attrs` and non-real
+data emits `NonRealDataWarning`. JupyterLab/matplotlib live in the `research` optional dependency group so the base install
+and CI stay light; `quantlab research` binds 127.0.0.1 and leaves Jupyter's token auth on.

@@ -133,6 +133,24 @@ def init(home: HomeOpt = None) -> None:
 
 
 @app.command()
+def research(
+    home: HomeOpt = None,
+    port: Annotated[int, typer.Option(help="JupyterLab port (bound to 127.0.0.1).")] = 8888,
+    no_browser: Annotated[bool, typer.Option("--no-browser", help="Do not open a browser.")] = False,
+) -> None:
+    """Start local JupyterLab on QUANTLAB_HOME/notebooks (needs `uv sync --extra research`)."""
+    from quantlab.research.notebooks import ResearchError, launch
+
+    with context(home) as ctx:
+        resolved_home = ctx.settings.home
+    try:
+        code = launch(resolved_home, port=port, open_browser=not no_browser)
+    except ResearchError as exc:
+        fail(str(exc))
+    raise typer.Exit(code)
+
+
+@app.command()
 def serve(
     home: HomeOpt = None,
     host: Annotated[str | None, typer.Option(help="Override server.host (validated).")] = None,

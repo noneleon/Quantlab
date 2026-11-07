@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-06 (CHANGE-0010)
+Last updated: 2026-11-07 (CHANGE-0011)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -77,10 +77,10 @@ Last updated: 2026-11-06 (CHANGE-0010)
 ## RES — Research environment
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| RES-001 | Local JupyterLab launcher wired to QuantLab catalog | research | C | 2 | — | DATA-003 | — | PLANNED | |
-| RES-002 | `quantlab.research` API (history, indicators via shared code) | research | C | 2 | — | DATA-003 | — | PLANNED | Indicators shared with LEAN where possible (QuantBook) |
+| RES-001 | Local JupyterLab launcher wired to QuantLab catalog | research | C | 2 | `src/quantlab/research/notebooks.py`, `quantlab research` | DATA-003 | `tests/unit/research/test_research.py` | TESTED | Optional extra (`uv sync --extra research`), not installed in CI; starter notebook executed for real with nbconvert (manual, CHANGE-0011); server UI launch not automated |
+| RES-002 | `quantlab.research` API (history, indicators via shared code) | research | C | 2 | `src/quantlab/research/api.py` | DATA-003, AN-001 | `test_research.py` + real notebook execution | TESTED | history/closes/datasets/backtests + analytics delegation; provenance in `frame.attrs`, warning for non-real data. **No indicators** (planned via LEAN QuantBook, RES-003) |
 | RES-003 | LEAN QuantBook support (research image) | research | L | 2 | — | DATA-009 | — | PLANNED | |
-| RES-004 | Statistics: returns dist., correlation, factor analysis | research | C | 2 | — | RES-002 | — | PLANNED | |
+| RES-004 | Statistics: returns dist., correlation, factor analysis | research | C | 2 | `src/quantlab/analytics/statistics.py` | RES-002 | `tests/unit/analytics/test_statistics.py` | IN_PROGRESS | Done + TESTED: returns, distribution (moments, quantiles, historical VaR/ES), correlation, rolling volatility. Missing: factor analysis |
 | RES-005 | Research report export (HTML/PDF) | research | C | 2 | — | RES-004 | — | PLANNED | |
 | RES-006 | Promote notebook prototype → strategy | research | C | 4 | — | STR-001 | — | PLANNED | |
 

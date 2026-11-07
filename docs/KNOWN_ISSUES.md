@@ -32,3 +32,5 @@
 | KI-0028 | High | data/engine | A real LEAN run has never read a QuantLab export. Unverified: 2-column map files, neutral factor files, benchmark (LEAN's default SPY benchmark has no data unless SPY is in the dataset — strategies should `set_benchmark` to a dataset symbol), `--network none`. | OPEN — first Docker run with `--dataset` |
 | KI-0029 | Medium | data | Hour bars: LEAN labels the first regular-session hour bar 09:00 (covering 09:30–10:00); vendor hour bars stamped 09:30 export as 09:30 and may not align with LEAN consolidators. | OPEN — verify with real LEAN; consider re-bucketing on import |
 | KI-0030 | Low | engine | Dataset runs copy the whole export into the container on every run (cheap for daily, slow for large minute datasets). | OPEN |
+| KI-0031 | Low | research | The `research` extra (JupyterLab) is not installed or tested in CI; verified manually via nbconvert only. | OPEN — optional CI job |
+| KI-0032 | Low | research | ipykernel warns that the local kernel uses TCP without encryption (Jupyter default on localhost). | OPEN — acceptable for local use; revisit for remote research |

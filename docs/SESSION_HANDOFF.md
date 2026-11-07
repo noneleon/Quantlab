@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-06 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0010 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0011 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -8,9 +8,12 @@
 - CHANGE-0010 (2b): deterministic LEAN-format export (golden-tested against LEAN's own sample bytes), backtests on pinned
   dataset versions (`--dataset`), provenance carried into runs/manifests/CLI, sample prices removed inside the container
   for dataset runs (DEC-0016).
+- CHANGE-0011 (2c): `quantlab.research.Research` notebook API (catalog-only, provenance in attrs, NonRealDataWarning),
+  `analytics.statistics` (distribution/VaR/ES/correlation/rolling vol), `quantlab research` JupyterLab launcher
+  (optional extra), starter notebook verified by real headless execution.
 
 ## Tests (actually executed)
-`uv run pytest` → 263 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI runs #29 (push) and #30 (PR) green on ubuntu + windows; see
+`uv run pytest` → 278 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI for CHANGE-0011: see
 latest run on the PR.
 
 ## Critical honesty note
@@ -32,6 +35,7 @@ uv run quantlab backtest rerun <run-id>
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 2c: RES-001/002 research environment — `quantlab.research` API (load dataset versions as pandas, shared metrics),
-`quantlab research` launching local JupyterLab against the catalog (optional dependency group), RES-004 basic statistics.
-Then 2d UI shell, 2e network data providers, DATA-008 corporate actions.
+Phase 2d: UI-001/004/008 — web app shell (React + TypeScript + Vite under `web/`) talking only to the local API with the
+token: dataset browser with validation/completeness, backtest list/detail, explicit "unavailable" states (no dead buttons).
+Needs a small API addition for the UI to read the token-protected endpoints from the browser (same-origin serving of the
+built UI by `quantlab serve`). Then 2e network data providers, DATA-008 corporate actions, RES-003 QuantBook, RES-005 reports.
