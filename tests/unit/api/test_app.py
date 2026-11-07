@@ -31,7 +31,16 @@ def test_health_is_public(client):
     assert r.status_code == 200 and r.json()["status"] == "ok"
 
 
-@pytest.mark.parametrize("path", ["/api/strategies", "/api/backtests", "/api/backtests/x"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/strategies",
+        "/api/backtests",
+        "/api/backtests/x",
+        "/api/backtests/x/charts",
+        "/api/backtests/x/report",
+    ],
+)
 @pytest.mark.parametrize("header", [None, "Bearer wrong", "Basic abc", "Bearer"])
 def test_endpoints_require_valid_token(client, path, header):
     headers = {"Authorization": header} if header else {}
@@ -70,6 +79,15 @@ def test_strategies_and_backtests(ctx, client):
     assert detail["manifest"]["data"]["provenance"] == "sample"
     assert {c["metric"] for c in detail["cross_checks"]} == {"total_return", "cagr", "max_drawdown"}
     assert client.get("/api/backtests/unknown", headers=auth(ctx)).status_code == 404
+
+    charts = client.get(f"/api/backtests/{run.id}/charts", headers=auth(ctx)).json()
+    assert charts["data_provenance"] == "sample" and charts["charts"]["equity"] and charts["warnings"]
+    assert len(charts["orders"]) == 3 and charts["charts"]["trade_stats"]["trades"] == 1
+    report = client.get(f"/api/backtests/{run.id}/report", headers=auth(ctx))
+    assert report.status_code == 200 and "attachment" in report.headers["content-disposition"]
+    assert "Not a performance claim" in report.text
+    assert not (ctx.settings.layout.runs_dir / run.id / "reports").exists()  # GET writes nothing
+    assert client.get(f"/api/backtests/{run.id}/charts?benchmark=nope", headers=auth(ctx)).status_code == 404
 
 
 def test_api_is_read_only(client, ctx):

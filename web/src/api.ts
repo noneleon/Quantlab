@@ -60,6 +60,16 @@ export async function apiGet<T>(path: string, token: string | null, fetchImpl: F
   return (await response.json()) as T;
 }
 
+/** GET a non-JSON API resource (e.g. the HTML report) as text, with the same token handling. */
+export async function apiGetText(path: string, token: string | null, fetchImpl: Fetch = fetch): Promise<string> {
+  if (!path.startsWith("/api/")) throw new Error(`refusing non-API path: ${path}`);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetchImpl(path, { headers, credentials: "omit", cache: "no-store" });
+  if (!response.ok) throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
+  return response.text();
+}
+
 // ---- response types (mirror src/quantlab/api/app.py) ------------------------------------------------------
 
 export interface Health {
@@ -182,6 +192,69 @@ export interface BacktestDetail extends BacktestSummary {
   metrics: Record<string, number | string | null> | null;
   cross_checks: CrossCheck[] | null;
   manifest: Record<string, unknown>;
+}
+
+export type Point = [string, number | null];
+
+export interface TradeStats {
+  basis: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  profit_factor: number | null;
+  expectancy: number | null;
+  average_win: number | null;
+  average_loss: number | null;
+  largest_win: number | null;
+  largest_loss: number | null;
+  average_holding_days: number | null;
+  net_pnl: number;
+}
+
+export interface BenchmarkStats {
+  name: string;
+  common_days: number;
+  strategy_return: number;
+  benchmark_return: number;
+  excess_return: number;
+  beta: number | null;
+  alpha_annual: number | null;
+  correlation: number | null;
+  tracking_error: number | null;
+  information_ratio: number | null;
+}
+
+export interface EngineOrderOut {
+  id: number;
+  time: string | null;
+  symbol: string;
+  type: string;
+  direction: string;
+  quantity: number;
+  price: number;
+  status: string;
+  tag: string;
+}
+
+/** GET /api/backtests/{id}/charts (src/quantlab/analytics/charts.py). */
+export interface BacktestCharts {
+  run_id: string;
+  status: string;
+  data_provenance: string;
+  warnings: string[];
+  orders: EngineOrderOut[];
+  charts: {
+    conventions: Record<string, string | number>;
+    equity: Point[];
+    drawdown: Point[];
+    monthly_returns: { year: number; month: number; return: number }[];
+    annual_returns: { year: number; return: number }[];
+    rolling_sharpe: Point[];
+    trades: Record<string, string | number>[];
+    trade_stats: TradeStats;
+    benchmark: { name: string; stats: BenchmarkStats; equity: Point[]; rebased_from: string } | null;
+  };
 }
 
 /** Real data is only ever real_historical or live_recorded; everything else must be labelled. */

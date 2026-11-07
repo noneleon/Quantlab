@@ -123,3 +123,16 @@ def test_backtest_compare(home):
     assert report["a"]["provenance"] == "sample"
     text = ql("backtest", "compare", a, b).stdout
     assert "not a like-for-like comparison" in text and "total_return" in text
+
+
+def test_backtest_report(home):
+    from pathlib import Path
+
+    ql("strategy", "add", "sma", EXAMPLE_STRATEGY)
+    run_id = json.loads(ql("backtest", "run", "sma", "--json").stdout)["id"]
+    out = json.loads(ql("backtest", "report", run_id, "--json").stdout)
+    assert Path(out["bundle"]).is_file() and Path(out["html"]).is_file() and out["warnings"]
+    text = ql("backtest", "report", run_id).stdout
+    assert "report:" in text and "warning:" in text
+    r = ql("backtest", "report", run_id, "--benchmark", "missing")
+    assert r.exit_code == 1 and "missing" in r.output

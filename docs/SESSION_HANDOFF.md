@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0016 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0017 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -23,10 +23,12 @@
   minute-coverage validation.
 - CHANGE-0016 (slice B): `IBKRProvider` (historical + Level I, read-only connection, client id 18) via `ib_async`;
   fake-client tests only — **not yet run against a real IB Gateway** (KI-0043/0044).
+- CHANGE-0017 (Phase 3a, DEC-0022): chart datasets (`analytics/charts.py`), benchmark comparison, self-contained HTML
+  report + bundle (`quantlab backtest report`), `/api/backtests/{id}/charts|report`, run-detail charts in the UI.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 354 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: unchanged (16 passed). IBKR: fake client only; CLI against closed port 4002 gives the clear connect error.
+Python: `uv run pytest` → 376 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: 18 passed, typecheck + build OK; browser check of run detail + report download (fake-engine run).
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -54,8 +56,7 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-1. Owner: verify IBKR with IB Gateway **paper** (API enabled, port 4002): `quantlab md status --provider ibkr`,
-   `quantlab md snapshot SPY --provider ibkr`, then a `split_adjusted` minute dataset `data fetch --provider ibkr`
-   and `data compare` against the Tiingo dataset (checks bar timestamps/volume units, KI-0044).
-2. Phase 3 per ROADMAP (backtesting depth), or Phase 5 slice C (BrokerAdapter + OMS + risk gate + paper trading) if
-   the owner prioritises the IBKR migration; orders never bypass the risk gate (DEC-0007).
+Phase 3b (DEC-0022): `quantlab_lean` helper library mounted into the LEAN container (ENG-009) so fee, slippage,
+fill, brokerage and settlement models (BT-005..007) are set from QuantLab configuration and recorded in the manifest;
+strategy templates (STR-005). Each needs a real LEAN run on the owner's machine to reach VERIFIED (KI-0002).
+Owner actions still open: first real LEAN Docker run (KI-0002/0028); IBKR paper verification (KI-0043/0044).

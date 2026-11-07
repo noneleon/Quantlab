@@ -279,3 +279,79 @@ def test_manifest_records_normalization_from_export(env, dataset):
     run = env["service"]().run("sma", dataset="spy-daily")
     data = run.json("manifest")["data"]
     assert data["corporate_actions"] == 0 and data["normalization"].startswith("neutral factor files")
+
+
+def test_results_and_chart_data_with_benchmark(env, tmp_path):
+    """results.json + AN-002 datasets; benchmark from a synthetic catalog dataset (BT-008)."""
+    from quantlab.data.catalog import DataCatalog
+    from quantlab.data.providers.base import BarRequest, LicenseInfo
+    from quantlab.data.providers.csv_file import CsvFileProvider
+    from quantlab.data.schema import AssetClass, PriceAdjustment, Provenance, Resolution
+    from tests.unit.data.conftest import csv_text, daily_rows
+
+    service = env["service"]()
+    run = service.run("sma")
+    raw = service.results(run.id)
+    assert raw["schema"] == "quantlab.results/1" and len(raw["equity"]) == 4 and len(raw["orders"]) == 3
+
+    data = service.chart_data(run.id)
+    charts = data["charts"]
+    assert data["data_provenance"] == "sample" and any("not suitable" in w for w in data["warnings"])
+    assert any("1 order(s) not filled" in w for w in data["warnings"])  # the Invalid order in the fixture
+    assert charts["trade_stats"]["trades"] == 1 and charts["trades"][0]["pnl"] == pytest.approx(4.0)
+    assert charts["benchmark"] is None and charts["monthly_returns"][0]["month"] == 10
+
+    catalog = DataCatalog(env["settings"].data_root)
+    csv = tmp_path / "bench.csv"
+    csv.write_text(
+        csv_text(daily_rows(["2013-10-07", "2013-10-08", "2013-10-09", "2013-10-10", "2013-10-11"]))
+    )
+    with env["sessions"]() as s:
+        catalog.create_dataset(
+            s,
+            "bench",
+            asset_class=AssetClass.EQUITY,
+            market="usa",
+            resolution=Resolution.DAILY,
+            provenance=Provenance.SYNTHETIC,
+            price_adjustment=PriceAdjustment.RAW,
+            source="fixture",
+            license=LicenseInfo("t", False),
+        )
+        p = CsvFileProvider(csv, calendar="XNYS", symbol="SPY")
+        catalog.import_bars(s, "bench", p, p.fetch_bars(BarRequest((), Resolution.DAILY)))
+        s.commit()
+    data = service.chart_data(run.id, benchmark="bench")
+    bench = data["charts"]["benchmark"]
+    assert bench["source"]["symbol"] == "SPY" and bench["source"]["provenance"] == "synthetic"
+    assert bench["stats"]["common_days"] == 4 and "benchmark 'bench' is synthetic data" in data["warnings"]
+
+
+def test_chart_data_unavailable_without_results(env, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_EXIT", "3")
+    run = env["service"]().run("sma")
+    with pytest.raises(BacktestError, match=r"no results\.json"):
+        env["service"]().results(run.id)
+
+
+def test_report_bundle(env):
+    import zipfile
+
+    service = env["service"]()
+    run = service.run("sma")
+    bundle = service.build_report(run.id)
+    assert bundle.parent == Path(run.run_dir) / "reports" and bundle.with_suffix(".html").is_file()
+    with zipfile.ZipFile(bundle) as zf:
+        names = set(zf.namelist())
+        html = zf.read("report.html").decode()
+    assert {
+        "report.html",
+        "charts.json",
+        "metrics.json",
+        "manifest.json",
+        "results.json",
+        "strategy/main.py",
+    } <= names
+    assert not any(n.endswith((".parquet", ".csv")) for n in names)  # never market data
+    assert "Not a performance claim" in html and "sample" in html and "<script" not in html
+    assert run.id in html and "Monthly returns" in html and "<svg" in html

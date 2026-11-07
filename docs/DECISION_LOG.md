@@ -142,3 +142,15 @@ positions, executions and order submit/modify/cancel are a **BrokerAdapter** beh
 (DEC-0007), not part of the market-data provider; paper trading first (DEC-0010). Delivery: slice A (interface, Tiingo
 intraday, mock streaming, config switch, comparison) → slice B (IBKR market data) → slice C (Phase 5: IBKR broker adapter,
 OMS, risk gate, paper trading).
+
+### DEC-0022 — Phase 3 delivery order; normalised results file; report contents
+State: ACCEPTED (owner approved Phase 3, 2026-11-07; slicing is an implementation decision the owner may revisit)
+Decisions: (1) Phase 3 is delivered in slices: **3a** analytics depth that can be verified without a LEAN daemon (AN-002,
+BT-008, AN-003, UI-002); **3b** `quantlab_lean` helper library + cost/fill/settlement model configuration (ENG-009,
+BT-005..007) and strategy templates (STR-005); **3c** golden-result regression suite on real LEAN runs, native
+launcher (ENG-003), C# (ENG-008), editor (UI-003). 3b/3c need real LEAN runs on the owner's machine to be VERIFIED.
+(2) Every successful run writes `results.json` (normalised equity + orders) next to the engine output, so analytics
+never re-parse engine formats (engine adapters stay the only parsers). (3) Reports are derived artifacts under
+`<run>/reports/`; the run record stays immutable. Bundles contain report, chart data, metrics, manifest, results and
+the strategy snapshot, **never market data** (vendor licences, SECURITY_POLICY). The API renders reports on request
+and writes nothing. (4) Benchmarks are catalog datasets read split+dividend adjusted (total return).

@@ -48,7 +48,7 @@ Last reviewed: 2026-11-07
 | QuantConnect capability | Appr. | QuantLab feature IDs | Notes |
 |---|---|---|---|
 | Backtest statistics & charts | LI / C | ENG-005, AN-001, AN-002 | LEAN statistics parsed + independent QuantLab metrics, cross-checked. |
-| Backtest reports (PDF) | C | AN-003 | LEAN `Report` project may be reused — evaluate in Phase 3. |
+| Backtest reports (HTML; PDF via print) | C | AN-003 | Self-contained HTML + reproducibility bundle; benchmark comparison (BT-008). LEAN `Report` project not used. |
 | Backtest history | C | BT-003 | Immutable + reproducibility manifest (stronger than QC). |
 
 ## 5. Optimization

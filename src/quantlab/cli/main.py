@@ -370,6 +370,30 @@ def backtest_compare(run_a: str, run_b: str, home: HomeOpt = None, as_json: Json
     )
 
 
+@backtest_app.command("report")
+def backtest_report(
+    run_id: str,
+    benchmark: Annotated[str | None, typer.Option(help="Catalog dataset used as benchmark.")] = None,
+    benchmark_symbol: Annotated[str | None, typer.Option(help="Symbol within the benchmark dataset.")] = None,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Write a self-contained HTML report + reproducibility bundle (zip) for a run."""
+    with context(home) as ctx:
+        service = ctx.read_only_backtests()
+        bundle = service.build_report(run_id, benchmark=benchmark, benchmark_symbol=benchmark_symbol)
+        warnings = service.chart_data(run_id, benchmark=benchmark, benchmark_symbol=benchmark_symbol)[
+            "warnings"
+        ]
+    if as_json:
+        emit_json({"bundle": str(bundle), "html": str(bundle.with_suffix(".html")), "warnings": warnings})
+        return
+    typer.echo(f"report: {bundle.with_suffix('.html')}")
+    typer.echo(f"bundle: {bundle}")
+    for w in warnings:
+        typer.secho(f"warning: {w}", fg=typer.colors.YELLOW)
+
+
 @backtest_app.command("rerun")
 def backtest_rerun(
     run_id: str,

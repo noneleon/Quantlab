@@ -360,6 +360,35 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             manifest=run.json("manifest"),
         )
 
+    @app.get("/api/backtests/{run_id}/charts", dependencies=auth)
+    def backtest_charts(
+        run_id: str, benchmark: str | None = None, benchmark_symbol: str | None = None
+    ) -> dict[str, Any]:
+        """AN-002 chart datasets (+ BT-008 benchmark) and the run's orders."""
+        try:
+            return ctx.read_only_backtests().chart_data(
+                run_id, benchmark=benchmark, benchmark_symbol=benchmark_symbol
+            )
+        except (BacktestError, DataError) as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.get("/api/backtests/{run_id}/report", dependencies=auth)
+    def backtest_report(
+        run_id: str, benchmark: str | None = None, benchmark_symbol: str | None = None
+    ) -> Response:
+        """The self-contained HTML report, as a download (rendered on request; nothing is written)."""
+        try:
+            text, _ = ctx.read_only_backtests().report_html(
+                run_id, benchmark=benchmark, benchmark_symbol=benchmark_symbol
+            )
+        except (BacktestError, DataError) as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return Response(
+            text,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="backtest-{run_id}.html"'},
+        )
+
     # ---- web UI (same origin) ---------------------------------------------------------------------
     if ui_dir is not None and (ui_dir / "index.html").is_file():
         index = ui_dir / "index.html"

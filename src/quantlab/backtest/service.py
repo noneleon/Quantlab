@@ -14,9 +14,12 @@ engine format and recorded (dataset identity, version hash, export hash, provena
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
+import zipfile
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +27,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 import quantlab
+from quantlab.analytics.charts import Fill, chart_datasets
 from quantlab.analytics.metrics import MetricsError, cross_check, equity_metrics
+from quantlab.analytics.report import render_report
 from quantlab.backtest.models import BacktestRun
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.config import Settings
@@ -89,6 +94,28 @@ class DataBinding:
 
 
 SAMPLE = DataBinding("sample")
+RESULTS_FILE = "results.json"  # normalised equity + orders, written at the end of every successful run
+
+
+def _results_payload(result: EngineResult) -> dict[str, Any]:
+    return {
+        "schema": "quantlab.results/1",
+        "equity": [[t.isoformat(), v] for t, v in result.equity],
+        "orders": [{**asdict(o), "time": o.time.isoformat() if o.time else None} for o in result.orders],
+    }
+
+
+def _fills(orders: list[dict[str, Any]]) -> tuple[list[Fill], int]:
+    """Filled orders as fills (order quantity at the order's reported price); other statuses are excluded."""
+    fills, excluded = [], 0
+    for o in orders:
+        if o.get("status") != "Filled" or not o.get("time") or not o.get("quantity") or not o.get("price"):
+            excluded += 1
+            continue
+        fills.append(
+            Fill(datetime.fromisoformat(o["time"]), str(o["symbol"]), float(o["quantity"]), float(o["price"]))
+        )
+    return fills, excluded
 
 
 def _canonical(obj: Any) -> str:
@@ -311,6 +338,169 @@ class BacktestService:
         }
 
     # ---- internals -----------------------------------------------------------------------------
+    def results(self, run_id: str) -> dict[str, Any]:
+        """Normalised equity + orders of a run (``results.json``)."""
+        run = self.get(run_id)
+        path = Path(run.run_dir) / RESULTS_FILE
+        if not path.is_file():
+            raise BacktestError(
+                f"run {run_id} has no {RESULTS_FILE} (status {run.status}; runs before CHANGE-0017 or "
+                "runs without engine results have no chart data)"
+            )
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return data
+
+    def chart_data(
+        self,
+        run_id: str,
+        *,
+        benchmark: str | None = None,
+        benchmark_symbol: str | None = None,
+        benchmark_version: str | None = None,
+    ) -> dict[str, Any]:
+        """AN-002 datasets (+ BT-008 benchmark) for a run, with provenance warnings for every input."""
+        run = self.get(run_id)
+        raw = self.results(run_id)
+        equity = [(datetime.fromisoformat(t), float(v)) for t, v in raw["equity"]]
+        fills, excluded = _fills(raw["orders"])
+        warnings: list[str] = []
+        if not Provenance(run.data_provenance).is_real:
+            warnings.append(DataBinding(run.data_provenance).note)
+        if excluded:
+            warnings.append(f"{excluded} order(s) not filled or without price/time were excluded from trades")
+        bench_points = None
+        bench_info = None
+        if benchmark is not None:
+            bench_points, bench_info = self._benchmark(benchmark, benchmark_symbol, benchmark_version)
+            if not Provenance(bench_info["provenance"]).is_real:
+                warnings.append(f"benchmark {benchmark!r} is {bench_info['provenance']} data")
+        try:
+            charts = chart_datasets(
+                equity,
+                fills,
+                benchmark=bench_points,
+                benchmark_name=bench_info["label"] if bench_info else None,
+            )
+        except MetricsError as exc:
+            raise BacktestError(f"chart data unavailable for {run_id}: {exc}") from exc
+        if charts["benchmark"] is not None and bench_info is not None:
+            charts["benchmark"]["source"] = bench_info
+        return {
+            "run_id": run_id,
+            "status": run.status,
+            "data_provenance": run.data_provenance,
+            "warnings": warnings,
+            "charts": charts,
+            "orders": raw["orders"],
+        }
+
+    def build_report(
+        self,
+        run_id: str,
+        *,
+        benchmark: str | None = None,
+        benchmark_symbol: str | None = None,
+        benchmark_version: str | None = None,
+    ) -> Path:
+        """AN-003: write ``reports/report-<UTC stamp>.zip`` (+ the HTML next to it) under the run directory.
+
+        The bundle holds the HTML report, chart datasets, metrics, cross-checks, engine statistics, the
+        manifest, normalised results and the strategy code snapshot — never market data (licences).
+        """
+        run = self.get(run_id)
+        now = self._clock.now()
+        manifest = run.json("manifest")
+        html_text, data = self.report_html(
+            run_id,
+            benchmark=benchmark,
+            benchmark_symbol=benchmark_symbol,
+            benchmark_version=benchmark_version,
+        )
+        run_dir = Path(run.run_dir)
+        out_dir = run_dir / "reports"
+        out_dir.mkdir(exist_ok=True)
+        stem = f"report-{now.strftime('%Y%m%dT%H%M%SZ')}"
+        html_path = out_dir / f"{stem}.html"
+        html_path.write_text(html_text, encoding="utf-8")
+        bundle = out_dir / f"{stem}.zip"
+        json_parts = {
+            "charts.json": data,
+            "metrics.json": {"metrics": run.json("metrics"), "cross_checks": run.json("cross_checks")},
+            "engine_statistics.json": run.json("engine_statistics"),
+            "manifest.json": manifest,
+        }
+        with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("report.html", html_text)
+            for name, obj in json_parts.items():
+                zf.writestr(name, json.dumps(obj, indent=2, sort_keys=True, default=str) + "\n")
+            zf.write(run_dir / RESULTS_FILE, RESULTS_FILE)
+            algorithm = run_dir / "algorithm"
+            for path in sorted(algorithm.rglob("*")) if algorithm.is_dir() else []:
+                if path.is_file():
+                    zf.write(path, f"strategy/{path.relative_to(algorithm).as_posix()}")
+        log.info("backtest.report", run_id=run_id, bundle=str(bundle))
+        return bundle
+
+    def report_html(
+        self,
+        run_id: str,
+        *,
+        benchmark: str | None = None,
+        benchmark_symbol: str | None = None,
+        benchmark_version: str | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """The HTML report (not written anywhere) and the chart data it was rendered from."""
+        run = self.get(run_id)
+        data = self.chart_data(
+            run_id,
+            benchmark=benchmark,
+            benchmark_symbol=benchmark_symbol,
+            benchmark_version=benchmark_version,
+        )
+        html_text = render_report(
+            run={
+                "id": run.id,
+                "status": run.status,
+                "data_provenance": run.data_provenance,
+                "data_version": run.data_version,
+                "parameters": run.json("parameters"),
+                "manifest": run.json("manifest"),
+                "inputs_hash": run.inputs_hash,
+                "result_hash": run.result_hash,
+            },
+            metrics=run.json("metrics"),
+            charts=data["charts"],
+            warnings=data["warnings"],
+            engine_statistics=run.json("engine_statistics"),
+            cross_checks=run.json("cross_checks"),
+            generated_at=self._clock.now().isoformat(timespec="seconds"),
+            quantlab_version=quantlab.__version__,
+        )
+        return html_text, data
+
+    def _benchmark(
+        self, name: str, symbol: str | None, version: str | None
+    ) -> tuple[builtins.list[tuple[datetime, float]], dict[str, Any]]:
+        """Dividend- and split-adjusted closes of one catalog symbol (total-return benchmark)."""
+        with self._sessions() as session:
+            dataset = self._catalog.get(session, name)
+            frame, resolved = self._catalog.read(
+                session, name, version=version, symbols=[symbol] if symbol else None, adjust="split_dividend"
+            )
+            provenance = dataset.provenance
+        symbols = sorted(set(frame["symbol"]))
+        if len(symbols) != 1:
+            raise BacktestError(f"benchmark dataset {name!r} has symbols {symbols}; choose one with a symbol")
+        points = [(ts.to_pydatetime(), float(c)) for ts, c in zip(frame["ts"], frame["close"], strict=True)]
+        return points, {
+            "dataset": name,
+            "symbol": symbols[0],
+            "version": resolved.content_hash,
+            "provenance": provenance,
+            "adjustment": "split_dividend (total return)",
+            "label": f"{symbols[0]} ({name})",
+        }
+
     def _new_run_dir(self, run_id: str) -> Path:
         run_dir = self._settings.layout.runs_dir / run_id
         if run_dir.exists():
@@ -485,6 +675,7 @@ class BacktestService:
         except ValueError as exc:  # ResultParseError
             return {"status": "failed", "error": f"could not read engine results: {exc}"}
 
+        self._write_json(run_dir / RESULTS_FILE, _results_payload(result))
         updates: dict[str, Any] = {
             "status": "succeeded" if result.succeeded else "algorithm_error",
             "engine_status": result.status,

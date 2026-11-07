@@ -5,6 +5,7 @@ import { ProvenanceBadge, StatusBadge } from "../components/Badges";
 import { Empty, ErrorBox, Loading } from "../components/States";
 import { dateTime, num, pct, shortHash } from "../format";
 import { useApi } from "../hooks";
+import { BacktestChartsSection } from "./BacktestCharts";
 
 export function BacktestList() {
   const { data, error, loading } = useApi<BacktestSummary[]>("/api/backtests?limit=200");
@@ -66,6 +67,7 @@ export function BacktestDetailPage() {
       </dl>
       {data.error ? <div className="error">Error: {data.error}</div> : null}
       {data.runtime_error ? <div className="error">Runtime error: {data.runtime_error}</div> : null}
+      {data.status === "succeeded" || data.status === "algorithm_error" ? <BacktestChartsSection runId={data.id} /> : null}
       <h2>Metrics (QuantLab)</h2>
       {data.metrics ? (
         <table className="narrow"><tbody>

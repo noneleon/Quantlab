@@ -44,4 +44,20 @@ describe("components", () => {
     expect(html).toContain("PAPER MODE");
     expect(html).toContain("Live Trading");
   });
+
+  it("monthly returns grid shows each month and the annual return, coloured by sign", async () => {
+    const { MonthlyReturns } = await import("./pages/BacktestCharts");
+    const charts = {
+      conventions: {}, equity: [], drawdown: [], rolling_sharpe: [], trades: [], benchmark: null,
+      trade_stats: { basis: "", trades: 0, wins: 0, losses: 0, win_rate: null, profit_factor: null, expectancy: null,
+        average_win: null, average_loss: null, largest_win: null, largest_loss: null, average_holding_days: null, net_pnl: 0 },
+      monthly_returns: [{ year: 2024, month: 1, return: 0.1 }, { year: 2024, month: 2, return: -0.1 }],
+      annual_returns: [{ year: 2024, return: -0.01 }],
+    };
+    const html = renderToStaticMarkup(<MonthlyReturns data={charts} />);
+    expect(html).toContain("10.0");
+    expect(html).toContain('class="num pos"');
+    expect(html).toContain('class="num neg"');
+    expect(html).toContain("-1.0");
+  });
 });

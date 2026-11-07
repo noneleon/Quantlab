@@ -300,3 +300,20 @@ Real checks: CLI against a closed port 4002 → clear "Start IB Gateway or TWS�
 Not verified: anything against a real IB Gateway/TWS (owner action, paper account).
 Tests: Python 354 passed, 1 skipped; ruff, mypy --strict, lint-imports clean.
 Result: PASS (fake client) · Regression status: PASS (factory test updated: IBKR now builds instead of failing)
+
+### CHANGE-0017 — Phase 3a: chart datasets, benchmark comparison, downloadable report, run-detail charts
+Date: 2026-11-07 · Modules: analytics, backtest, api, cli, web · Feature IDs: AN-002, AN-003, BT-008, UI-002, AN-001
+Problem: Phase 3 (DEC-0022 slice 3a) — runs had metrics only; no charts, trades, benchmark or report.
+Files added: `src/quantlab/analytics/{charts,report}.py`, `web/src/pages/BacktestCharts.tsx`,
+`web/src/components/TimeSeriesChart.tsx`, `tests/unit/analytics/{test_charts,test_report}.py`
+Files modified: `backtest/service.py` (`results.json`, `results`, `chart_data`, `report_html`, `build_report`,
+benchmark loading), `api/app.py` (`/api/backtests/{id}/charts`, `/report`), `cli/main.py` (`backtest report`),
+`web/src/{api.ts,pages/Backtests.tsx,components/PriceChart.tsx,styles.css}` (PriceChart now uses the shared chart),
+tests, `pyproject.toml` (E501 exempt for the HTML template module), docs. Decision: DEC-0022.
+Bugs found during the change: report x-axis end label clipped (fixed: anchored start/middle/end).
+Verification: fake-engine run in a scratch home served by `quantlab serve`, Playwright: run detail rendered 14
+canvases, no console/CSP errors; report downloaded via the token-authenticated fetch and opened offline with zero
+network requests. All values synthetic (LEAN fixture) — no performance claims.
+Tests: Python 376 passed, 1 skipped; web 18 passed; ruff, mypy --strict, lint-imports clean; web typecheck + build OK.
+Not verified: charts/report on a real LEAN run (no Docker daemon here; KI-0002).
+Result: PASS · Regression status: PASS

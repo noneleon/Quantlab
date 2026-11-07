@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiError, TOKEN_KEY, apiGet, captureToken, isRealProvenance, parseTokenFromHash } from "./api";
+import { ApiError, TOKEN_KEY, apiGet, apiGetText, captureToken, isRealProvenance, parseTokenFromHash } from "./api";
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -63,5 +63,17 @@ describe("provenance", () => {
     expect(isRealProvenance("real_historical")).toBe(true);
     expect(isRealProvenance("live_recorded")).toBe(true);
     for (const p of ["synthetic", "sample", "unknown"]) expect(isRealProvenance(p)).toBe(false);
+  });
+});
+
+describe("apiGetText", () => {
+  it("sends the bearer token and refuses non-API paths", async () => {
+    const fetchImpl = vi.fn(async () => new Response("<html>ok</html>", { status: 200 }));
+    expect(await apiGetText("/api/backtests/R/report", "t", fetchImpl)).toBe("<html>ok</html>");
+    const init = (fetchImpl.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t");
+    await expect(apiGetText("https://evil.example/x", "t", fetchImpl)).rejects.toThrow("refusing");
+    const failing = vi.fn(async () => new Response("", { status: 404, statusText: "Not Found" }));
+    await expect(apiGetText("/api/backtests/x/report", "t", failing)).rejects.toBeInstanceOf(ApiError);
   });
 });

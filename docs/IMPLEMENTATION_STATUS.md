@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0016)
+Last updated: 2026-11-07 (CHANGE-0017)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -108,15 +108,15 @@ Last updated: 2026-11-07 (CHANGE-0016)
 | BT-005 | Fee, slippage, fill, brokerage, margin, buying-power models | backtest | L | 3 | — | ENG-009 | — | PLANNED | Configured via helper library |
 | BT-006 | Partial fills, cancellation, market impact | backtest | L/C | 3 | — | BT-005 | — | PLANNED | Impact models custom |
 | BT-007 | Settlement (cash accounts, T+1) | backtest | L | 3 | — | BT-005 | — | PLANNED | Verify LEAN settlement model coverage |
-| BT-008 | Benchmark comparison | backtest | L | 3 | — | BT-004 | — | PLANNED | |
+| BT-008 | Benchmark comparison | backtest/analytics | C | 3 | `analytics/charts.benchmark_comparison`, `BacktestService.chart_data(benchmark=)` | AN-002 | `tests/unit/analytics/test_charts.py`, `tests/unit/backtest/test_service.py` | TESTED | Benchmark = catalog dataset symbol, split+dividend adjusted (total return); beta, CAPM alpha, correlation, tracking error, IR, excess return; provenance warning for non-real benchmarks. Synthetic data only so far |
 | BT-009 | Multi-strategy portfolio backtest (combined books) | backtest | C | 7 | — | BT-003 | — | PLANNED | LEAN runs one algorithm per process |
 
 ## AN — Performance analytics
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| AN-001 | Metrics library (return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, win rate, PF, expectancy, turnover, exposure, alpha/beta, costs) | analytics | C | 1 | `src/quantlab/analytics/metrics.py` | — | `tests/unit/analytics/test_metrics.py` | IN_PROGRESS | Done + TESTED: total return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, best/worst day, cross-check vs LEAN. Missing: trade metrics (needs fill data from order events), turnover, exposure, alpha/beta (needs benchmark), costs |
-| AN-002 | Chart datasets (equity, drawdown, monthly/annual, trade dist., allocation, exposure, rolling Sharpe, benchmark) | analytics | C | 3 | — | AN-001 | — | PLANNED | |
-| AN-003 | Downloadable report (HTML/PDF + config bundle) | analytics | C | 3 | — | AN-002 | — | PLANNED | |
+| AN-001 | Metrics library (return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, win rate, PF, expectancy, turnover, exposure, alpha/beta, costs) | analytics | C | 1 | `src/quantlab/analytics/metrics.py`, `analytics/charts.py` (trade stats, alpha/beta) | — | `tests/unit/analytics/test_metrics.py`, `test_charts.py` | IN_PROGRESS | Done + TESTED: total return, CAGR, vol, Sharpe, Sortino, Calmar, MDD, DD duration, best/worst day, cross-check vs LEAN; win rate, profit factor, expectancy (gross, from filled orders); alpha/beta vs benchmark (BT-008). Missing: turnover, exposure, costs (need LEAN order events/holdings, KI-0048) |
+| AN-002 | Chart datasets (equity, drawdown, monthly/annual, trade dist., allocation, exposure, rolling Sharpe, benchmark) | analytics | C | 3 | `src/quantlab/analytics/charts.py`, `BacktestService.chart_data`, `GET /api/backtests/{id}/charts` | AN-001 | `tests/unit/analytics/test_charts.py`, service + API tests | TESTED | Equity, drawdown, monthly/annual, rolling Sharpe, FIFO trades + stats, benchmark overlay. Missing: allocation, exposure (need holdings, KI-0048). Fake-engine data only |
+| AN-003 | Downloadable report (HTML/PDF + config bundle) | analytics | C | 3 | `src/quantlab/analytics/report.py`, `BacktestService.build_report/report_html`, `quantlab backtest report`, `GET /api/backtests/{id}/report` | AN-002 | `tests/unit/analytics/test_report.py`, service/CLI/API tests | TESTED | Self-contained HTML (inline SVG, no scripts, offline) + zip bundle (charts, metrics, manifest, results, strategy snapshot; never market data). PDF via the browser's print (print CSS); no native PDF |
 | AN-004 | Strategy/run comparison | analytics | C | 4 | — | AN-001 | — | PLANNED | |
 
 ## OPT — Optimization & robustness
@@ -201,7 +201,7 @@ Last updated: 2026-11-07 (CHANGE-0016)
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
 | UI-001 | App shell, workspaces, resizable panels, search | web | C | 2 | `web/` (React 19 + TS + Vite), served by `quantlab serve` | CORE-009 | `web/src/*.test.ts(x)` (16 vitest) + manual Playwright smoke | IN_PROGRESS | Shell, navigation for all 18 modules, token flow, paper-mode indicator done; no resizable panels, workspaces or search yet |
-| UI-002 | Backtests list + run detail (charts, stats, orders) | web | C | 3 | `web/src/pages/Backtests.tsx` | BT-003, AN-002 | vitest + Playwright smoke | IN_PROGRESS | List/detail with metrics, cross-checks, engine stats, manifest done; equity chart and orders need AN-002/API additions |
+| UI-002 | Backtests list + run detail (charts, stats, orders) | web | C | 3 | `web/src/pages/{Backtests,BacktestCharts}.tsx`, `components/TimeSeriesChart.tsx` | BT-003, AN-002 | vitest; browser check 2026-11-07 (fake-engine run, no CSP errors) | TESTED | Equity (+benchmark), drawdown, monthly grid, trade stats, orders, benchmark form, report download |
 | UI-003 | Algorithm editor (Monaco) + strategy library | web | C | 3 | — | STR-001 | — | PLANNED | |
 | UI-004 | Market data browser & quality reports | web | C | 2 | `web/src/pages/Datasets.tsx`, `GET /api/datasets/{name}[/bars]` | DATA-005 | `tests/unit/api/test_app.py`, vitest, Playwright smoke | TESTED | Read-only (imports via CLI); close-price line chart only |
 | UI-005 | Optimization views | web | C | 4 | — | OPT-* | — | PLANNED | |
