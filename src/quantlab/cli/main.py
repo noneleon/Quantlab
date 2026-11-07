@@ -35,6 +35,11 @@ engine_app = typer.Typer(no_args_is_help=True, help="Inspect the trading engine.
 api_app = typer.Typer(no_args_is_help=True, help="Local API utilities.")
 app.add_typer(strategy_app, name="strategy")
 app.add_typer(backtest_app, name="backtest")
+golden_app = typer.Typer(no_args_is_help=True, help="Golden-result regression suite (record, list, check).")
+backtest_app.add_typer(golden_app, name="golden")
+GoldenDirOpt = Annotated[
+    Path | None, typer.Option("--dir", help="Golden case folder (default: QUANTLAB_HOME/golden).")
+]
 app.add_typer(data_app, name="data")
 app.add_typer(engine_app, name="engine")
 app.add_typer(api_app, name="api")
@@ -422,6 +427,68 @@ def backtest_report(
     typer.echo(f"bundle: {bundle}")
     for w in warnings:
         typer.secho(f"warning: {w}", fg=typer.colors.YELLOW)
+
+
+@golden_app.command("record")
+def golden_record(run_id: str, name: str, directory: GoldenDirOpt = None, home: HomeOpt = None) -> None:
+    """Freeze a succeeded run as golden case NAME (never overwrites)."""
+    from quantlab.backtest import golden
+
+    with context(home) as ctx:
+        path = golden.record(
+            ctx.read_only_backtests(), run_id, name, directory or ctx.settings.layout.golden_dir
+        )
+    typer.echo(f"golden case {name}: {path}")
+
+
+@golden_app.command("list")
+def golden_list(directory: GoldenDirOpt = None, home: HomeOpt = None, as_json: JsonOpt = False) -> None:
+    """Golden cases with their source runs and data provenance."""
+    from quantlab.backtest import golden
+
+    with context(home) as ctx:
+        cases = golden.load(directory or ctx.settings.layout.golden_dir)
+    if as_json:
+        emit_json(cases)
+        return
+    if not cases:
+        typer.echo("no golden cases")
+    for c in cases:
+        typer.echo(f"{c['name']:<24} run {c['source_run']}  {c['strategy']}  data {c['data_provenance']}")
+
+
+@golden_app.command("check")
+def golden_check(
+    names: Annotated[list[str] | None, typer.Argument(help="Cases to check (default: all).")] = None,
+    allow_engine_change: Annotated[
+        bool, typer.Option(help="Re-run on a different engine and compare metrics within tolerance.")
+    ] = False,
+    directory: GoldenDirOpt = None,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Re-run golden cases and compare; exit code 1 if any case is not identical / within tolerance."""
+    from quantlab.backtest import golden
+
+    with context(home) as ctx:
+        outcomes = golden.check(
+            ctx.backtests(),
+            directory or ctx.settings.layout.golden_dir,
+            names,
+            allow_engine_change=allow_engine_change,
+        )
+    if as_json:
+        emit_json([o.to_dict() for o in outcomes])
+    else:
+        if not outcomes:
+            typer.echo("no golden cases")
+        for o in outcomes:
+            colour = typer.colors.GREEN if o.ok else typer.colors.RED
+            typer.secho(f"{o.status:<17} {o.name}  (rerun {o.rerun_id or '-'})", fg=colour)
+            for d in o.differences:
+                typer.echo(f"    {d}")
+    if any(not o.ok for o in outcomes):
+        raise typer.Exit(1)
 
 
 @backtest_app.command("rerun")

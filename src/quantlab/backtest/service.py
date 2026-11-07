@@ -254,12 +254,17 @@ class BacktestService:
         except ValueError as exc:
             raise BacktestError(f"invalid execution models: {exc}") from exc
 
-    def rerun(self, run_id: str, timeout_s: float | None = None) -> tuple[BacktestRun, ReproducibilityReport]:
-        """Run again from the original's stored code snapshot, parameters, data and engine identity."""
+    def rerun(
+        self, run_id: str, timeout_s: float | None = None, *, require_same_engine: bool = True
+    ) -> tuple[BacktestRun, ReproducibilityReport]:
+        """Run again from the original's stored code snapshot, parameters, data and engine identity.
+
+        ``require_same_engine=False`` (golden checks across an engine upgrade) runs on the current engine; the
+        new run records that engine and the comparison reports the difference."""
         original = self.get(run_id)
         manifest = original.json("manifest")
         current = self._probe_or_raise()
-        if engine_identity(current) != manifest["engine"]["identity"]:
+        if require_same_engine and engine_identity(current) != manifest["engine"]["identity"]:
             raise BacktestError(
                 "cannot reproduce: the engine differs from the original run "
                 f"(original {manifest['engine']['identity']}, current {engine_identity(current)})"
@@ -577,6 +582,10 @@ class BacktestService:
                 "cannot reproduce: the dataset version's engine export no longer matches the original"
             )
         return binding
+
+    def probe_engine(self) -> EngineInfo:
+        """The configured engine's identity (raises BacktestError if unavailable)."""
+        return self._probe_or_raise()
 
     def _probe_or_raise(self) -> EngineInfo:
         try:

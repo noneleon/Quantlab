@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiError, TOKEN_KEY, apiGet, apiGetText, captureToken, isRealProvenance, parseTokenFromHash } from "./api";
+import { ApiError, TOKEN_KEY, apiGet, apiGetText, apiSend, captureToken, isRealProvenance, parseTokenFromHash } from "./api";
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -75,5 +75,19 @@ describe("apiGetText", () => {
     await expect(apiGetText("https://evil.example/x", "t", fetchImpl)).rejects.toThrow("refusing");
     const failing = vi.fn(async () => new Response("", { status: 404, statusText: "Not Found" }));
     await expect(apiGetText("/api/backtests/x/report", "t", failing)).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("apiSend", () => {
+  it("sends JSON with the token and maps 409 to ApiError with the server detail", async () => {
+    const ok = vi.fn(async () => new Response(JSON.stringify({ sha256: "s" }), { status: 200 }));
+    expect(await apiSend("PUT", "/api/strategies/a/files/main.py", { content: "x", expected_sha256: null }, "t", ok)).toEqual({ sha256: "s" });
+    const init = (ok.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t");
+    expect(JSON.parse(init.body as string)).toEqual({ content: "x", expected_sha256: null });
+    const conflict = vi.fn(async () => new Response(JSON.stringify({ detail: "changed since it was opened" }), { status: 409 }));
+    await expect(apiSend("PUT", "/api/x", {}, "t", conflict)).rejects.toMatchObject({ status: 409, message: "changed since it was opened" });
+    await expect(apiSend("POST", "http://evil/x", {}, "t", ok)).rejects.toThrow("refusing");
   });
 });

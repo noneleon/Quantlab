@@ -60,6 +60,31 @@ export async function apiGet<T>(path: string, token: string | null, fetchImpl: F
   return (await response.json()) as T;
 }
 
+/** POST/PUT JSON to the API (strategy editor, UI-003). Same token handling and error mapping as apiGet. */
+export async function apiSend<T>(
+  method: "POST" | "PUT",
+  path: string,
+  body: unknown,
+  token: string | null,
+  fetchImpl: Fetch = fetch,
+): Promise<T> {
+  if (!path.startsWith("/api/")) throw new Error(`refusing non-API path: ${path}`);
+  const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetchImpl(path, { method, headers, body: JSON.stringify(body), credentials: "omit", cache: "no-store" });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const parsed = (await response.json()) as { detail?: unknown };
+      if (typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(response.status, detail || `HTTP ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
 /** GET a non-JSON API resource (e.g. the HTML report) as text, with the same token handling. */
 export async function apiGetText(path: string, token: string | null, fetchImpl: Fetch = fetch): Promise<string> {
   if (!path.startsWith("/api/")) throw new Error(`refusing non-API path: ${path}`);
@@ -192,6 +217,32 @@ export interface BacktestDetail extends BacktestSummary {
   metrics: Record<string, number | string | null> | null;
   cross_checks: CrossCheck[] | null;
   manifest: Record<string, unknown>;
+}
+
+export interface StrategyTemplate {
+  name: string;
+  description: string;
+  parameters: Record<string, string>;
+}
+
+export interface StrategyFileInfo {
+  path: string;
+  size: number;
+  sha256: string;
+  editable: boolean;
+}
+
+export interface StrategyFileContent {
+  path: string;
+  content: string;
+  sha256: string;
+}
+
+export interface SaveResult {
+  path: string;
+  sha256: string;
+  created: boolean;
+  syntax_error: string | null;
 }
 
 export type Point = [string, number | null];

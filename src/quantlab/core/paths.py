@@ -70,6 +70,16 @@ class HomeLayout:
         return self.root / "runs"
 
     @property
+    def strategies_dir(self) -> Path:
+        """Strategies created by QuantLab (e.g. from templates); registered strategies may live anywhere."""
+        return self.root / "strategies"
+
+    @property
+    def golden_dir(self) -> Path:
+        """Golden-result regression cases (recorded from real runs)."""
+        return self.root / "golden"
+
+    @property
     def models_dir(self) -> Path:
         return self.root / "models"
 
@@ -87,6 +97,8 @@ class HomeLayout:
             self.parquet_dir,
             self.lean_data_dir,
             self.runs_dir,
+            self.strategies_dir,
+            self.golden_dir,
             self.models_dir,
             self.logs_dir,
             self.backups_dir,

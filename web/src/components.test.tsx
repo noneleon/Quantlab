@@ -60,4 +60,14 @@ describe("components", () => {
     expect(html).toContain('class="num neg"');
     expect(html).toContain("-1.0");
   });
+
+  it("new-from-template form lists templates and shows the selected description", async () => {
+    const { NewFromTemplate } = await import("./pages/Strategies");
+    const html = renderToStaticMarkup(
+      <MemoryRouter><NewFromTemplate templates={[{ name: "pairs_zscore", description: "Template: pairs", parameters: {} }]} /></MemoryRouter>,
+    );
+    expect(html).toContain("pairs_zscore");
+    expect(html).toContain("Template: pairs");
+    expect(html).toContain("<form");
+  });
 });

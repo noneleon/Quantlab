@@ -245,3 +245,53 @@ def test_dataset_actions_and_adjusted_bars(ctx, client, tmp_path):
     bars = client.get("/api/datasets/spy/bars?symbol=SPY&adjust=split", headers=auth(ctx)).json()
     assert bars["adjustment"] == "split" and bars["bars"][0]["close"] == pytest.approx(50.5)
     assert client.get("/api/datasets/spy/bars?symbol=SPY&adjust=bad", headers=auth(ctx)).status_code == 422
+
+
+def test_strategy_editor_endpoints(ctx, client):
+    h = auth(ctx)
+    templates = client.get("/api/strategy-templates", headers=h).json()
+    assert {t["name"] for t in templates} == {"momentum_rotation", "rsi_mean_reversion", "pairs_zscore"}
+    r = client.post("/api/strategies", json={"name": "my-rsi", "template": "rsi_mean_reversion"}, headers=h)
+    assert r.status_code == 201 and r.json()["name"] == "my-rsi"
+    assert r.json()["path"].startswith(str(ctx.settings.layout.strategies_dir))
+    assert (
+        client.post(
+            "/api/strategies", json={"name": "my-rsi", "template": "rsi_mean_reversion"}, headers=h
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post("/api/strategies", json={"name": "x", "template": "nope"}, headers=h).status_code == 404
+    )
+
+    files = {f["path"]: f for f in client.get("/api/strategies/my-rsi/files", headers=h).json()}
+    assert {"main.py", "strategy.toml"} <= set(files)
+    main = client.get("/api/strategies/my-rsi/files/main.py", headers=h).json()
+    assert "RsiMeanReversion" in main["content"] and main["sha256"] == files["main.py"]["sha256"]
+
+    new = main["content"] + "\n# edited\n"
+    saved = client.put(
+        "/api/strategies/my-rsi/files/main.py",
+        json={"content": new, "expected_sha256": main["sha256"]},
+        headers=h,
+    )
+    assert saved.status_code == 200 and saved.json()["syntax_error"] is None
+    stale = client.put(
+        "/api/strategies/my-rsi/files/main.py",
+        json={"content": "x", "expected_sha256": main["sha256"]},
+        headers=h,
+    )
+    assert stale.status_code == 409
+    bad = client.put(
+        "/api/strategies/my-rsi/files/..%2F..%2Fevil.py",
+        json={"content": "x", "expected_sha256": None},
+        headers=h,
+    )
+    assert bad.status_code in (404, 422)
+    assert client.get("/api/strategies/nope/files", headers=h).status_code == 404
+    assert (
+        client.put(
+            "/api/strategies/my-rsi/files/main.py", json={"content": "x", "expected_sha256": None}
+        ).status_code
+        == 401
+    )

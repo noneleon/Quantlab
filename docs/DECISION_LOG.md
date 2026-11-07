@@ -165,3 +165,17 @@ so its tree hash is unaffected. (3) The resolved models are part of the run's in
 recorded models (runs recorded before this decision rerun with LEAN defaults). (4) The helper logs a marker with the
 models hash; QuantLab records `models_applied` and warns everywhere (CLI, charts, report) when a strategy did not apply
 the configured models. (5) Defaults ("brokerage") keep LEAN's own models, so configuring nothing changes nothing.
+
+### DEC-0024 — No QuantConnect subscription; editor writes via the local API; golden suite
+State: ACCEPTED (owner 2026-11-07: "我不想使用clean的订阅 所以需要订阅的功能我希望你能够自己实现" — interpreted as the
+QuantConnect/LEAN subscription; reaffirms DEC-0003)
+Decisions: (1) QuantLab never requires a QuantConnect account, `lean login`, cloud nodes or a paid plan; every
+subscription-only QuantConnect capability QuantLab offers is implemented locally (map in FEATURE_MATRIX
+"QuantConnect subscription features"). Only the open-source LEAN engine (Apache-2.0 Docker image / source) is used.
+(2) The local API gains its first write endpoints, limited to strategy source files (create from template, save file):
+same bearer token, loopback-only and Host allow-list as the rest, no cookies (no CSRF surface); path-safe,
+conflict-checked (sha256), size-limited, audited. Backtests/trading/risk/broker endpoints stay read-only.
+(3) The editor is CodeMirror 6 (MIT), not Monaco: smaller, bundles without a CDN, and mounted in a shadow root so its
+styles use constructable stylesheets — the CSP stays `style-src 'self'` with no nonce or 'unsafe-inline'.
+(4) Golden-result regression cases are rerun from stored snapshots and compared by result hash (same engine) or
+metric tolerance (allowed engine change); cases are immutable files.

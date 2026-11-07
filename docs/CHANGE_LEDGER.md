@@ -340,3 +340,28 @@ Tests: Python 398 passed, 1 skipped; ruff, mypy --strict, lint-imports clean; wh
 Not verified: anything inside a real LEAN container — model behaviour, `python-additional-paths`, where LEAN writes
 algorithm logs (marker detection), template behaviour (KI-0050/0051).
 Result: PASS (stub/fake engine) · Regression status: PASS
+
+### CHANGE-0019 — Phase 3c (part 1): strategy library + in-browser editor, golden regression suite, vitest fix
+Date: 2026-11-07 · Modules: strategies, api, bootstrap, backtest, cli, core (paths), web · Feature IDs: UI-003, STR-005,
+BT-010 · Decision: DEC-0024
+Problem: owner wants no QuantConnect subscription; the cloud IDE/project library and regression tooling had no local
+equivalent. `npm audit`: critical/moderate advisories in vitest ≤ 4.1.10 (dev tooling).
+Files added: `src/quantlab/strategies/workspace.py`, `src/quantlab/backtest/golden.py`,
+`web/src/pages/Editor.tsx`, `web/src/components/CodeEditor.tsx`, `tests/unit/strategies/test_workspace.py`,
+`tests/unit/backtest/{conftest,test_golden}.py`
+Files modified: `api/app.py` (template list, create strategy, list/read/save files), `bootstrap.py` (workspace),
+`core/paths.py` (`strategies_dir`, `golden_dir`), `backtest/service.py` (`rerun(require_same_engine=)`,
+`probe_engine`), `cli/main.py` (`backtest golden record|list|check`), `web/src/{api.ts,App.tsx,modules.ts,
+pages/Strategies.tsx,styles.css}` (editor lazy-loaded), `web/package.json` + lockfile (CodeMirror; vitest ~4.1.12,
+lockfile regenerated with npm 11 because npm 10 crashes resolving vitest 4.1 — `npm ci` with npm 10 verified; runtime
+dependency versions unchanged), `tests/fixtures/fake_docker.py` (`FAKE_DOCKER_EQUITY_SHIFT`), tests, docs.
+Bugs found during the change: CodeMirror's style-mod injects a `<style>` element in the main document (blocked by the
+CSP) → editor mounted in a shadow root; input `pattern` invalid under the `v` regex flag → escaped.
+Verification: browser (Chromium/Playwright) against `quantlab serve` on a scratch home: create from template → editor
+opens with Python highlighting → type + Ctrl+S saves to disk → file changed on disk → save refused (409) and the outside
+change kept; zero CSP violations.
+Tests: Python 419 passed, 1 skipped; web 20 passed, typecheck + build OK, `npm audit` 0 vulnerabilities; ruff,
+mypy --strict, lint-imports clean.
+Not done: native .NET launcher (ENG-003) and C# algorithms (ENG-008) — no .NET SDK and its download hosts are blocked
+here; golden cases from real LEAN runs (owner).
+Result: PASS · Regression status: PASS

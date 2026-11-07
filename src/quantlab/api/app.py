@@ -14,6 +14,7 @@ Security model (docs/SECURITY_POLICY.md):
 from __future__ import annotations
 
 import hmac
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -30,7 +31,9 @@ from quantlab.backtest.models import BacktestRun
 from quantlab.backtest.service import BacktestError
 from quantlab.bootstrap import AppContext
 from quantlab.data.catalog import DataError
-from quantlab.strategies.registry import StrategyError
+from quantlab.strategies.registry import StrategyError, load_manifest
+from quantlab.strategies.snapshot import SnapshotError
+from quantlab.strategies.workspace import ConflictError, bundled_templates_dir, list_templates
 
 LOCAL_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
 
@@ -159,6 +162,28 @@ def _summary(run: BacktestRun) -> dict[str, Any]:
     }
 
 
+class CreateStrategyIn(BaseModel):
+    name: str
+    template: str
+
+
+class SaveFileIn(BaseModel):
+    content: str
+    expected_sha256: str | None  # sha256 the editor last read; null for a new file
+
+
+def _strategy_out(s: Any) -> StrategyOut:
+    return StrategyOut(
+        id=s.id,
+        name=s.name,
+        path=s.path,
+        entry_file=s.entry_file,
+        language=s.language,
+        description=s.description,
+        archived=s.archived,
+    )
+
+
 def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     app = FastAPI(
         title="QuantLab",
@@ -198,18 +223,71 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     @app.get("/api/strategies", dependencies=auth)
     def list_strategies(include_archived: bool = False) -> list[StrategyOut]:
         with ctx.sessions() as session:
-            return [
-                StrategyOut(
-                    id=s.id,
-                    name=s.name,
-                    path=s.path,
-                    entry_file=s.entry_file,
-                    language=s.language,
-                    description=s.description,
-                    archived=s.archived,
+            return [_strategy_out(s) for s in ctx.registry.list(session, include_archived=include_archived)]
+
+    # ---- strategy files (UI-003, DEC-0024): the only write endpoints; token-protected like the rest ----
+    def _strategy(session: Any, name: str) -> Any:
+        try:
+            return ctx.registry.get(session, name)
+        except StrategyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.get("/api/strategy-templates", dependencies=auth)
+    def strategy_templates() -> list[dict[str, Any]]:
+        out = []
+        for name, path in list_templates(bundled_templates_dir()).items():
+            manifest = load_manifest(path)
+            out.append({"name": name, "description": manifest.description, "parameters": manifest.parameters})
+        return out
+
+    @app.post("/api/strategies", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def create_strategy(body: CreateStrategyIn) -> StrategyOut:
+        templates = list_templates(bundled_templates_dir())
+        if body.template not in templates:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown template {body.template!r}")
+        with ctx.sessions() as session:
+            try:
+                s = ctx.workspace.create_from_template(
+                    session, body.name, templates[body.template], ctx.settings.layout.strategies_dir
                 )
-                for s in ctx.registry.list(session, include_archived=include_archived)
-            ]
+            except StrategyError as exc:
+                session.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+            session.commit()
+            return _strategy_out(s)
+
+    @app.get("/api/strategies/{name}/files", dependencies=auth)
+    def strategy_files(name: str) -> list[dict[str, Any]]:
+        with ctx.sessions() as session:
+            s = _strategy(session, name)
+            try:
+                return [asdict(f) for f in ctx.workspace.list_files(s)]
+            except (StrategyError, SnapshotError) as exc:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    @app.get("/api/strategies/{name}/files/{path:path}", dependencies=auth)
+    def strategy_file(name: str, path: str) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            s = _strategy(session, name)
+            try:
+                return asdict(ctx.workspace.read(s, path))
+            except StrategyError as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.put("/api/strategies/{name}/files/{path:path}", dependencies=auth)
+    def save_strategy_file(name: str, path: str, body: SaveFileIn) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            s = _strategy(session, name)
+            try:
+                result = ctx.workspace.write(session, s, path, body.content, body.expected_sha256)
+            except ConflictError as exc:
+                session.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+            except StrategyError as exc:
+                session.rollback()
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+            session.commit()
+            return asdict(result)
 
     def _dataset_out(d: Any, versions: list[Any]) -> dict[str, Any]:
         latest = versions[-1] if versions else None

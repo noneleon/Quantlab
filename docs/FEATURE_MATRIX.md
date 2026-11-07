@@ -83,3 +83,19 @@ Last reviewed: 2026-11-07
 - **Integration required (LI):** launching LEAN, config, results parsing, data export to LEAN format, research QuantBook, live deployment.
 - **Custom (C):** everything platform-level: data catalog/versioning/validation, strategy registry/versioning, reproducibility, analytics & reports, optimization beyond grid, portfolio/OMS/risk/reconciliation, UI, AI, ops, security.
 - **Hard external limits (X/N/A):** QC Data Library, fundamentals, survivorship-free data, live data subscriptions, QC cloud infrastructure.
+
+## QuantConnect subscription features → QuantLab (DEC-0024)
+QuantLab needs no QuantConnect account or plan; it runs only the open-source LEAN engine. Status as of CHANGE-0019:
+
+| QuantConnect (account/subscription) | QuantLab local equivalent | Status |
+|---|---|---|
+| Cloud backtesting nodes | LEAN in local Docker, pinned by digest (ENG-002) | IMPLEMENTED (never run on real LEAN here, KI-0002) |
+| Cloud IDE / project editor | Algorithm Editor (UI-003), Strategy Library + templates (STR-001/005) | VERIFIED in browser |
+| Cloud research notebooks | `quantlab research` JupyterLab + `quantlab.research` (RES-*) | TESTED |
+| Data library / data subscriptions | Versioned catalog with CSV, Tiingo, IBKR providers (DATA-*) | Tiingo VERIFIED; IBKR fake-tested |
+| Backtest reports | HTML report + reproducibility bundle (AN-003) | TESTED |
+| Reproducible backtest history | Immutable runs, snapshots, reruns, golden suite (BT-003, BT-010) | TESTED |
+| Cloud parameter optimization | Phase 4 (OPT-*) | PLANNED |
+| Live trading nodes | Phase 5 paper (OMS + risk gate), Phase 6 live behind safety gates | PLANNED |
+| Object store | Per-run `/Storage` folder (LEAN, local) | IMPLEMENTED |
+| `lean` CLI login-gated commands | Not used; QuantLab drives LEAN directly (DEC-0003) | n/a |

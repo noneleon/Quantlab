@@ -155,3 +155,15 @@ def test_templates_run_on_fake_engine_and_apply_models(home, name):
     r = ql("backtest", "run", name, "-m", "fee=constant", "-m", "fee_per_order=1")
     assert r.exit_code == 0 and "models     fee=constant, fee_per_order=1.0" in r.stdout
     assert "did not call quantlab_lean.configure" not in r.stdout
+
+
+def test_golden_cli(home, monkeypatch):
+    ql("strategy", "add", "sma", EXAMPLE_STRATEGY)
+    run_id = json.loads(ql("backtest", "run", "sma", "--json").stdout)["id"]
+    assert "golden case sma-ref" in ql("backtest", "golden", "record", run_id, "sma-ref").stdout
+    assert "sma-ref" in ql("backtest", "golden", "list").stdout
+    r = ql("backtest", "golden", "check")
+    assert r.exit_code == 0 and "identical" in r.stdout
+    monkeypatch.setenv("FAKE_DOCKER_EQUITY_SHIFT", "25")
+    r = ql("backtest", "golden", "check", "sma-ref")
+    assert r.exit_code == 1 and "failed" in r.stdout and "result hash changed" in r.stdout

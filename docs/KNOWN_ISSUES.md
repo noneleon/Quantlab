@@ -35,7 +35,7 @@
 | KI-0031 | Low | research | The `research` extra (JupyterLab) is not installed or tested in CI; verified manually via nbconvert only. | OPEN — optional CI job |
 | KI-0032 | Low | research | ipykernel warns that the local kernel uses TCP without encryption (Jupyter default on localhost). | OPEN — acceptable for local use; revisit for remote research |
 | KI-0033 | Low | web | No DOM-level component tests (jsdom/happy-dom dropped after an npm resolver crash); interactive behaviour is covered only by the manual Playwright smoke script, not in CI. | OPEN — add a CI e2e job (Playwright) |
-| KI-0034 | Low | web | vitest pinned to `~4.0` because npm 10.9 crashes resolving vitest ≥ 4.1 optional peers. | OPEN — re-test on npm/vitest updates |
+| KI-0034 | Low | web | vitest was pinned to `~4.0` because npm 10.9 crashes resolving vitest ≥ 4.1. | RESOLVED (CHANGE-0019): vitest ~4.1.12 (fixes GHSA-82fw-gwwq-j7x9, GHSA-qxg6-89mg-rqv8); lockfile regenerated with npm 11, `npm ci` works with npm 10 |
 | KI-0035 | Low | web | `web/dist` is not committed; users need Node.js 22 to build the UI once (`cd web && npm ci && npm run build`). | OPEN — consider shipping built assets in releases |
 | KI-0036 | Medium | data | Corporate actions cover splits and cash dividends only; symbol changes, delistings and spin-offs are not modelled (map files contain only first/last date). | OPEN — DATA-014 |
 | KI-0037 | Low | data | Adjusted reads back-adjust to the version's latest event (like LEAN's ADJUSTED mode); not point-in-time — use raw reads or LEAN backtests for point-in-time correctness. | DOCUMENTED |
@@ -54,3 +54,6 @@
 | KI-0050 | Medium | strategies | Strategy templates (momentum rotation, RSI mean reversion, pairs z-score) never run on real LEAN; `MovingAverageType.WILDERS` and other snake_case spellings follow LEAN's Python conventions but are unverified at runtime. | OPEN — first real LEAN runs |
 | KI-0051 | High | engine | `quantlab_lean` never executed inside LEAN: `python-additional-paths` mount, the security-initializer subclass and marker detection (searched in `results/*log*.txt` and the container log) are verified only against a stub. If the marker is not found, runs are reported as "models not applied" (fails safe, never claims models were applied). | OPEN — verify on the first real LEAN run |
 | KI-0052 | Low | strategies | The two example strategies do not call `quantlab_lean.configure`, so their runs warn that LEAN defaults were used. | DOCUMENTED — templates show the opt-in |
+| KI-0053 | Medium | backtest | No golden cases recorded from real LEAN runs yet (only fake-engine tests). | OPEN — owner: `quantlab backtest golden record <run> <name>` after the first real runs |
+| KI-0054 | Low | web | Editor cannot delete or rename files; templates are found only in a source checkout (`strategies/templates`), not in an installed wheel. | OPEN |
+| KI-0055 | Medium | engine | Native .NET launcher (ENG-003) and C# algorithms (ENG-008) not implemented: no .NET SDK here and its download hosts are blocked, so neither could be built or tested. | OPEN — next slice, needs a .NET-capable environment or the owner's PC |

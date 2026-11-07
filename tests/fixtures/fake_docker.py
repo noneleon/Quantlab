@@ -6,6 +6,7 @@ Behaviour is controlled by env vars:
   FAKE_DOCKER_SLEEP  seconds `run` sleeps before finishing (default 0)
   FAKE_DOCKER_DAEMON "0" makes `version` fail like an unreachable daemon
   FAKE_DOCKER_IMAGE  "0" makes `image inspect` fail like a missing image
+  FAKE_DOCKER_EQUITY_SHIFT  add this amount to the last equity point (simulated result change)
 `run` reads the mounted config.json, then writes <algorithm-id>.json into the mounted /Results folder
 from tests/fixtures/lean/sample_result.json — imitating LEAN's file layout, with synthetic content.
 """
@@ -79,7 +80,12 @@ elif args[:1] == ["run"]:
         )
         (m["/Results"] / f"{config['algorithm-id']}-log.txt").write_text("\n".join(algo.logs) + "\n")
     sample = Path(__file__).parent / "lean" / "sample_result.json"
-    (m["/Results"] / f"{config['algorithm-id']}.json").write_text(sample.read_text())
+    result = json.loads(sample.read_text())
+    shift = float(os.environ.get("FAKE_DOCKER_EQUITY_SHIFT", "0"))  # simulate an engine/result change
+    if shift:
+        values = result["charts"]["Strategy Equity"]["series"]["Equity"]["values"]
+        values[-1] = [values[-1][0], values[-1][-1] + shift]
+    (m["/Results"] / f"{config['algorithm-id']}.json").write_text(json.dumps(result))
     sys.exit(int(os.environ.get("FAKE_DOCKER_EXIT", "0")))
 elif args[:1] == ["stop"]:
     pid_file = STATE / f"{args[-1]}.pid"

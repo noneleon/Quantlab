@@ -24,6 +24,7 @@ from quantlab.core.secret_store import SecretError, SecretNotFoundError, SecretS
 from quantlab.data.catalog import DataCatalog
 from quantlab.engine import EngineAdapter, create_engine_adapter
 from quantlab.strategies.registry import StrategyRegistry
+from quantlab.strategies.workspace import StrategyWorkspace
 
 API_TOKEN_REF = "secret://quantlab/api/token"  # noqa: S105 - reference name, not a secret
 DEFAULT_CONFIG = """# QuantLab configuration. Reference: docs/CONFIGURATION_REFERENCE.md
@@ -92,6 +93,10 @@ class AppContext:
     @property
     def registry(self) -> StrategyRegistry:
         return StrategyRegistry()
+
+    @property
+    def workspace(self) -> StrategyWorkspace:
+        return StrategyWorkspace(self.registry)
 
     @property
     def data(self) -> DataCatalog:

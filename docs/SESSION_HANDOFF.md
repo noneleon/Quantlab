@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0018 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0019 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -27,10 +27,12 @@
   report + bundle (`quantlab backtest report`), `/api/backtests/{id}/charts|report`, run-detail charts in the UI.
 - CHANGE-0018 (Phase 3b, DEC-0023): `[backtest.models]` + `-m key=value`, opt-in `quantlab_lean.configure(self)`
   (mounted read-only, marker-confirmed), 3 strategy templates. Stub/fake-engine tested only (KI-0050/0051).
+- CHANGE-0019 (Phase 3c part 1, DEC-0024): no QuantConnect subscription ever; in-browser editor (CodeMirror, shadow
+  root, strict CSP) + strategy library with create-from-template; `backtest golden record|list|check`; vitest 4.1.12.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 398 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: unchanged since CHANGE-0017 (18 passed). Wheel build contains the quantlab_lean library.
+Python: `uv run pytest` → 419 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: 20 passed, typecheck + build OK, npm audit 0; browser check of the editor (create, edit, save, conflict, CSP).
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -58,8 +60,8 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-1. Owner: first real LEAN Docker run (KI-0002/0028) — this now also verifies `quantlab_lean` (KI-0051): run a template,
-   e.g. `quantlab backtest run rsi --dataset <daily> -m fee=constant -m fee_per_order=1`, and check the run reports the
-   models as applied and LEAN's order fees match.
-2. Phase 3c (DEC-0022): golden-result regression suite from recorded real LEAN runs; native launcher (ENG-003); C#
-   (ENG-008); editor (UI-003). The golden suite needs item 1.
+1. Owner: first real LEAN Docker run (KI-0002/0028), then `quantlab backtest golden record <run> <name>` for 1–3
+   runs (KI-0053) — this also verifies `quantlab_lean` (KI-0051) and the templates (KI-0050).
+2. Remaining Phase 3c: native .NET launcher (ENG-003) and C# algorithms (ENG-008) — need a .NET 10 SDK (not available
+   in this cloud environment; KI-0055).
+3. Phase 4 (optimization) — the local replacement for QuantConnect's cloud optimization (DEC-0024).

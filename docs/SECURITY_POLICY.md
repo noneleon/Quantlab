@@ -17,7 +17,8 @@
   stored in the OS keyring as `secret://quantlab/api/token`; if no keyring is usable it is shown once and must be set as
   `QUANTLAB_SECRET__API__TOKEN`. Every endpoint except `/api/health` requires `Authorization: Bearer <token>`
   (constant-time compare). No token configured ⇒ 503 (fail closed); `quantlab serve` refuses to start. Host-header
-  allow-list (localhost) blocks DNS rebinding. No CORS. API is read-only in M1.
+  allow-list (localhost) blocks DNS rebinding. No CORS. Write endpoints exist only for strategy source files
+  (DEC-0024: path-safe, conflict-checked, size-limited, audited); backtest, data, broker and risk endpoints are read-only.
 - Secret writes are verified by read-back; a keyring that silently drops writes is reported as unavailable (CHANGE-0008).
 - Remote access: off by default; when enabled requires TLS (reverse proxy) + authentication; documented in Phase 9.
 - TWS/IB Gateway: "Allow connections from localhost only" recommended; read-only API mode for monitoring-only setups.

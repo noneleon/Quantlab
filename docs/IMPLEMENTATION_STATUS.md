@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0018)
+Last updated: 2026-11-07 (CHANGE-0019)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -202,7 +202,8 @@ Last updated: 2026-11-07 (CHANGE-0018)
 |---|---|---|---|---|---|---|---|---|---|
 | UI-001 | App shell, workspaces, resizable panels, search | web | C | 2 | `web/` (React 19 + TS + Vite), served by `quantlab serve` | CORE-009 | `web/src/*.test.ts(x)` (16 vitest) + manual Playwright smoke | IN_PROGRESS | Shell, navigation for all 18 modules, token flow, paper-mode indicator done; no resizable panels, workspaces or search yet |
 | UI-002 | Backtests list + run detail (charts, stats, orders) | web | C | 3 | `web/src/pages/{Backtests,BacktestCharts}.tsx`, `components/TimeSeriesChart.tsx` | BT-003, AN-002 | vitest; browser check 2026-11-07 (fake-engine run, no CSP errors) | TESTED | Equity (+benchmark), drawdown, monthly grid, trade stats, orders, benchmark form, report download |
-| UI-003 | Algorithm editor (Monaco) + strategy library | web | C | 3 | — | STR-001 | — | PLANNED | |
+| UI-003 | Algorithm editor (CodeMirror) + strategy library | web/strategies/api | C | 3 | `src/quantlab/strategies/workspace.py`, `/api/strategies/{name}/files[/{path}]` (GET/PUT), `POST /api/strategies`, `/api/strategy-templates`, `web/src/pages/{Editor,Strategies}.tsx`, `components/CodeEditor.tsx` | STR-001, STR-005 | `tests/unit/strategies/test_workspace.py`, API tests, vitest; browser check 2026-11-07 (create from template, edit, Ctrl+S, conflict refused, no CSP violations) | VERIFIED | Path-safe, conflict-checked, audited writes; strategy.toml validated; CodeMirror in a shadow root keeps CSP strict (DEC-0024). No delete/rename yet |
+| BT-010 | Golden-result regression suite (record / list / check, tolerance, engine-change handling) | backtest | C | 3 | `src/quantlab/backtest/golden.py`, `quantlab backtest golden record|list|check`, `BacktestService.rerun(require_same_engine=)` | BT-003 | `tests/unit/backtest/test_golden.py`, CLI test (fake engine) | TESTED | No golden cases from real LEAN exist yet: record them from the owner's first real runs (KI-0053) |
 | UI-004 | Market data browser & quality reports | web | C | 2 | `web/src/pages/Datasets.tsx`, `GET /api/datasets/{name}[/bars]` | DATA-005 | `tests/unit/api/test_app.py`, vitest, Playwright smoke | TESTED | Read-only (imports via CLI); close-price line chart only |
 | UI-005 | Optimization views | web | C | 4 | — | OPT-* | — | PLANNED | |
 | UI-006 | Portfolio, orders, risk, paper/live consoles, kill switch | web | C | 5 | — | PORT/OMS/RISK | — | PLANNED | |

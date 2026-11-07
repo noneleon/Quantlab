@@ -61,3 +61,14 @@ select { margin-left: 4px; }
 table.monthly td { min-width: 3.5em; }
 td.pos { color: var(--ok); }
 td.neg { color: var(--bad); }
+.editor-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; }
+.file-list ul { list-style: none; margin: 0 0 12px; padding: 0; }
+.file-list button { background: none; border: none; color: var(--accent); cursor: pointer; padding: 3px 0; text-align: left; font: inherit; }
+.file-list button.active { font-weight: 700; color: var(--text); }
+.file-list input { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.editor-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.editor-toolbar button { padding: 4px 12px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
+.code-editor { border: 1px solid var(--border); height: 65vh; overflow: hidden; background: var(--bg); }
+.notice { margin: 4px 0 8px; color: var(--warn); }
+.inline-form select { padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+@media (max-width: 760px) { .editor-layout { grid-template-columns: 1fr; } }
