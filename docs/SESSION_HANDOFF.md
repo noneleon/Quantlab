@@ -18,7 +18,7 @@
 ## Tests (actually executed)
 Python: `uv run pytest` → 282 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
 Web: `npm run typecheck`, `npm test` (16 passed), `npm run build` ok. Manual Playwright smoke (see CHANGE-0012).
-CI for CHANGE-0012: see latest run on the PR (new `web` job).
+CI #39 (push) / #40 (PR) green: ubuntu, windows and the new `web` job.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.

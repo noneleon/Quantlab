@@ -213,4 +213,4 @@ fake-engine backtest: token removed from URL and kept across reload; new tab wit
 dataset (chart, completeness, missing-session warning) and backtest pages render; planned module page has 0 controls;
 token absent from access log and quantlab.log. Found and fixed: Lightweight Charts' logo `<style>` violated the CSP →
 logo disabled, NOTICE attribution rendered as text (test added); re-run had 0 console errors.
-Result: PASS · Regression status: PASS
+Result: PASS — CI #39/#40 green (ubuntu, windows, web) · Regression status: PASS
