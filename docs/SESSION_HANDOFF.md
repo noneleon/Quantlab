@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0017 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0018 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -25,10 +25,12 @@
   fake-client tests only — **not yet run against a real IB Gateway** (KI-0043/0044).
 - CHANGE-0017 (Phase 3a, DEC-0022): chart datasets (`analytics/charts.py`), benchmark comparison, self-contained HTML
   report + bundle (`quantlab backtest report`), `/api/backtests/{id}/charts|report`, run-detail charts in the UI.
+- CHANGE-0018 (Phase 3b, DEC-0023): `[backtest.models]` + `-m key=value`, opt-in `quantlab_lean.configure(self)`
+  (mounted read-only, marker-confirmed), 3 strategy templates. Stub/fake-engine tested only (KI-0050/0051).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 376 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: 18 passed, typecheck + build OK; browser check of run detail + report download (fake-engine run).
+Python: `uv run pytest` → 398 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: unchanged since CHANGE-0017 (18 passed). Wheel build contains the quantlab_lean library.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -56,7 +58,8 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 3b (DEC-0022): `quantlab_lean` helper library mounted into the LEAN container (ENG-009) so fee, slippage,
-fill, brokerage and settlement models (BT-005..007) are set from QuantLab configuration and recorded in the manifest;
-strategy templates (STR-005). Each needs a real LEAN run on the owner's machine to reach VERIFIED (KI-0002).
-Owner actions still open: first real LEAN Docker run (KI-0002/0028); IBKR paper verification (KI-0043/0044).
+1. Owner: first real LEAN Docker run (KI-0002/0028) — this now also verifies `quantlab_lean` (KI-0051): run a template,
+   e.g. `quantlab backtest run rsi --dataset <daily> -m fee=constant -m fee_per_order=1`, and check the run reports the
+   models as applied and LEAN's order fees match.
+2. Phase 3c (DEC-0022): golden-result regression suite from recorded real LEAN runs; native launcher (ENG-003); C#
+   (ENG-008); editor (UI-003). The golden suite needs item 1.

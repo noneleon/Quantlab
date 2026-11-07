@@ -355,3 +355,65 @@ def test_report_bundle(env):
     assert not any(n.endswith((".parquet", ".csv")) for n in names)  # never market data
     assert "Not a performance claim" in html and "sample" in html and "<script" not in html
     assert run.id in html and "Monthly returns" in html and "<svg" in html
+
+
+CONFIGURED_ALGO = "import quantlab_lean\n# def initialize(self):\nquantlab_lean.configure(self)\n"
+MODELS = {
+    "brokerage": "interactive_brokers",
+    "account_type": "cash",
+    "fee": "constant",
+    "fee_per_order": "1.5",
+    "slippage": "constant",
+    "slippage_percent": "0.001",
+    "settlement": "delayed",
+    "settlement_days": "1",
+}
+
+
+def test_execution_models_applied_recorded_and_reproduced(env, tmp_path):
+    (env["strategy_dir"] / "main.py").write_text(CONFIGURED_ALGO)
+    service = env["service"]()
+    default = service.run("sma")
+    run = service.run("sma", models=MODELS)
+    assert run.status == "succeeded" and run.inputs_hash != default.inputs_hash
+    manifest = run.json("manifest")
+    assert (
+        manifest["execution_models"]["fee_per_order"] == 1.5
+        and manifest["execution_models"]["fill"] == "brokerage"
+    )
+    assert service.results(run.id)["models_applied"] is True
+    assert not any("quantlab_lean" in w for w in service.chart_data(run.id)["warnings"])
+    config = json.loads((Path(run.run_dir) / "engine" / "lean-config.json").read_text())
+    assert config["python-additional-paths"] == ["/QuantLab/library"]
+
+    calls = json.loads((tmp_path / "fake" / f"{run.id}-models.json").read_text())
+    assert calls["brokerage"] == ["BrokerageName.INTERACTIVE_BROKERS_BROKERAGE", "AccountType.CASH"]
+    assert [e[:2] for e in calls["security"][1:]] == [
+        ["fee", "ConstantFeeModel"],
+        ["slippage", "ConstantSlippageModel"],
+        ["settlement", "DelayedSettlementModel"],
+    ]  # fill = "brokerage": LEAN's default kept
+
+    html, _ = service.report_html(run.id)
+    assert "fee_per_order=1.5" in html and "Execution models" in html
+
+    rerun, report = service.rerun(run.id)
+    assert report.reproduced and rerun.json("manifest")["execution_models"] == manifest["execution_models"]
+
+
+def test_models_not_confirmed_is_warned(env):
+    service = env["service"]()
+    run = service.run("sma", models={"fee": "zero"})  # fixture algorithm never calls configure
+    assert service.results(run.id)["models_applied"] is False
+    assert any("did not confirm quantlab_lean.configure" in w for w in service.chart_data(run.id)["warnings"])
+
+
+def test_invalid_execution_models_rejected_before_anything_runs(env):
+    service = env["service"]()
+    with pytest.raises(BacktestError, match="unknown execution model"):
+        service.run("sma", models={"commission": "1"})
+    with pytest.raises(BacktestError, match="fee_per_order > 0"):
+        service.run("sma", models={"fee": "constant"})
+    with pytest.raises(BacktestError, match="invalid execution models"):
+        service.run("sma", models={"slippage": "magic"})
+    assert service.list() == []

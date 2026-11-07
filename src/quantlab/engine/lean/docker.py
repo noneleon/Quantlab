@@ -15,12 +15,16 @@ substitute a fake executable and the user can point at e.g. ``podman``.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from quantlab.core.logging import get_logger
 from quantlab.engine.base import (
@@ -36,6 +40,7 @@ from quantlab.engine.lean.config import (
     CONTAINER_ALGORITHM,
     CONTAINER_CONFIG,
     CONTAINER_DATASET,
+    CONTAINER_LIBRARY,
     CONTAINER_RESULTS,
     CONTAINER_STORAGE,
     DATASET_ENTRYPOINT_SCRIPT,
@@ -64,6 +69,37 @@ def _mount(source: Path, target: str, *, readonly: bool) -> list[str]:
         raise EngineError(f"path not supported in a Docker --mount (contains ',' or '\"'): {src}")
     spec = f"type=bind,source={src},target={target}"
     return ["--mount", spec + (",readonly" if readonly else "")]
+
+
+LIBRARY_SOURCE = Path(__file__).parent / "library" / "quantlab_lean"
+MODELS_MARKER = "QUANTLAB_MODELS_APPLIED"
+
+
+def models_hash(models: Mapping[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(dict(models), sort_keys=True).encode()).hexdigest()
+
+
+def prepare_library(target: Path, models: Mapping[str, Any]) -> str:
+    """Copy the quantlab_lean helper and write models.json (read-only mount for the container)."""
+    package = target / "quantlab_lean"
+    package.mkdir(parents=True)
+    for source in sorted(LIBRARY_SOURCE.glob("*.py")):
+        shutil.copy2(source, package / source.name)
+    sha = models_hash(models)
+    (package / "models.json").write_text(
+        json.dumps({"sha256": sha, "models": dict(models)}, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return sha
+
+
+def models_confirmed(handle: RunHandle, sha: str) -> bool:
+    """Did the algorithm log the marker for exactly these models? (results log files and the engine log)."""
+    needle = f"{MODELS_MARKER} sha256={sha}"
+    candidates = [*sorted(handle.results_dir.glob("*log*.txt")), handle.log_path]
+    for path in candidates:
+        if path.is_file() and needle in path.read_text(encoding="utf-8", errors="replace"):
+            return True
+    return False
 
 
 def container_name(run_id: str) -> str:
@@ -107,6 +143,8 @@ def build_run_argv(
         *_mount(handle.work_dir / "storage", CONTAINER_STORAGE, readonly=False),
         *_mount(handle.config_path, CONTAINER_CONFIG, readonly=True),
     ]
+    if spec.models is not None:
+        argv += _mount(handle.work_dir / "library", CONTAINER_LIBRARY, readonly=True)
     if spec.data_dir is None:
         argv.append(image)  # image entrypoint; LEAN's bundled sample data (provenance "sample")
     else:
@@ -199,6 +237,8 @@ class LeanDockerAdapter:
             raise EngineError(f"run directory already exists and is not empty: {handle.work_dir}")
         handle.results_dir.mkdir(parents=True, exist_ok=True)
         (handle.work_dir / "storage").mkdir(parents=True, exist_ok=True)
+        if spec.models is not None:
+            prepare_library(handle.work_dir / "library", spec.models)
         write_config(build_backtest_config(spec), handle.config_path)
         argv = build_run_argv(spec, handle, self.image, self.docker_command, self.network)
         (handle.work_dir / "docker-command.json").write_text(
@@ -258,4 +298,9 @@ class LeanDockerAdapter:
         self._stop(handle)
 
     def collect(self, handle: RunHandle) -> EngineResult:
-        return parse_results_dir(handle.results_dir, handle.run_id)
+        result = parse_results_dir(handle.results_dir, handle.run_id)
+        models_file = handle.work_dir / "library" / "quantlab_lean" / "models.json"
+        if not models_file.is_file():
+            return result
+        sha = json.loads(models_file.read_text(encoding="utf-8"))["sha256"]
+        return replace(result, models_applied=models_confirmed(handle, sha))

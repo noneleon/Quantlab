@@ -154,3 +154,14 @@ never re-parse engine formats (engine adapters stay the only parsers). (3) Repor
 `<run>/reports/`; the run record stays immutable. Bundles contain report, chart data, metrics, manifest, results and
 the strategy snapshot, **never market data** (vendor licences, SECURITY_POLICY). The API renders reports on request
 and writes nothing. (4) Benchmarks are catalog datasets read split+dividend adjusted (total return).
+
+### DEC-0023 — Execution models via an opt-in in-container helper; recorded and confirmed per run
+State: ACCEPTED (owner approved Phase 3b, 2026-11-07)
+Decisions: (1) Fee, slippage, fill, brokerage/account-type and settlement models are configured in QuantLab
+(`[backtest.models]`, per-run `-m key=value`) and applied inside LEAN by the `quantlab_lean` helper, which the strategy
+calls explicitly (`quantlab_lean.configure(self)`) — QuantLab never rewrites strategy code. (2) The helper and a
+`models.json` are mounted read-only and added to LEAN's `python-additional-paths`; the strategy snapshot is not changed,
+so its tree hash is unaffected. (3) The resolved models are part of the run's inputs hash and manifest; reruns reuse the
+recorded models (runs recorded before this decision rerun with LEAN defaults). (4) The helper logs a marker with the
+models hash; QuantLab records `models_applied` and warns everywhere (CLI, charts, report) when a strategy did not apply
+the configured models. (5) Defaults ("brokerage") keep LEAN's own models, so configuring nothing changes nothing.

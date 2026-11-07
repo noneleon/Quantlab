@@ -61,6 +61,23 @@ elif args[:1] == ["run"]:
     print("password=should-not-matter-here")
     sys.stdout.flush()
     time.sleep(float(os.environ.get("FAKE_DOCKER_SLEEP", "0")))
+    library = m.get("/QuantLab/library")
+    algorithm_text = (m["/LeanCLI"] / config["algorithm-location"].rsplit("/", 1)[-1]).read_text()
+    on_path = "/QuantLab/library" in config.get("python-additional-paths", [])
+    if library is not None and on_path and "quantlab_lean.configure" in algorithm_text:
+        # run the REAL helper against the recording stub
+        sys.path[:0] = [str(Path(__file__).parent / "lean_stub"), str(library)]
+        import AlgorithmImports as stub
+        import quantlab_lean
+
+        algo = stub.StubAlgorithm()
+        quantlab_lean.configure(algo)
+        security = stub.StubSecurity()
+        algo.initializer.initialize(security)
+        (STATE / f"{config['algorithm-id']}-models.json").write_text(
+            json.dumps({"brokerage": algo.brokerage_model, "security": security.events}, default=str)
+        )
+        (m["/Results"] / f"{config['algorithm-id']}-log.txt").write_text("\n".join(algo.logs) + "\n")
     sample = Path(__file__).parent / "lean" / "sample_result.json"
     (m["/Results"] / f"{config['algorithm-id']}.json").write_text(sample.read_text())
     sys.exit(int(os.environ.get("FAKE_DOCKER_EXIT", "0")))

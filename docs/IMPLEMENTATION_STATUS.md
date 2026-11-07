@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0017)
+Last updated: 2026-11-07 (CHANGE-0018)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -47,7 +47,7 @@ Last updated: 2026-11-07 (CHANGE-0017)
 | ENG-006 | Engine version probe recorded in manifests | engine | LI | 1 | `LeanDockerAdapter.probe()` | ENG-002 | `test_full_run_with_fake_docker`, `test_probe_errors` | IMPLEMENTED | Manifest recording is BT-002 (step 1d); probe untested against real Docker |
 | ENG-007 | Python algorithms | engine | L | 1 | — | ENG-002 | — | PLANNED | Python 3.11 only |
 | ENG-008 | C# algorithms (compile in container) | engine | L | 3 | — | ENG-002 | — | PLANNED | |
-| ENG-009 | `quantlab_lean` helper library (platform-configured models, telemetry) | engine | C | 3 | — | ENG-004 | — | PLANNED | |
+| ENG-009 | `quantlab_lean` helper library (platform-configured models, telemetry) | engine | C | 3 | `src/quantlab/engine/lean/library/quantlab_lean/`, `engine/lean/docker.py` (`prepare_library`, `models_confirmed`), `python-additional-paths` | ENG-004 | `tests/unit/engine/test_quantlab_lean.py` (recording stub of AlgorithmImports), fake-engine runs | TESTED | Opt-in `quantlab_lean.configure(self)`; read-only mount; marker confirms models were applied. LEAN API names checked in LEAN source cc98c42; never run inside real LEAN yet (KI-0051) |
 | ENG-010 | Algorithm Framework (universe/alpha/portfolio/execution/risk models) | engine | L | 3 | — | ENG-007 | — | PLANNED | Exposed as-is |
 | ENG-011 | Indicators (LEAN built-in) + custom indicators | engine | L | 3 | — | ENG-007 | — | PLANNED | |
 | ENG-012 | Scheduled events, multi-resolution, consolidators | engine | L | 3 | — | ENG-007 | — | PLANNED | |
@@ -96,7 +96,7 @@ Last updated: 2026-11-07 (CHANGE-0017)
 | STR-002 | Strategy versioning (tree hash + git commit/dirty) | strategies | C | 1 | `src/quantlab/strategies/snapshot.py`, `registry.py` | STR-001 | `tests/unit/strategies/test_snapshot.py`, `test_registry.py` | TESTED | Version diff (compare two versions' files) not implemented; byte-exact hash (CRLF differences matter, KI-0020) |
 | STR-003 | Strategy parameters schema (`strategy.toml`) | strategies | LI | 1 | `registry.py: load_manifest, resolve_parameters` | STR-001 | `test_registry.py` | TESTED | Delivery to LEAN `get_parameter` not yet verified with a real run (KI-0002) |
 | STR-004 | Lifecycle state (Research→…→Monitoring) with gates | strategies | C | 4 | — | STR-001 | — | PLANNED | |
-| STR-005 | Strategy templates (momentum, mean-rev, pairs, …) as examples | strategies | C | 3 | — | ENG-007 | — | PLANNED | Examples only, not engine code |
+| STR-005 | Strategy templates (momentum, mean-rev, pairs, …) as examples | strategies | C | 3 | `strategies/templates/{momentum_rotation,rsi_mean_reversion,pairs_zscore}` | ENG-009 | `tests/unit/strategies/test_templates.py`, fake-engine CLI runs | IMPLEMENTED | Syntax, manifests, pairs math tested; fake engine confirms they apply the models. Never run on real LEAN (KI-0050) |
 
 ## BT — Backtesting
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -105,9 +105,9 @@ Last updated: 2026-11-07 (CHANGE-0017)
 | BT-002 | Reproducibility manifest (code/data/engine/config/seeds) | backtest | C | 1 | `service.py` (`manifest.json`, `inputs_hash`, `DataBinding`) | BT-001, ENG-006, DATA-009 | `test_service.py` | TESTED | Data = sample or pinned dataset version + LEAN export hash; rerun refuses changed exports |
 | BT-003 | Immutable backtest history & re-run diff | backtest | C | 1 | `backtest/models.py`, migration 0002, `BacktestService.rerun/compare` | BT-002 | `test_service.py` | TESTED | Reproducibility proven only against the deterministic fake engine; real LEAN determinism unverified |
 | BT-004 | Event-driven simulation, multi-asset/strategy/timeframe | backtest | L | 1 | — | ENG-007 | — | PLANNED | |
-| BT-005 | Fee, slippage, fill, brokerage, margin, buying-power models | backtest | L | 3 | — | ENG-009 | — | PLANNED | Configured via helper library |
+| BT-005 | Fee, slippage, fill, brokerage, margin, buying-power models | backtest | L | 3 | `core/config.py` (`[backtest.models]`), `quantlab_lean`, `backtest run -m key=value` | ENG-009 | `test_quantlab_lean.py`, `test_service.py`, `test_cli.py` | TESTED | Brokerage (default / Interactive Brokers) + account type (margin/cash), fee (brokerage/zero/constant), slippage (brokerage/none/constant/volume share), fill (brokerage/immediate). Margin/buying power = the brokerage model's. Recorded in manifest + inputs hash. Stub-tested only (KI-0051) |
 | BT-006 | Partial fills, cancellation, market impact | backtest | L/C | 3 | — | BT-005 | — | PLANNED | Impact models custom |
-| BT-007 | Settlement (cash accounts, T+1) | backtest | L | 3 | — | BT-005 | — | PLANNED | Verify LEAN settlement model coverage |
+| BT-007 | Settlement (cash accounts, T+1) | backtest | L | 3 | `[backtest.models]` settlement/account_type, `quantlab_lean.settlement_model` | BT-005 | `test_quantlab_lean.py` | TESTED | LEAN source (cc98c42): US equity cash accounts settle T+1 at 06:00 by default (`Equity.DefaultSettlementDays = 1`); QuantLab can force immediate or delayed (days, hour). Stub-tested only |
 | BT-008 | Benchmark comparison | backtest/analytics | C | 3 | `analytics/charts.benchmark_comparison`, `BacktestService.chart_data(benchmark=)` | AN-002 | `tests/unit/analytics/test_charts.py`, `tests/unit/backtest/test_service.py` | TESTED | Benchmark = catalog dataset symbol, split+dividend adjusted (total return); beta, CAPM alpha, correlation, tracking error, IR, excess return; provenance warning for non-real benchmarks. Synthetic data only so far |
 | BT-009 | Multi-strategy portfolio backtest (combined books) | backtest | C | 7 | — | BT-003 | — | PLANNED | LEAN runs one algorithm per process |
 

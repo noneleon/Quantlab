@@ -32,7 +32,7 @@ from quantlab.analytics.metrics import MetricsError, cross_check, equity_metrics
 from quantlab.analytics.report import render_report
 from quantlab.backtest.models import BacktestRun
 from quantlab.core.clock import Clock, SystemClock
-from quantlab.core.config import Settings
+from quantlab.core.config import ExecutionModelSettings, Settings
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
 from quantlab.data.catalog import DataCatalog
@@ -100,6 +100,7 @@ RESULTS_FILE = "results.json"  # normalised equity + orders, written at the end 
 def _results_payload(result: EngineResult) -> dict[str, Any]:
     return {
         "schema": "quantlab.results/1",
+        "models_applied": result.models_applied,
         "equity": [[t.isoformat(), v] for t, v in result.equity],
         "orders": [{**asdict(o), "time": o.time.isoformat() if o.time else None} for o in result.orders],
     }
@@ -207,9 +208,13 @@ class BacktestService:
         *,
         dataset: str | None = None,
         dataset_version: str | None = None,
+        models: dict[str, Any] | None = None,
     ) -> BacktestRun:
-        """Run a backtest on the engine's sample data, or on a pinned version of ``dataset``."""
+        """Run a backtest on the engine's sample data, or on a pinned version of ``dataset``.
+
+        ``models`` overrides ``[backtest.models]`` for this run (execution models, DEC-0023)."""
         self._engine  # noqa: B018 - fail fast (before snapshotting) when no engine is configured
+        execution_models = self.resolve_models(models)
         run_id = new_id()
         with self._sessions() as session:
             strategy = self._registry.get(session, strategy_name)
@@ -225,8 +230,29 @@ class BacktestService:
             version_id, tree_hash = version.id, version.tree_hash
             git_meta = {"commit": version.git_commit, "dirty": version.git_dirty}
         return self._execute(
-            run_id, run_dir, strategy, version_id, tree_hash, git_meta, resolved, None, timeout_s, binding
+            run_id,
+            run_dir,
+            strategy,
+            version_id,
+            tree_hash,
+            git_meta,
+            resolved,
+            None,
+            timeout_s,
+            binding,
+            execution_models,
         )
+
+    def resolve_models(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Configured execution models with per-run overrides, validated."""
+        base = self._settings.backtest.models.model_dump()
+        unknown = sorted(set(overrides or {}) - set(base))
+        if unknown:
+            raise BacktestError(f"unknown execution model setting(s) {unknown}; known: {sorted(base)}")
+        try:
+            return ExecutionModelSettings(**{**base, **(overrides or {})}).model_dump()
+        except ValueError as exc:
+            raise BacktestError(f"invalid execution models: {exc}") from exc
 
     def rerun(self, run_id: str, timeout_s: float | None = None) -> tuple[BacktestRun, ReproducibilityReport]:
         """Run again from the original's stored code snapshot, parameters, data and engine identity."""
@@ -261,6 +287,7 @@ class BacktestService:
             run_id,
             timeout_s,
             binding,
+            manifest.get("execution_models"),  # None for runs recorded before DEC-0023: LEAN defaults
         )
         return rerun, self.compare(original, rerun)
 
@@ -368,6 +395,13 @@ class BacktestService:
             warnings.append(DataBinding(run.data_provenance).note)
         if excluded:
             warnings.append(f"{excluded} order(s) not filled or without price/time were excluded from trades")
+        if raw.get("models_applied") is False:
+            warnings.append(
+                "the strategy did not confirm quantlab_lean.configure(self): LEAN's default fee/slippage/"
+                "fill/settlement models were used, not the configured execution models"
+            )
+        elif "models_applied" not in raw or raw.get("models_applied") is None:
+            warnings.append("execution models not recorded for this run (LEAN defaults)")
         bench_points = None
         bench_info = None
         if benchmark is not None:
@@ -562,6 +596,7 @@ class BacktestService:
         rerun_of: str | None,
         timeout_s: float | None,
         data: DataBinding,
+        models: dict[str, Any] | None = None,
     ) -> BacktestRun:
         engine_error: str | None = None
         try:
@@ -581,6 +616,8 @@ class BacktestService:
             "engine": engine_identity(info),
             "quantlab_version": quantlab.__version__,
         }
+        if models is not None:
+            inputs["execution_models"] = models
         manifest: dict[str, Any] = {
             "schema": MANIFEST_SCHEMA,
             "run_id": run_id,
@@ -597,6 +634,7 @@ class BacktestService:
                 "language": strategy.language,
             },
             "parameters": parameters,
+            "execution_models": models,
             "data": data.manifest(),
             "engine": {"identity": engine_identity(info), "info": asdict(info)},
             "random_seed": None,  # LEAN backtests are deterministic for identical inputs
@@ -631,7 +669,7 @@ class BacktestService:
             log.warning("backtest.engine_unavailable", run_id=run_id, error=engine_error)
             return self.get(run_id)
 
-        updates = self._run_engine(run_id, run_dir, strategy, parameters, timeout_s, data)
+        updates = self._run_engine(run_id, run_dir, strategy, parameters, timeout_s, data, models)
         with self._sessions() as session:
             finished = session.get(BacktestRun, run_id)
             if finished is None:
@@ -651,6 +689,7 @@ class BacktestService:
         parameters: dict[str, str],
         timeout_s: float | None,
         data: DataBinding,
+        models: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         spec = BacktestSpec(
             run_id=run_id,
@@ -660,6 +699,7 @@ class BacktestService:
             work_dir=run_dir / "engine",
             parameters=parameters,
             data_dir=data.export_path,
+            models=models,
         )
         try:
             handle = self._engine.start_backtest(spec)

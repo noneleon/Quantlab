@@ -136,3 +136,22 @@ def test_backtest_report(home):
     assert "report:" in text and "warning:" in text
     r = ql("backtest", "report", run_id, "--benchmark", "missing")
     assert r.exit_code == 1 and "missing" in r.output
+
+
+def test_backtest_run_with_models(home):
+    ql("strategy", "add", "sma", EXAMPLE_STRATEGY)
+    r = ql("backtest", "run", "sma", "-m", "fee=zero", "-m", "account_type=cash")
+    assert r.exit_code == 0 and "models     account_type=cash, fee=zero" in r.stdout
+    assert "did not call quantlab_lean.configure" in r.stdout  # example strategy does not opt in yet
+    r = ql("backtest", "run", "sma", "-m", "fee=constant")
+    assert r.exit_code == 1 and "fee_per_order > 0" in r.output
+
+
+@pytest.mark.parametrize("name", ["momentum_rotation", "rsi_mean_reversion", "pairs_zscore"])
+def test_templates_run_on_fake_engine_and_apply_models(home, name):
+    from tests.fixtures.m1 import ROOT
+
+    ql("strategy", "add", name, ROOT / "strategies" / "templates" / name)
+    r = ql("backtest", "run", name, "-m", "fee=constant", "-m", "fee_per_order=1")
+    assert r.exit_code == 0 and "models     fee=constant, fee_per_order=1.0" in r.stdout
+    assert "did not call quantlab_lean.configure" not in r.stdout

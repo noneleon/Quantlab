@@ -317,3 +317,26 @@ network requests. All values synthetic (LEAN fixture) — no performance claims.
 Tests: Python 376 passed, 1 skipped; web 18 passed; ruff, mypy --strict, lint-imports clean; web typecheck + build OK.
 Not verified: charts/report on a real LEAN run (no Docker daemon here; KI-0002).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0018 — Phase 3b: quantlab_lean helper, configurable execution models, strategy templates
+Date: 2026-11-07 · Modules: engine (lean), core (config), backtest, cli, analytics (report), strategies · Feature IDs:
+ENG-009, BT-005, BT-007, STR-005
+Problem: DEC-0022 slice 3b — fees/slippage/fills/settlement were whatever LEAN defaulted to and not recorded.
+Research: LEAN source (QuantConnect/Lean cc98c42, sparse clone): constructors of ConstantFeeModel, ConstantSlippageModel,
+VolumeShareSlippageModel, ImmediateFillModel, DelayedSettlementModel(days, TimeSpan), ImmediateSettlementModel,
+BrokerageModelSecurityInitializer(model, seeder), FuncSecuritySeeder(PyObject), SetBrokerageModel(BrokerageName,
+AccountType), Security.Set*Model, QCAlgorithm.GetLastKnownPrices; `python-additional-paths` in Launcher/config.json;
+`Equity.DefaultSettlementDays = 1`, `DefaultSettlementTime = 06:00`; ROC/RSI/MonthStart/AfterMarketOpen signatures.
+Files added: `src/quantlab/engine/lean/library/quantlab_lean/__init__.py`, `strategies/templates/*` (3 templates),
+`tests/fixtures/lean_stub/AlgorithmImports.py` (recording stub, not LEAN), `tests/unit/engine/test_quantlab_lean.py`,
+`tests/unit/strategies/test_templates.py`
+Files modified: `core/config.py` (`[backtest.models]`), `engine/base.py` (`BacktestSpec.models`,
+`EngineResult.models_applied`), `engine/lean/config.py` (`python-additional-paths`), `engine/lean/docker.py` (library
+mount, marker check), `backtest/service.py` (resolve/record/rerun models, warnings), `cli/main.py` (`-m/--model`, models
+line + warning), `analytics/report.py` (models row), `tests/fixtures/fake_docker.py` (runs the real helper against the
+stub when a strategy opts in), tests, `pyproject.toml` (mypy exclude + ruff PTH exemption for the in-container
+library), docs. Decision: DEC-0023.
+Tests: Python 398 passed, 1 skipped; ruff, mypy --strict, lint-imports clean; wheel contains the library.
+Not verified: anything inside a real LEAN container — model behaviour, `python-additional-paths`, where LEAN writes
+algorithm logs (marker detection), template behaviour (KI-0050/0051).
+Result: PASS (stub/fake engine) · Regression status: PASS

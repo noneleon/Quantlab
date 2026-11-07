@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class EngineError(RuntimeError):
@@ -52,6 +52,8 @@ class BacktestSpec:
     work_dir: Path
     parameters: Mapping[str, str] = field(default_factory=dict)
     data_dir: Path | None = None
+    # Execution models for the engine's helper library (ENG-009); None = engine defaults, no library.
+    models: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +126,8 @@ class EngineResult:
     # Engine statistics as numbers (percentages as fractions; None if non-numeric), so services need not
     # understand an engine's text formats.
     statistic_values: Mapping[str, float | None] = field(default_factory=dict)
+    # True/False: the algorithm confirmed/did not confirm applying the requested models; None: none requested.
+    models_applied: bool | None = None
 
     @property
     def succeeded(self) -> bool:

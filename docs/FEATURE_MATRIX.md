@@ -19,8 +19,8 @@ Last reviewed: 2026-11-07
 | Algorithm Framework (Universe/Alpha/PCM/Execution/Risk) | L | ENG-010 | Exposed unchanged. |
 | 100+ indicators, consolidators, scheduled events | L | ENG-011, ENG-012 | |
 | Custom data (PythonData/BaseData) | LI | ENG-013, DATA-010 | |
-| Brokerage/fee/fill/slippage/margin/buying-power models | L | BT-005 | Configured once via `quantlab_lean` helper (ENG-009). |
-| Settlement & cash accounts | L | BT-007, RISK-006 | Verify LEAN coverage of T+1 for US equities before claiming. |
+| Brokerage/fee/fill/slippage/margin/buying-power models | L | BT-005 | `[backtest.models]` / `-m`, applied by the opt-in `quantlab_lean` helper (ENG-009); recorded per run. |
+| Settlement & cash accounts | L | BT-007, RISK-006 | LEAN source: US equity cash accounts settle T+1 (06:00) by default; QuantLab can force immediate/delayed. |
 | Multi-algorithm portfolio backtests | C | BT-009 | LEAN is one-algorithm-per-process; QuantLab combines books. |
 
 ## 2. Data

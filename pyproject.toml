@@ -73,11 +73,13 @@ ignore = ["S101", "S603", "S607"]
 "tests/**" = ["S", "PTH"]
 "tools/**" = ["PTH"]
 "src/quantlab/analytics/report.py" = ["E501"]  # HTML/CSS template text
+"src/quantlab/engine/lean/library/**" = ["PTH"]  # runs inside LEAN's Python; os.path is fine
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 files = ["src/quantlab"]
+exclude = ["src/quantlab/engine/lean/library/"]  # runs inside LEAN (AlgorithmImports), not type-checkable here
 plugins = ["pydantic.mypy"]
 
 # Third-party libraries without usable type information (pandas-stubs lags pandas 3). QuantLab code stays strict;

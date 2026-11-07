@@ -246,6 +246,11 @@ def render_report(
         ("Data", _e((manifest.get("data") or {}).get("note"))),
         ("Data version", _e(run.get("data_version") or DASH)),
         ("Engine", ", ".join(f"{k}={v}" for k, v in sorted(engine.items())) or DASH),
+        (
+            "Execution models",
+            ", ".join(f"{k}={v}" for k, v in sorted((manifest.get("execution_models") or {}).items()))
+            or "not recorded (LEAN defaults)",
+        ),
         ("Inputs hash", _e(run.get("inputs_hash"))),
         ("Result hash", _e(run.get("result_hash"))),
     ]

@@ -1,0 +1,14 @@
+[strategy]
+entry_file = "main.py"
+language = "python"
+description = "Template: pairs trading on the z-score of a log-price spread with a rolling OLS hedge ratio."
+
+[parameters]
+a = "KO"
+b = "PEP"
+lookback = 60
+entry = 2.0
+exit = 0.5
+gross = 1.0
+start = "2015-01-02"
+end = "2024-12-31"

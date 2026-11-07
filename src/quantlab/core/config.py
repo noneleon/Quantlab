@@ -166,6 +166,44 @@ class MarketDataSettings(_Section):
         return self
 
 
+class ExecutionModelSettings(_Section):
+    """Backtest execution models applied by ``quantlab_lean.configure`` (ENG-009, BT-005..007, DEC-0023).
+
+    ``"brokerage"`` means: keep what LEAN's brokerage model assigns (LEAN's own default). Every value is
+    recorded in the run manifest and is part of the inputs hash.
+    """
+
+    brokerage: Literal["default", "interactive_brokers"] = "default"
+    account_type: Literal["margin", "cash"] = "margin"
+    fee: Literal["brokerage", "zero", "constant"] = "brokerage"
+    fee_per_order: float = Field(default=0.0, ge=0)  # account currency, with fee = "constant"
+    slippage: Literal["brokerage", "none", "constant", "volume_share"] = "brokerage"
+    # fraction of price, with slippage = "constant"
+    slippage_percent: float = Field(default=0.0, ge=0, lt=0.1)
+    volume_limit: float = Field(default=0.025, gt=0, le=1)  # volume_share: max share of bar volume
+    price_impact: float = Field(default=0.1, ge=0)  # volume_share: impact coefficient
+    fill: Literal["brokerage", "immediate"] = "brokerage"
+    settlement: Literal["brokerage", "immediate", "delayed"] = "brokerage"
+    settlement_days: int = Field(default=1, ge=0, le=10)  # with settlement = "delayed"
+    settlement_hour: int = Field(default=6, ge=0, le=23)  # time of day funds settle (exchange time)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> ExecutionModelSettings:
+        if self.fee == "constant" and self.fee_per_order <= 0:
+            raise ValueError(
+                "backtest.models.fee='constant' needs fee_per_order > 0 (use fee='zero' for none)"
+            )
+        if self.slippage == "constant" and self.slippage_percent <= 0:
+            raise ValueError(
+                "backtest.models.slippage='constant' needs slippage_percent > 0 (use slippage='none')"
+            )
+        return self
+
+
+class BacktestSettings(_Section):
+    models: ExecutionModelSettings = ExecutionModelSettings()
+
+
 class AiSettings(_Section):
     provider: Literal["none", "anthropic", "openai", "ollama"] = "none"
     api_key_ref: str | None = None  # must be a secret:// reference, never the key itself
@@ -229,6 +267,7 @@ class Settings(BaseSettings):
     brokers: BrokersSettings = BrokersSettings()
     risk: RiskSettings = RiskSettings()
     market_data: MarketDataSettings = MarketDataSettings()
+    backtest: BacktestSettings = BacktestSettings()
     ai: AiSettings = AiSettings()
     logging: LoggingSettings = LoggingSettings()
 

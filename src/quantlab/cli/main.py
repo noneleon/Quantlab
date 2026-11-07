@@ -79,6 +79,22 @@ def _print_run(run: BacktestRun) -> None:
             f"data       {label} ({run.data_provenance}: not a performance claim)", fg=typer.colors.YELLOW
         )
     typer.echo(f"parameters {json.dumps(run.json('parameters'), sort_keys=True)}")
+    models = (run.json("manifest") or {}).get("execution_models")
+    if models is not None:
+        from quantlab.core.config import ExecutionModelSettings
+
+        defaults = ExecutionModelSettings().model_dump()
+        changed = {k: v for k, v in sorted(models.items()) if defaults.get(k) != v}
+        typer.echo(
+            "models     " + (", ".join(f"{k}={v}" for k, v in changed.items()) or "LEAN brokerage defaults")
+        )
+        results_file = Path(run.run_dir) / "results.json"
+        if results_file.is_file() and json.loads(results_file.read_text()).get("models_applied") is False:
+            typer.secho(
+                "warning    strategy did not call quantlab_lean.configure(self): "
+                "LEAN default models were used",
+                fg=typer.colors.YELLOW,
+            )
     if run.error:
         typer.secho(f"error      {run.error}", fg=typer.colors.RED)
     if run.runtime_error:
@@ -279,14 +295,28 @@ def backtest_run(
     dataset_version: Annotated[
         str | None, typer.Option(help="Dataset version hash prefix (default: latest).")
     ] = None,
+    model: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Execution model override key=value (e.g. fee=constant), see [backtest.models].",
+        ),
+    ] = None,
     home: HomeOpt = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Run a backtest of STRATEGY now (blocks until it finishes)."""
     params = _parse_params(param)
+    models = _parse_params(model)
     with context(home) as ctx:
         run = ctx.backtests().run(
-            strategy, params, timeout_s=timeout, dataset=dataset, dataset_version=dataset_version
+            strategy,
+            params,
+            timeout_s=timeout,
+            dataset=dataset,
+            dataset_version=dataset_version,
+            models=models or None,
         )
         if as_json:
             emit_json(_run_summary(run))

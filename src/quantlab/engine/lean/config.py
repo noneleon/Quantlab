@@ -36,6 +36,7 @@ DATASET_ENTRYPOINT_SCRIPT = (
 CONTAINER_RESULTS = "/Results"
 CONTAINER_STORAGE = "/Storage"
 CONTAINER_ALGORITHM = "/LeanCLI"  # same mount point as the Lean CLI uses for Python projects
+CONTAINER_LIBRARY = "/QuantLab/library"  # read-only: quantlab_lean helper + models.json (ENG-009)
 
 _PARAM_KEY = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
@@ -79,6 +80,8 @@ def build_backtest_config(spec: BacktestSpec) -> dict[str, Any]:
         "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DefaultDataProvider",
         "show-missing-data-logs": True,
         "parameters": dict(sorted(spec.parameters.items())),
+        # LEAN Launcher/config.json key (checked in LEAN source cc98c42): extra folders on the Python path.
+        "python-additional-paths": [CONTAINER_LIBRARY] if spec.models is not None else [],
     }
 
 
