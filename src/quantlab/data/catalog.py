@@ -25,7 +25,15 @@ from quantlab.core.audit import AuditLog
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.db import Base, UTCDateTime
 from quantlab.core.ids import new_id
-from quantlab.data.calendars import check_calendar, default_calendar
+from quantlab.data.calendars import check_calendar, default_calendar, session_dates
+from quantlab.data.corporate_actions import (
+    Adjustment,
+    actions_hash,
+    adjust_bars,
+    empty_actions,
+    normalize_actions,
+    validate_actions,
+)
 from quantlab.data.lean_export import export_version, verify_export
 from quantlab.data.providers.base import DataProvider, LicenseInfo, RawBars
 from quantlab.data.schema import (
@@ -37,7 +45,15 @@ from quantlab.data.schema import (
     normalize_symbol,
     validate_dataset_name,
 )
-from quantlab.data.storage import read_bars, symbol_content_hash, verify_files, version_hash, write_version
+from quantlab.data.storage import (
+    price_files,
+    read_actions,
+    read_bars,
+    symbol_content_hash,
+    verify_files,
+    version_hash,
+    write_version,
+)
 from quantlab.data.validation import MAX_EXAMPLES, Issue, ValidationReport, validate_bars
 
 ConflictPolicy = Literal["reject", "replace"]
@@ -242,11 +258,22 @@ class DataCatalog:
 
         parent = self.latest(session, dataset)
         notes = list(raw.notes)
-        merged = cleaned
+        new_actions = normalize_actions(raw.actions) if raw.actions is not None else empty_actions()
+        if not new_actions.empty and dataset.price_adjustment != "raw":
+            raise DataError(
+                f"dataset {dataset.name!r} stores {dataset.price_adjustment} prices; "
+                "corporate actions can only be "
+                "recorded for raw prices (they would be applied twice)"
+            )
+        merged, merged_actions = cleaned, new_actions
         if parent is not None:
-            previous = read_bars(sorted(Path(parent.path).glob("*.parquet")))
+            previous = read_bars(price_files(Path(parent.path)))
             merged, merge_notes = self._merge(previous, cleaned, on_conflict, ingest_id, batch, dataset, raw)
             notes += merge_notes
+            merged_actions, action_notes = self._merge_actions(
+                read_actions(Path(parent.path)), new_actions, on_conflict, ingest_id, batch, dataset, raw
+            )
+            notes += action_notes
 
         merged, report = validate_bars(merged, resolution, calendar)
         if not report.ok:  # e.g. replacement created an inconsistency; never publish
@@ -255,15 +282,31 @@ class DataCatalog:
                 "merged data failed validation; batch quarantined", report, self.quarantine_root / ingest_id
             )
 
+        if not merged_actions.empty:
+            problems = validate_actions(merged_actions, self._closes_by_session(merged, dataset))
+            if problems:
+                report.issues.append(
+                    Issue(
+                        "error", "corporate_actions", None, len(problems), "; ".join(problems[:MAX_EXAMPLES])
+                    )
+                )
+                self._quarantine(ingest_id, batch, report, dataset, raw)
+                raise DataValidationError(
+                    f"corporate actions rejected: {problems[0]}; quarantined as {ingest_id}",
+                    report,
+                    self.quarantine_root / ingest_id,
+                )
+            notes.append(f"{len(merged_actions)} corporate action(s) recorded")
+
         symbol_hashes = {str(s): symbol_content_hash(g) for s, g in merged.groupby("symbol", sort=True)}
-        content = version_hash(dataset.identity(), symbol_hashes)
+        content = version_hash(dataset.identity(), symbol_hashes, actions_hash(merged_actions))
         if parent is not None and parent.content_hash == content:
             return ImportResult(
                 dataset.name, parent, False, report, [*notes, "no changes: content identical"]
             )
 
         directory = self.parquet_root / dataset.name / content[:20]
-        files = write_version(directory, merged)
+        files = write_version(directory, merged, merged_actions)
         version = DatasetVersion(
             id=new_id(),
             dataset_id=dataset.id,
@@ -336,6 +379,57 @@ class DataCatalog:
         merged = pd.concat([keep_old[list(BAR_COLUMNS)], batch[list(BAR_COLUMNS)]], ignore_index=True)
         return merged.sort_values(key, kind="stable").reset_index(drop=True), notes
 
+    def _merge_actions(
+        self,
+        previous: pd.DataFrame,
+        new: pd.DataFrame,
+        policy: ConflictPolicy,
+        ingest_id: str,
+        raw_batch: pd.DataFrame,
+        dataset: Dataset,
+        raw: RawBars,
+    ) -> tuple[pd.DataFrame, list[str]]:
+        if new.empty:
+            return previous, []
+        key = ["symbol", "ex_date", "kind"]
+        joined = previous.merge(new, on=key, how="inner", suffixes=("_old", "_new"))
+        conflicts = joined[joined["value_old"] != joined["value_new"]]
+        notes: list[str] = []
+        if not conflicts.empty and policy == "reject":
+            report = ValidationReport(rows_in=len(new))
+            report.issues.append(
+                Issue(
+                    "error",
+                    "corporate_action_conflict",
+                    None,
+                    len(conflicts),
+                    "corporate action values differ from the existing version",
+                    tuple(f"{r.kind} {r.symbol} {r.ex_date}" for r in conflicts.itertuples()),
+                )
+            )
+            self._quarantine(ingest_id, raw_batch, report, dataset, raw)
+            raise DataValidationError(
+                f"{len(conflicts)} corporate action(s) conflict with the existing version; "
+                "use on_conflict='replace' "
+                f"to accept the new values; quarantined as {ingest_id}",
+                report,
+                self.quarantine_root / ingest_id,
+            )
+        if not conflicts.empty:
+            notes.append(f"{len(conflicts)} corporate action(s) replaced (on_conflict=replace)")
+        kept = previous.merge(new[key], on=key, how="left", indicator=True)
+        kept = kept[kept["_merge"] == "left_only"].drop(columns="_merge")
+        return normalize_actions(pd.concat([kept, new], ignore_index=True)), notes
+
+    @staticmethod
+    def _closes_by_session(bars: pd.DataFrame, dataset: Dataset) -> dict[str, pd.Series]:
+        days = session_dates(bars["ts"], dataset.calendar, Resolution(dataset.resolution))
+        frame = bars.assign(_day=list(days))
+        return {
+            str(sym): g.drop_duplicates("_day", keep="last").set_index("_day")["close"].sort_index()
+            for sym, g in frame.groupby("symbol", sort=True)
+        }
+
     def _quarantine(
         self, ingest_id: str, batch: pd.DataFrame, report: ValidationReport, dataset: Dataset, raw: RawBars
     ) -> None:
@@ -367,7 +461,12 @@ class DataCatalog:
         start: datetime | None = None,
         end: datetime | None = None,
         verify: bool = True,
+        adjust: Adjustment = "raw",
     ) -> tuple[pd.DataFrame, DatasetVersion]:
+        """Bars of a version.
+
+        ``adjust`` back-adjusts with the version's corporate actions (research use; stored
+        prices stay raw and LEAN applies factor files point-in-time in backtests)."""
         dataset = self.get(session, dataset_name)
         resolved = self.resolve_version(session, dataset, version)
         directory = Path(resolved.path)
@@ -378,11 +477,23 @@ class DataCatalog:
                     f"version {resolved.content_hash[:20]} of {dataset_name} is corrupted: {problems}"
                 )
         wanted = {normalize_symbol(s) for s in symbols} if symbols else None
-        paths = [
-            directory / f for f in sorted(resolved.json("files")) if wanted is None or Path(f).stem in wanted
-        ]
-        frame = read_bars(paths, pd.Timestamp(start) if start else None, pd.Timestamp(end) if end else None)
-        return frame, resolved
+        paths = [p for p in price_files(directory) if wanted is None or p.stem in wanted]
+        window = (_utc(start), _utc(end))
+        if adjust == "raw":
+            return read_bars(paths, *window), resolved
+        full = read_bars(paths)  # factors need the whole history (events after the window, previous closes)
+        actions = read_actions(directory)
+        days = session_dates(full["ts"], dataset.calendar, Resolution(dataset.resolution))
+        adjusted = adjust_bars(full, days, actions, adjust)
+        if window[0] is not None:
+            adjusted = adjusted[adjusted["ts"] >= window[0]]
+        if window[1] is not None:
+            adjusted = adjusted[adjusted["ts"] <= window[1]]
+        return adjusted.reset_index(drop=True), resolved
+
+    def actions(self, session: Session, dataset_name: str, version: str | None = None) -> pd.DataFrame:
+        dataset = self.get(session, dataset_name)
+        return read_actions(Path(self.resolve_version(session, dataset, version).path))
 
     def lean_export(
         self, session: Session, dataset_name: str, version: str | None = None
@@ -398,7 +509,11 @@ class DataCatalog:
             return destination, verify_export(destination), dataset, resolved
         frame, _ = self.read(session, dataset_name, version=resolved.id)
         export_hash = export_version(
-            frame, destination, dataset=dataset.identity(), version_hash=resolved.content_hash
+            frame,
+            destination,
+            dataset=dataset.identity(),
+            version_hash=resolved.content_hash,
+            actions=read_actions(Path(resolved.path)),
         )
         return destination, export_hash, dataset, resolved
 
@@ -435,7 +550,16 @@ class DataCatalog:
             else:
                 shutil.copy2(Path(resolved.path) / f"{symbol}.parquet", path)
             written.append(path)
+        actions = read_actions(Path(resolved.path))
+        if not actions.empty:
+            path = destination / f"_corporate_actions.{fmt}"
+            if fmt == "csv":
+                actions.to_csv(path, index=False)
+            else:
+                shutil.copy2(Path(resolved.path) / "_corporate_actions.parquet", path)
+            written.append(path)
         manifest = {
+            "corporate_actions": len(actions),
             "dataset": dataset.identity(),
             "source": dataset.source,
             "license": dataset.license_terms,
@@ -458,6 +582,14 @@ class DataCatalog:
             },
         )
         return written
+
+
+def _utc(value: datetime | pd.Timestamp | None) -> pd.Timestamp | None:
+    """Naive times are UTC (same convention as the DuckDB read path)."""
+    if value is None:
+        return None
+    ts = pd.Timestamp(value)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 
 def _conflict_issue(rows: pd.DataFrame, count: int) -> Issue:

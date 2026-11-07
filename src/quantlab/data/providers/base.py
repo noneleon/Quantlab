@@ -41,6 +41,8 @@ class RawBars:
     frame: pd.DataFrame
     source: str
     notes: tuple[str, ...] = field(default_factory=tuple)
+    # Corporate actions (quantlab.data.corporate_actions schema), optional.
+    actions: pd.DataFrame | None = None
 
 
 @runtime_checkable

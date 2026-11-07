@@ -168,3 +168,46 @@ class CsvFileProvider:
         if request.end is not None:
             out = out[out["ts"] <= pd.Timestamp(request.end)]
         return RawBars(out[list(BAR_COLUMNS)].reset_index(drop=True), f"file:{self.path.name}", tuple(notes))
+
+
+_ACTION_ALIASES = {
+    "symbol": ("symbol", "ticker"),
+    "ex_date": ("ex_date", "exdate", "ex-date", "date"),
+    "kind": ("kind", "type", "action"),
+    "value": ("value", "ratio", "amount", "dividend"),
+}
+
+
+def load_actions_csv(path: Path, symbol: str | None = None) -> pd.DataFrame:
+    """Read a corporate-actions CSV (columns: [symbol], ex_date, kind = split|dividend, value).
+
+    ``value``: split ratio as new shares per old (4 for 4:1) or cash dividend per share in raw terms.
+    """
+    from quantlab.data.corporate_actions import CorporateActionError, normalize_actions
+
+    if not path.is_file():
+        raise ProviderError(f"file not found: {path}")
+    raw = pd.read_csv(path, dtype=str, keep_default_na=False)
+    lowered = {c.strip().lower(): c for c in raw.columns}
+    columns = {
+        k: next((lowered[a] for a in aliases if a in lowered), None) for k, aliases in _ACTION_ALIASES.items()
+    }
+    missing = [k for k in ("ex_date", "kind", "value") if columns[k] is None]
+    if missing:
+        raise ProviderError(f"corporate actions file needs columns {missing}; found {list(raw.columns)}")
+    if columns["symbol"] is None and symbol is None:
+        raise ProviderError("corporate actions file has no symbol column; pass a symbol")
+    frame = pd.DataFrame(
+        {
+            "symbol": raw[columns["symbol"]] if columns["symbol"] else normalize_symbol(symbol or ""),
+            "ex_date": raw[str(columns["ex_date"])],
+            "kind": raw[str(columns["kind"])],
+            "value": raw[str(columns["value"])],
+        }
+    )
+    if symbol is not None:
+        frame = frame[frame["symbol"].astype(str).str.upper() == normalize_symbol(symbol)]
+    try:
+        return normalize_actions(frame)
+    except CorporateActionError as exc:
+        raise ProviderError(f"{path.name}: {exc}") from exc

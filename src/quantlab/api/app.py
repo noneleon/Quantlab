@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hmac
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -103,6 +103,7 @@ class DatasetOut(BaseModel):
 
 class DatasetDetailOut(DatasetOut):
     version_history: list[dict[str, Any]]
+    corporate_actions: list[dict[str, Any]]  # of the latest version
 
 
 class BarsOut(BaseModel):
@@ -110,6 +111,7 @@ class BarsOut(BaseModel):
     version: str
     provenance: str
     price_adjustment: str
+    adjustment: str
     symbol: str
     truncated: bool
     bars: list[dict[str, Any]]
@@ -261,7 +263,23 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                 }
                 for v in versions
             ]
-            return DatasetDetailOut(**_dataset_out(d, versions), version_history=history)
+            actions = ctx.data.actions(session, name) if versions else None
+            action_rows = (
+                []
+                if actions is None
+                else [
+                    {
+                        "symbol": r.symbol,
+                        "ex_date": r.ex_date.isoformat(),
+                        "kind": r.kind,
+                        "value": float(r.value),
+                    }
+                    for r in actions.itertuples(index=False)
+                ]
+            )
+            return DatasetDetailOut(
+                **_dataset_out(d, versions), version_history=history, corporate_actions=action_rows
+            )
 
     @app.get("/api/datasets/{name}/bars", dependencies=auth)
     def get_bars(
@@ -269,12 +287,15 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
         symbol: str,
         version: str | None = None,
         limit: Annotated[int, Query(ge=1, le=100_000)] = 5_000,
+        adjust: Literal["raw", "split", "split_dividend"] = "raw",
     ) -> BarsOut:
-        """Most recent ``limit`` bars of one symbol (read-only)."""
+        """Most recent ``limit`` bars of one symbol (read-only); ``adjust`` applies corporate actions."""
         with ctx.sessions() as session:
             try:
                 d = ctx.data.get(session, name)
-                frame, resolved = ctx.data.read(session, name, version=version, symbols=[symbol])
+                frame, resolved = ctx.data.read(
+                    session, name, version=version, symbols=[symbol], adjust=adjust
+                )
             except (DataError, ValueError) as exc:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
         truncated = len(frame) > limit
@@ -303,6 +324,7 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             version=resolved.content_hash,
             provenance=d.provenance,
             price_adjustment=d.price_adjustment,
+            adjustment=adjust,
             symbol=symbol.upper(),
             truncated=truncated,
             bars=bars,

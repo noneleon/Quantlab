@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantlab.data.calendars import sessions
+from quantlab.data.calendars import session_dates, sessions
 from quantlab.data.schema import BAR_COLUMNS, PRICE_COLUMNS, Resolution
 
 MAX_EXAMPLES = 10
@@ -170,7 +170,7 @@ def validate_bars(
                 )
 
         if resolution is Resolution.DAILY and calendar != "none":
-            session_close_dates = _session_dates(group["ts"], calendar)
+            session_close_dates = session_dates(group["ts"], calendar, Resolution.DAILY)
             expected = sessions(calendar, session_close_dates.min(), session_close_dates.max())
             present = set(session_close_dates)
             off_session = sorted(present - set(expected))
@@ -203,16 +203,3 @@ def validate_bars(
 
     report.rows_out = len(df)
     return df, report
-
-
-def _session_dates(ts: pd.Series, calendar: str) -> pd.Series:
-    """Session date of each daily bar from its end time (inverse of calendars.session_close_utc)."""
-    utc = pd.to_datetime(ts, utc=True)
-    if calendar in ("24/7", "none"):
-        return (utc - pd.Timedelta(days=1)).dt.date  # bar ends 00:00 UTC of the following day
-    if calendar == "weekdays":
-        return utc.dt.date
-    import exchange_calendars
-
-    tz = exchange_calendars.get_calendar(calendar).tz
-    return utc.dt.tz_convert(tz).dt.date

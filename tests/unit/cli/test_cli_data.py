@@ -114,3 +114,20 @@ def test_example_daily_strategy_manifest():
 
     m = load_manifest(Path(__file__).parents[3] / "strategies" / "examples" / "sma_daily")
     assert m.parameters["symbol"] == "SPY" and m.parameters["slow"] == "50"
+
+
+def test_import_with_actions_and_adjusted_head(home, tmp_path):
+    ql(*CREATE)
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    actions = tmp_path / "actions.csv"
+    actions.write_text("ex_date,kind,value\n2024-07-05,split,2\n")
+    r = ql("data", "import", "spy", csv, "--symbol", "SPY", "--actions", actions, "--json")
+    assert r.exit_code == 0, r.output
+    assert any("1 corporate action" in n for n in json.loads(r.stdout)["notes"])
+    listed = json.loads(ql("data", "actions", "spy", "--json").stdout)
+    assert listed == [{"symbol": "SPY", "ex_date": "2024-07-05", "kind": "split", "value": 2.0}]
+    raw = ql("data", "head", "spy", "-n", "1").stdout
+    adjusted = ql("data", "head", "spy", "-n", "1", "--adjust", "split").stdout
+    assert "101.0" in raw and "50.5" in adjusted and "(split prices)" in adjusted
+    assert ql("data", "head", "spy", "--adjust", "total").exit_code == 1

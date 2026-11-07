@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0012 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0013 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -14,11 +14,12 @@
 - CHANGE-0012 (2d): `web/` React UI (dashboard, market data browser with chart/validation, backtest list/detail, strategy
   list, honest "planned" pages for all other modules), served same-origin by `quantlab serve` with strict CSP; token via
   `#token=` fragment (DEC-0018). Verified in real Chromium with Playwright.
+- CHANGE-0013 (2e part 1): corporate actions (splits/dividends) stored in dataset versions, LEAN factor files and
+  read-time adjustment from one golden-tested factor computation; calendar history fix (pre-2006 data was rejected).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 282 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: `npm run typecheck`, `npm test` (16 passed), `npm run build` ok. Manual Playwright smoke (see CHANGE-0012).
-CI #39 (push) / #40 (PR) green: ubuntu, windows and the new `web` job.
+Python: `uv run pytest` → 301 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: typecheck, `npm test` (16 passed), build ok. CI for CHANGE-0013: see latest run on the PR.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -41,7 +42,7 @@ uv run quantlab backtest rerun <run-id>
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 2e: DATA-011 network data providers behind the DataProvider protocol (start with one free, licence-clear source;
-record ToS/licence; rate limiting; never silently mark data as real without the user's declaration), then DATA-008
-corporate actions (split/dividend factor files) so LEAN exports can carry real adjustments. Also open: first real LEAN run
-(owner), RES-003 QuantBook, UI equity chart (needs equity series in the API, AN-002).
+Phase 2e part 2: DATA-011 network provider behind DataProvider — first candidate Tiingo EOD (raw OHLCV + dividends +
+split factors in one licence-clear source; personal-use API key via `request_credential`/keyring `secret://quantlab/
+tiingo/api-key`; rate limiting; provenance stays the user's declaration). Verify the API format against Tiingo's docs
+before coding; tests with recorded responses labelled as such. Then 2f: Phase 2 wrap-up / Phase 3 planning.

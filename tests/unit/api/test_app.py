@@ -186,3 +186,44 @@ def test_ui_served_same_origin_with_spa_fallback(ctx, ui_client):
     # no path traversal out of the UI directory
     assert "outside the UI dir" not in ui_client.get("/../secret.txt").text
     assert "outside the UI dir" not in ui_client.get("/%2e%2e/secret.txt").text
+
+
+def test_dataset_actions_and_adjusted_bars(ctx, client, tmp_path):
+    from dataclasses import replace
+
+    from quantlab.data.providers.base import BarRequest, LicenseInfo
+    from quantlab.data.providers.csv_file import CsvFileProvider, load_actions_csv
+    from quantlab.data.schema import AssetClass, PriceAdjustment, Provenance, Resolution
+    from tests.unit.data.conftest import csv_text, daily_rows
+
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    acts = tmp_path / "a.csv"
+    acts.write_text("ex_date,kind,value\n2024-07-05,split,2\n")
+    with ctx.sessions() as s:
+        ctx.data.create_dataset(
+            s,
+            "spy",
+            asset_class=AssetClass.EQUITY,
+            market="usa",
+            resolution=Resolution.DAILY,
+            provenance=Provenance.SYNTHETIC,
+            price_adjustment=PriceAdjustment.RAW,
+            source="fixture",
+            license=LicenseInfo("test", False),
+        )
+        p = CsvFileProvider(csv, calendar="XNYS", symbol="SPY")
+        ctx.data.import_bars(
+            s,
+            "spy",
+            p,
+            replace(p.fetch_bars(BarRequest((), Resolution.DAILY)), actions=load_actions_csv(acts, "SPY")),
+        )
+        s.commit()
+    detail = client.get("/api/datasets/spy", headers=auth(ctx)).json()
+    assert detail["corporate_actions"] == [
+        {"symbol": "SPY", "ex_date": "2024-07-05", "kind": "split", "value": 2.0}
+    ]
+    bars = client.get("/api/datasets/spy/bars?symbol=SPY&adjust=split", headers=auth(ctx)).json()
+    assert bars["adjustment"] == "split" and bars["bars"][0]["close"] == pytest.approx(50.5)
+    assert client.get("/api/datasets/spy/bars?symbol=SPY&adjust=bad", headers=auth(ctx)).status_code == 422

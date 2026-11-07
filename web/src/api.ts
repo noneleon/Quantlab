@@ -118,8 +118,16 @@ export interface DatasetVersion {
   validation: { ok: boolean; issues: ValidationIssue[]; completeness: Record<string, number> };
 }
 
+export interface CorporateAction {
+  symbol: string;
+  ex_date: string;
+  kind: "split" | "dividend";
+  value: number;
+}
+
 export interface DatasetDetail extends Dataset {
   version_history: DatasetVersion[];
+  corporate_actions: CorporateAction[];
 }
 
 export interface Bar {

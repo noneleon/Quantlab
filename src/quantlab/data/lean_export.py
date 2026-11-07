@@ -29,6 +29,8 @@ from typing import Any
 
 import pandas as pd
 
+from quantlab.data.calendars import session_dates
+from quantlab.data.corporate_actions import factor_file_rows
 from quantlab.data.schema import AssetClass, Resolution
 
 PRICE_SCALE = 10_000
@@ -73,9 +75,20 @@ def _lines(group: pd.DataFrame, columns: list[pd.Series]) -> str:
 
 
 def build_lean_files(
-    frame: pd.DataFrame, *, asset_class: str, market: str, resolution: str, calendar: str
+    frame: pd.DataFrame,
+    *,
+    asset_class: str,
+    market: str,
+    resolution: str,
+    calendar: str,
+    actions: pd.DataFrame | None = None,
 ) -> dict[str, bytes]:
-    """Return {relative path: file bytes} in LEAN layout for a canonical bar frame."""
+    """Return {relative path: file bytes} in LEAN layout for a canonical bar frame.
+
+    Without corporate actions the factor files are neutral; with actions they carry LEAN factor rows
+    computed by
+    ``quantlab.data.corporate_actions.factor_file_rows`` (the same code research uses for adjusted reads).
+    """
     if AssetClass(asset_class) is not AssetClass.EQUITY:
         raise LeanExportError(f"LEAN export supports equities only for now, not {asset_class!r}")
     res = Resolution(resolution)
@@ -115,12 +128,25 @@ def build_lean_files(
         first = first_day.strftime("%Y%m%d")
         first_close = repr(float(group["close"].iloc[0]))
         files[f"{base}/map_files/{sym}.csv"] = f"{first},{sym}\n20501231,{sym}\n".encode()
-        files[f"{base}/factor_files/{sym}.csv"] = f"{first},1,1,{first_close}\n20501231,1,1,0\n".encode()
+        sym_actions = actions[actions["symbol"] == str(symbol)] if actions is not None else None
+        if sym_actions is None or sym_actions.empty:
+            factor_text = f"{first},1,1,{first_close}\n20501231,1,1,0\n"
+        else:
+            days = session_dates(group["ts"], calendar, res)
+            closes = pd.Series(group["close"].to_numpy(), index=list(days))
+            closes = closes[~closes.index.duplicated(keep="last")].sort_index()
+            factor_text = "".join(row.lean_line() + "\n" for row in factor_file_rows(closes, sym_actions))
+        files[f"{base}/factor_files/{sym}.csv"] = factor_text.encode()
     return files
 
 
 def export_version(
-    frame: pd.DataFrame, destination: Path, *, dataset: dict[str, Any], version_hash: str
+    frame: pd.DataFrame,
+    destination: Path,
+    *,
+    dataset: dict[str, Any],
+    version_hash: str,
+    actions: pd.DataFrame | None = None,
 ) -> str:
     """Write a LEAN export into a new ``destination``; returns the export hash (sha256 over files)."""
     if destination.exists():
@@ -131,6 +157,7 @@ def export_version(
         market=dataset["market"],
         resolution=dataset["resolution"],
         calendar=dataset["calendar"],
+        actions=actions,
     )
     hashes = {path: hashlib.sha256(data).hexdigest() for path, data in sorted(files.items())}
     export_hash = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
@@ -147,11 +174,25 @@ def export_version(
         "export_hash": export_hash,
         "files": hashes,
         "price_scale": PRICE_SCALE,
-        "normalization": "RAW (no LEAN-side adjustment, factor files neutral)",
+        "corporate_actions": 0 if actions is None else len(actions),
+        "normalization": normalization_note(0 if actions is None else len(actions)),
     }
     (tmp / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     tmp.rename(destination)
     return export_hash
+
+
+def normalization_note(action_count: int) -> str:
+    if action_count == 0:
+        return "neutral factor files (no corporate actions recorded): adjusted modes equal RAW"
+    return (
+        f"LEAN factor files from {action_count} corporate action(s): LEAN applies the requested normalization"
+    )
+
+
+def read_export_manifest(destination: Path) -> dict[str, Any]:
+    manifest: dict[str, Any] = json.loads((destination / MANIFEST).read_text(encoding="utf-8"))
+    return manifest
 
 
 def verify_export(destination: Path) -> str:

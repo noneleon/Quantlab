@@ -140,3 +140,39 @@ def test_warning_points_at_caller(qr):
         qr.history("etfs")
     ours = [w.filename for w in record if issubclass(w.category, NonRealDataWarning)]
     assert ours == [__file__, __file__]
+
+
+def test_adjusted_closes_and_actions(qr, tmp_path):
+    from dataclasses import replace
+
+    from quantlab.data.providers.csv_file import load_actions_csv
+
+    csv = tmp_path / "SPY2.csv"
+    csv.write_text(csv_text(daily_rows(SESSIONS, base=100.0)))
+    actions = tmp_path / "a.csv"
+    actions.write_text("ex_date,kind,value\n2024-07-05,split,2\n")
+    with qr._ctx.sessions() as s:
+        qr._ctx.data.create_dataset(
+            s,
+            "spy-raw",
+            asset_class=AssetClass.EQUITY,
+            market="usa",
+            resolution=Resolution.DAILY,
+            provenance=Provenance.SYNTHETIC,
+            price_adjustment=PriceAdjustment.RAW,
+            source="fixture",
+            license=LicenseInfo("t", False),
+        )
+        p = CsvFileProvider(csv, calendar="XNYS", symbol="SPY")
+        raw = replace(
+            p.fetch_bars(BarRequest((), Resolution.DAILY)), actions=load_actions_csv(actions, "SPY")
+        )
+        qr._ctx.data.import_bars(s, "spy-raw", p, raw)
+        s.commit()
+    with pytest.warns(NonRealDataWarning):
+        adjusted = qr.closes("spy-raw", adjust="split")
+    assert (
+        adjusted["SPY"].iloc[0] == pytest.approx(101.0 / 2)
+        and adjusted.attrs["quantlab"]["adjustment"] == "split"
+    )
+    assert list(qr.actions("spy-raw")["kind"]) == ["split"]

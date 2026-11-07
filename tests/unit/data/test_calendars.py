@@ -38,3 +38,10 @@ def test_defaults_and_errors():
         check_calendar("NOPE")
     with pytest.raises(CalendarError):
         session_close_utc("XNYS", date(2024, 7, 4))
+
+
+def test_historical_sessions_before_default_calendar_window():
+    """Regression (CHANGE-0013): exchange_calendars defaults to ~20 years; 1998 data must still validate."""
+    jan_1998 = sessions("XNYS", date(1998, 1, 1), date(1998, 1, 31))
+    assert len(jan_1998) == 20 and jan_1998[0] == date(1998, 1, 2)
+    assert session_close_utc("XNYS", date(1998, 1, 2)) == datetime(1998, 1, 2, 21, tzinfo=UTC)

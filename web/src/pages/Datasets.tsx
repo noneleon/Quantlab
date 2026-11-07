@@ -94,6 +94,22 @@ export function DatasetDetailPage() {
           )}
         </>
       ) : <Empty>No versions yet.</Empty>}
+      <h2>Corporate actions</h2>
+      {data.corporate_actions.length === 0 ? (
+        <Empty>None recorded{data.price_adjustment === "raw" ? " (prices are raw; splits/dividends unadjusted)" : ""}.</Empty>
+      ) : (
+        <table className="narrow">
+          <thead><tr><th>Symbol</th><th>Ex-date</th><th>Kind</th><th className="num">Value</th></tr></thead>
+          <tbody>
+            {data.corporate_actions.map((a) => (
+              <tr key={`${a.symbol}-${a.ex_date}-${a.kind}`}>
+                <td>{a.symbol}</td><td>{a.ex_date}</td><td>{a.kind}</td>
+                <td className="num">{a.kind === "split" ? `${a.value}:1` : a.value.toFixed(4)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       <h2>Versions</h2>
       <table>
         <thead><tr><th>Version</th><th>Created</th><th className="num">Rows</th><th>Range</th><th>Symbols</th><th>Conflicts</th><th>Source</th></tr></thead>

@@ -26,6 +26,7 @@ import pandas as pd
 from quantlab.analytics import statistics
 from quantlab.analytics.metrics import EquityMetrics, equity_metrics
 from quantlab.bootstrap import AppContext
+from quantlab.data.corporate_actions import Adjustment
 from quantlab.data.schema import Provenance
 
 
@@ -83,9 +84,12 @@ class Research:
         start: Any = None,
         end: Any = None,
         version: str | None = None,
+        adjust: Adjustment = "raw",
     ) -> pd.DataFrame:
-        """Canonical bars (symbol, ts, open, high, low, close, volume) of a dataset version."""
-        return self._load(dataset, symbols=symbols, start=start, end=end, version=version, stacklevel=3)
+        """Canonical bars of a dataset version; ``adjust`` = raw | split | split_dividend (back-adjusted)."""
+        return self._load(
+            dataset, symbols=symbols, start=start, end=end, version=version, adjust=adjust, stacklevel=3
+        )
 
     def _load(
         self,
@@ -95,12 +99,19 @@ class Research:
         start: Any,
         end: Any,
         version: str | None,
+        adjust: Adjustment,
         stacklevel: int,
     ) -> pd.DataFrame:
         with self._ctx.sessions() as session:
             ds = self._ctx.data.get(session, dataset)
             frame, resolved = self._ctx.data.read(
-                session, dataset, version=version, symbols=symbols, start=_ts(start), end=_ts(end)
+                session,
+                dataset,
+                version=version,
+                symbols=symbols,
+                start=_ts(start),
+                end=_ts(end),
+                adjust=adjust,
             )
             meta = {
                 "dataset": ds.name,
@@ -108,6 +119,7 @@ class Research:
                 "provenance": ds.provenance,
                 "price_adjustment": ds.price_adjustment,
                 "resolution": ds.resolution,
+                "adjustment": adjust,
             }
         if not Provenance(meta["provenance"]).is_real:
             warnings.warn(
@@ -119,13 +131,14 @@ class Research:
         return frame
 
     def closes(self, dataset: str, **kwargs: Any) -> pd.DataFrame:
-        """Wide close-price frame: index = ts (UTC), one column per symbol."""
+        """Wide close-price frame: index = ts (UTC), one column per symbol (``adjust=`` as in ``history``)."""
         bars = self._load(
             dataset,
             symbols=kwargs.get("symbols"),
             start=kwargs.get("start"),
             end=kwargs.get("end"),
             version=kwargs.get("version"),
+            adjust=kwargs.get("adjust", "raw"),
             stacklevel=3,
         )
         wide = bars.pivot(index="ts", columns="symbol", values="close").sort_index()
@@ -178,6 +191,11 @@ class Research:
                 }
             )
         return pd.DataFrame(rows)
+
+    def actions(self, dataset: str, version: str | None = None) -> pd.DataFrame:
+        """Corporate actions recorded in a dataset version."""
+        with self._ctx.sessions() as session:
+            return self._ctx.data.actions(session, dataset, version)
 
     def backtest(self, run_id: str) -> dict[str, Any]:
         run = self._ctx.read_only_backtests().get(run_id)

@@ -273,3 +273,9 @@ def test_dataset_argument_errors(env, dataset):
         service.run("sma", dataset="nope")
     runs_dir = env["settings"].layout.runs_dir
     assert not runs_dir.exists() or not any(runs_dir.iterdir())
+
+
+def test_manifest_records_normalization_from_export(env, dataset):
+    run = env["service"]().run("sma", dataset="spy-daily")
+    data = run.json("manifest")["data"]
+    assert data["corporate_actions"] == 0 and data["normalization"].startswith("neutral factor files")

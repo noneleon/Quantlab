@@ -18,9 +18,10 @@ from typing import Any
 
 import pandas as pd
 
-from quantlab.data.schema import AssetClass
+from quantlab.data.schema import AssetClass, Resolution
 
 SPECIAL_CALENDARS = ("24/7", "weekdays", "none")
+CALENDAR_START = "1970-01-02"
 
 
 class CalendarError(ValueError):
@@ -42,7 +43,13 @@ def _exchange_calendar(code: str) -> Any:
     import exchange_calendars
 
     try:
-        return exchange_calendars.get_calendar(code)
+        # exchange_calendars covers only ~20 years by default; historical datasets need more (CHANGE-0013).
+        return exchange_calendars.get_calendar(code, start=CALENDAR_START)
+    except ValueError:
+        try:  # calendar cannot reach back to CALENDAR_START: use its own earliest supported range
+            return exchange_calendars.get_calendar(code)
+        except Exception as exc:
+            raise CalendarError(f"unknown calendar {code!r}") from exc
     except Exception as exc:  # exchange_calendars raises its own InvalidCalendarName
         raise CalendarError(f"unknown calendar {code!r}") from exc
 
@@ -86,3 +93,22 @@ def session_close_utc(code: str, day: date) -> datetime:
         raise CalendarError(f"{day.isoformat()} is not a {code} session") from exc
     result: datetime = close.to_pydatetime().astimezone(UTC)
     return result
+
+
+def session_dates(ts: pd.Series, calendar: str, resolution: Resolution = Resolution.DAILY) -> pd.Series:
+    """Session (exchange-local) date of each bar from its canonical end time.
+
+    Daily bars end at the session close (``session_close_utc``); intraday bars are dated by their *start* in
+    exchange time (UTC for ``24/7``/``weekdays``/``none``).
+    """
+    utc = pd.to_datetime(ts, utc=True)
+    if resolution is Resolution.DAILY:
+        if calendar in ("24/7", "none"):
+            return (utc - pd.Timedelta(days=1)).dt.date  # daily bar ends 00:00 UTC of the following day
+        if calendar == "weekdays":
+            return utc.dt.date
+        return utc.dt.tz_convert(_exchange_calendar(calendar).tz).dt.date
+    start = utc - pd.Timedelta(seconds=resolution.seconds)
+    if calendar in SPECIAL_CALENDARS:
+        return start.dt.date
+    return start.dt.tz_convert(_exchange_calendar(calendar).tz).dt.date

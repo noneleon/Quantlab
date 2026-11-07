@@ -31,6 +31,7 @@ from quantlab.core.config import Settings
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
 from quantlab.data.catalog import DataCatalog
+from quantlab.data.lean_export import read_export_manifest
 from quantlab.data.schema import Provenance
 from quantlab.engine.base import (
     AlgorithmLanguage,
@@ -64,6 +65,8 @@ class DataBinding:
     dataset: dict[str, Any] | None = None  # dataset identity
     export_path: Path | None = None
     export_hash: str | None = None
+    corporate_actions: int = 0
+    normalization: str | None = None
 
     @property
     def note(self) -> str:
@@ -80,7 +83,8 @@ class DataBinding:
             "dataset": self.dataset,
             "export_hash": self.export_hash,
             "note": self.note,
-            "normalization": None if self.data_version is None else "RAW (neutral factor files)",
+            "corporate_actions": self.corporate_actions,
+            "normalization": self.normalization,
         }
 
 
@@ -276,7 +280,16 @@ class BacktestService:
                 raise BacktestError("dataset_version given without dataset")
             return SAMPLE
         path, export_hash, ds, resolved = self._catalog.lean_export(session, dataset, version)
-        return DataBinding(ds.provenance, resolved.content_hash, ds.identity(), path, export_hash)
+        export = read_export_manifest(path)
+        return DataBinding(
+            ds.provenance,
+            resolved.content_hash,
+            ds.identity(),
+            path,
+            export_hash,
+            int(export.get("corporate_actions", 0)),
+            str(export.get("normalization")),
+        )
 
     def _rebind_data(self, recorded: dict[str, Any]) -> DataBinding:
         if recorded.get("data_version") is None:

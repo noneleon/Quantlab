@@ -49,13 +49,17 @@ Append-only (triggers).
 prices × 10 000 as integers, integer volume; `map_files/<sym>.csv` and neutral `factor_files/<sym>.csv`;
 `quantlab-lean-export.json` (dataset identity, version, per-file sha256, export hash).
 
-### corporate_actions — PLANNED (DATA-008)
+### corporate actions (IMPLEMENTED, DATA-008)
+Stored per dataset version as `_corporate_actions.parquet` (hashed in `files`, included in the version hash only when
+non-empty, so versions without actions keep their hashes).
 | Column | Type | Description |
 |---|---|---|
-| symbol, ex_date | string, date | |
-| kind | enum | split, dividend, symbol_change, delisting |
-| ratio / amount | float64 | split ratio or cash dividend |
-| source | string | |
+| symbol | string | ticker |
+| ex_date | date | exchange-local ex-date |
+| kind | enum | `split`, `dividend` (symbol changes / delistings planned) |
+| value | float64 | split: new shares per old (4.0 = 4:1); dividend: cash per share, raw terms |
+LEAN factor rows and read-time adjustment both come from `corporate_actions.factor_file_rows` (golden-tested against
+LEAN's AAPL factor file).
 
 ## 2. Metadata DB (SQLite/Postgres) — proposed tables
 | Table | Purpose | Mutability |

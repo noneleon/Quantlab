@@ -37,3 +37,5 @@
 | KI-0033 | Low | web | No DOM-level component tests (jsdom/happy-dom dropped after an npm resolver crash); interactive behaviour is covered only by the manual Playwright smoke script, not in CI. | OPEN — add a CI e2e job (Playwright) |
 | KI-0034 | Low | web | vitest pinned to `~4.0` because npm 10.9 crashes resolving vitest ≥ 4.1 optional peers. | OPEN — re-test on npm/vitest updates |
 | KI-0035 | Low | web | `web/dist` is not committed; users need Node.js 22 to build the UI once (`cd web && npm ci && npm run build`). | OPEN — consider shipping built assets in releases |
+| KI-0036 | Medium | data | Corporate actions cover splits and cash dividends only; symbol changes, delistings and spin-offs are not modelled (map files contain only first/last date). | OPEN — DATA-014 |
+| KI-0037 | Low | data | Adjusted reads back-adjust to the version's latest event (like LEAN's ADJUSTED mode); not point-in-time — use raw reads or LEAN backtests for point-in-time correctness. | DOCUMENTED |

@@ -214,3 +214,22 @@ dataset (chart, completeness, missing-session warning) and backtest pages render
 token absent from access log and quantlab.log. Found and fixed: Lightweight Charts' logo `<style>` violated the CSP →
 logo disabled, NOTICE attribution rendered as text (test added); re-run had 0 console errors.
 Result: PASS — CI #39/#40 green (ubuntu, windows, web) · Regression status: PASS
+
+### CHANGE-0013 — Phase 2e (part 1): corporate actions (DATA-008); calendar history fix
+Date: 2026-11-07 · Modules: data, research, api, cli, backtest, web · Feature IDs: DATA-008, DATA-007 (fix), DATA-009, RES-002
+Research: LEAN factor-file semantics derived from LEAN's real AAPL factor file and checked by hand against AAPL's actual
+dividends ($2.65 2012-08-09, $0.82 2020-08-07, $0.205 2020-11-06) and splits (2:1 2000/2005, 7:1 2014, 4:1 2020).
+Files added: `src/quantlab/data/corporate_actions.py`, `tests/fixtures/lean/aapl_factor_file.csv` (LEAN, Apache-2.0,
+attributed in fixtures README), `tests/unit/data/{test_corporate_actions,test_actions_integration}.py`
+Files modified: `data/{catalog,storage,lean_export,calendars,validation}.py`, `data/providers/{base,csv_file}.py`
+(`RawBars.actions`, `load_actions_csv`), `cli/data.py` (`import --actions`, `data actions`, `head --adjust`),
+`research/api.py` (`adjust=`, `actions()`), `api/app.py` (detail `corporate_actions`, bars `adjust`),
+`backtest/service.py` (manifest records corporate-action count + normalization from the export),
+`web/src/{api.ts,pages/Datasets.tsx}` (actions table), tests in cli/research/api/backtest/calendars, docs. Decision: DEC-0019.
+Bug found and fixed: exchange_calendars covers only ~20 years by default, so any daily history before ~2006 would have
+been rejected as "non-session bars" and quarantined. Calendars now load from 1970 (fallback to the library default for
+calendars that cannot); regression test added. `session_dates` moved from validation into calendars (shared, now also
+correct for intraday bars on 24/7 calendars).
+Tests: Python 301 passed, 1 skipped; web 16 passed + build; ruff, mypy --strict, lint-imports clean. Golden: recomputed
+factor rows reproduce LEAN's AAPL factor file (40 rows, rel. tol 2e-6).
+Result: PASS · Regression status: PASS (no existing test changed; datasets without actions keep identical hashes)

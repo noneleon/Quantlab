@@ -112,3 +112,12 @@ the API with `Authorization: Bearer`. Responses carry CSP `default-src 'self'` (
 'none'`, `nosniff`, `no-referrer`. TradingView Lightweight Charts' attribution logo injects inline CSS, so it is disabled
 and the NOTICE attribution + link is rendered as text under each chart. Toolchain pinned to established majors
 (Vite 7, TypeScript 5.9, Vitest 4.0); component tests render statically (no jsdom) — see KI-0033.
+
+### DEC-0019 — Corporate actions live inside dataset versions; one factor computation for LEAN and research
+State: ACCEPTED (implementation of DEC-0015/DATA-008; owner may revisit) · 2026-11-07
+Decisions: (1) splits and cash dividends are stored with each version (immutable, hashed), merged across imports with the
+same reject/replace conflict policy as prices; (2) only raw-price datasets may carry actions (otherwise adjustments would
+be applied twice); (3) `factor_file_rows` implements LEAN's factor semantics and is used both for LEAN factor files and for
+read-time adjustment (`raw`/`split`/`split_dividend`, back-adjusted to the version's latest event; research use — LEAN
+applies factor files point-in-time in backtests); (4) adding actions changes the version hash, datasets without actions
+keep their previous hashes.

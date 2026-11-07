@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -11,7 +12,7 @@ import typer
 from quantlab.cli.common import HomeOpt, JsonOpt, context, emit_json, fail
 from quantlab.data.catalog import DataValidationError
 from quantlab.data.providers.base import BarRequest, LicenseInfo
-from quantlab.data.providers.csv_file import CsvFileProvider
+from quantlab.data.providers.csv_file import CsvFileProvider, load_actions_csv
 from quantlab.data.schema import AssetClass, PriceAdjustment, Provenance, Resolution
 
 data_app = typer.Typer(no_args_is_help=True, help="Manage versioned market datasets.")
@@ -63,6 +64,9 @@ def data_import(
     symbol: Annotated[str | None, typer.Option(help="Symbol, if the file has no symbol column.")] = None,
     timezone: Annotated[str, typer.Option(help="Timezone of naive timestamps.")] = "UTC",
     bar_start: Annotated[bool, typer.Option("--bar-start", help="Timestamps are bar start times.")] = False,
+    actions: Annotated[
+        Path | None, typer.Option(help="Corporate actions CSV (ex_date, kind=split|dividend, value).")
+    ] = None,
     on_conflict: Annotated[
         str, typer.Option(help="reject | replace values that differ from the latest version.")
     ] = "reject",
@@ -84,6 +88,8 @@ def data_import(
         )
         try:
             raw = provider.fetch_bars(BarRequest((), Resolution(dataset.resolution)))
+            if actions is not None:
+                raw = replace(raw, actions=load_actions_csv(actions, symbol))
             result = ctx.data.import_bars(session, name, provider, raw, on_conflict=policy)
         except DataValidationError as exc:
             session.rollback()
@@ -210,13 +216,42 @@ def data_head(
     symbol: Annotated[str | None, typer.Option(help="Only this symbol.")] = None,
     n: Annotated[int, typer.Option("-n", help="Rows to print.")] = 10,
     version: Annotated[str | None, typer.Option(help="Version hash prefix (default latest).")] = None,
+    adjust: Annotated[str, typer.Option(help="raw | split | split_dividend (back-adjusted).")] = "raw",
     home: HomeOpt = None,
 ) -> None:
     """Print the first rows of a dataset version."""
+    if adjust not in ("raw", "split", "split_dividend"):
+        fail("--adjust must be raw, split or split_dividend")
+    mode: Literal["raw", "split", "split_dividend"] = adjust  # type: ignore[assignment]
     with context(home) as ctx, ctx.sessions() as session:
-        frame, resolved = ctx.data.read(session, name, version=version, symbols=[symbol] if symbol else None)
-        typer.echo(f"# {name} version {resolved.content_hash[:20]}")
+        frame, resolved = ctx.data.read(
+            session, name, version=version, symbols=[symbol] if symbol else None, adjust=mode
+        )
+        typer.echo(f"# {name} version {resolved.content_hash[:20]} ({mode} prices)")
         typer.echo(frame.head(n).to_string(index=False))
+
+
+@data_app.command("actions")
+def data_actions(
+    name: str,
+    version: Annotated[str | None, typer.Option(help="Version hash prefix (default latest).")] = None,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """List the corporate actions recorded in a dataset version."""
+    with context(home) as ctx, ctx.sessions() as session:
+        actions = ctx.data.actions(session, name, version)
+    rows = [
+        {"symbol": r.symbol, "ex_date": r.ex_date.isoformat(), "kind": r.kind, "value": float(r.value)}
+        for r in actions.itertuples(index=False)
+    ]
+    if as_json:
+        emit_json(rows)
+        return
+    if not rows:
+        typer.echo("no corporate actions recorded")
+    for r in rows:
+        typer.echo(f"{r['symbol']:<8} {r['ex_date']}  {r['kind']:<9} {r['value']}")
 
 
 @data_app.command("lean-export")

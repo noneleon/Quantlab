@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0012)
+Last updated: 2026-11-07 (CHANGE-0013)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -62,8 +62,8 @@ Last updated: 2026-11-07 (CHANGE-0012)
 | DATA-004 | Dataset versioning (content hash, immutable versions) | data | C | 2 | `data/storage.py`, `data/catalog.py` | DATA-003 | `test_catalog.py` | TESTED | Copy-on-write full rewrite per import (KI-0024) |
 | DATA-005 | Validation: duplicates, gaps vs calendar, OHLC sanity, outliers, staleness | data | C | 2 | `src/quantlab/data/validation.py` | DATA-003, DATA-007 | `tests/unit/data/test_validation.py` | TESTED | Gap detection daily-only (intraday gaps not checked, KI-0025) |
 | DATA-006 | Provenance labels (real/live/synthetic/sample) + completeness report | data | C | 2 | `data/schema.py`, `data/catalog.py`, `backtest/service.py` (DataBinding) | DATA-004 | `test_catalog.py`, `test_cli_data.py`, `tests/unit/backtest/test_service.py` | TESTED | Provenance required at dataset creation and propagated into backtest rows/manifests/metrics.json and CLI output |
-| DATA-007 | Trading calendars & sessions | data | C | 2 | `src/quantlab/data/calendars.py` | — | `tests/unit/data/test_calendars.py` | TESTED | exchange_calendars + `24/7`/`weekdays`/`none`; forex `weekdays` is approximate; not reconciled with LEAN MHDB (KI-0026) |
-| DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | — | DATA-003 | — | PLANNED | Accurate factors require a data source that provides them |
+| DATA-007 | Trading calendars & sessions | data | C | 2 | `src/quantlab/data/calendars.py` | — | `tests/unit/data/test_calendars.py` | TESTED | exchange_calendars from 1970 (CHANGE-0013 fix) + `24/7`/`weekdays`/`none`; `session_dates` shared by validation, actions and LEAN export; forex `weekdays` approximate; not reconciled with LEAN MHDB (KI-0026) |
+| DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | `src/quantlab/data/corporate_actions.py`, catalog/storage/lean_export integration, `quantlab data import --actions`, `data actions` | DATA-003 | `tests/unit/data/test_corporate_actions.py` (golden vs LEAN's real AAPL factor file), `test_actions_integration.py` | TESTED | Splits + cash dividends only (no symbol changes/delistings/spin-offs; map files still first/last only); raw-price datasets only; not yet read by a real LEAN run (KI-0028) |
 | DATA-009 | LEAN-format exporter (zipped CSV per version) | data | LI | 2 | `src/quantlab/data/lean_export.py`, `DataCatalog.lean_export`, `quantlab data lean-export` | DATA-004 | `tests/unit/data/test_lean_export.py` (golden round-trip vs LEAN sample bytes) | TESTED | Equities only (daily/hour/minute/second trade bars); neutral map/factor files; **not yet read by a real LEAN run** (KI-0028) |
 | DATA-010 | User-defined custom datasets | data | C | 2 | — | DATA-001 | — | PLANNED | |
 | DATA-011 | Free/low-cost provider adapters (e.g. Stooq/Tiingo/Alpha Vantage/Binance public) | data | X | 2 | — | DATA-001 | — | PLANNED | ToS & rate limits per provider |

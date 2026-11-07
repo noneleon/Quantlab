@@ -55,8 +55,15 @@ def symbol_content_hash(frame: pd.DataFrame) -> str:
     return digest.hexdigest()
 
 
-def version_hash(metadata: Mapping[str, Any], symbol_hashes: Mapping[str, str]) -> str:
-    payload = {"metadata": dict(metadata), "symbols": dict(sorted(symbol_hashes.items()))}
+ACTIONS_FILE = "_corporate_actions.parquet"  # leading "_": never mistaken for a symbol's price file
+
+
+def version_hash(
+    metadata: Mapping[str, Any], symbol_hashes: Mapping[str, str], actions_hash: str | None = None
+) -> str:
+    payload: dict[str, Any] = {"metadata": dict(metadata), "symbols": dict(sorted(symbol_hashes.items()))}
+    if actions_hash is not None:  # absent for datasets without corporate actions: older hashes stay unchanged
+        payload["corporate_actions"] = actions_hash
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -68,7 +75,21 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def write_version(directory: Path, frame: pd.DataFrame) -> dict[str, str]:
+def price_files(directory: Path) -> list[Path]:
+    """Per-symbol price files of a version directory (excludes auxiliary files such as corporate actions)."""
+    return sorted(p for p in directory.glob("*.parquet") if not p.name.startswith("_"))
+
+
+def read_actions(directory: Path) -> pd.DataFrame:
+    from quantlab.data.corporate_actions import empty_actions, normalize_actions
+
+    path = directory / ACTIONS_FILE
+    return normalize_actions(pd.read_parquet(path)) if path.is_file() else empty_actions()
+
+
+def write_version(
+    directory: Path, frame: pd.DataFrame, actions: pd.DataFrame | None = None
+) -> dict[str, str]:
     """Write one Parquet file per symbol into a *new* directory. Returns {relative file: sha256}."""
     if directory.exists():
         raise StorageError(f"version directory already exists (versions are immutable): {directory}")
@@ -86,6 +107,11 @@ def write_version(directory: Path, frame: pd.DataFrame) -> dict[str, str]:
         path = tmp / f"{symbol}.parquet"
         pq.write_table(table, path, compression="zstd")
         files[path.name] = file_sha256(path)
+    if actions is not None and not actions.empty:
+        out = actions.copy()
+        out["ex_date"] = pd.to_datetime(out["ex_date"])
+        out.to_parquet(tmp / ACTIONS_FILE, index=False, compression="zstd")
+        files[ACTIONS_FILE] = file_sha256(tmp / ACTIONS_FILE)
     tmp.rename(directory)  # atomic publish: a version directory is either complete or absent
     return files
 
