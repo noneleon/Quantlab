@@ -374,6 +374,12 @@ class Settings(BaseSettings):
     def risk_limits_file(self) -> Path:
         return self.risk.limits_file if self.risk.limits_file is not None else self.home / "risk_limits.toml"
 
+    @property
+    def lean_native_dir(self) -> Path:
+        """Native LEAN install (ENG-003): ``engine.lean.native_path`` or QUANTLAB_HOME/engine/lean-native."""
+        configured = self.engine.lean.native_path
+        return configured if configured is not None else self.home / "engine" / "lean-native"
+
 
 @contextmanager
 def _toml_from(path: Path) -> Iterator[None]:

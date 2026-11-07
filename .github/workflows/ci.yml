@@ -76,3 +76,11 @@ jobs:
         run: dotnet build lean/QuantLabBrokerage -c Release
       - name: Tests against the real Python gateway
         run: dotnet test lean/QuantLabBrokerage.Tests -c Release
+      - name: Native LEAN install (LEAN 2.5.18229 NuGet + data at tag 18229)
+        run: |
+          uv run quantlab init --home ${{ runner.temp }}/ql-home
+          uv run quantlab engine native-install --home ${{ runner.temp }}/ql-home
+      - name: Real LEAN golden check (C# example reproduces LEAN's published statistics)
+        env:
+          QUANTLAB_TEST_LEAN_NATIVE: ${{ runner.temp }}/ql-home/engine/lean-native
+        run: uv run pytest tests/integration/test_lean_native.py -v

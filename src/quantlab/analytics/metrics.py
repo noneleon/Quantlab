@@ -22,7 +22,9 @@ import math
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, TypeVar
+
+_D = TypeVar("_D", date, datetime)  # daily dates or full-resolution timestamps
 
 
 class MetricsError(ValueError):
@@ -87,7 +89,7 @@ def _stdev(xs: Sequence[float]) -> float | None:
     return math.sqrt(sum((x - m) ** 2 for x in xs) / (len(xs) - 1))
 
 
-def drawdown_stats(days: Sequence[date], values: Sequence[float]) -> tuple[float, int]:
+def drawdown_stats(days: Sequence[_D], values: Sequence[float]) -> tuple[float, int]:
     """Max drawdown (positive fraction) and the longest peak-to-recovery duration in calendar days."""
     peak_value, peak_day = values[0], days[0]
     max_dd, longest = 0.0, 0
@@ -107,16 +109,28 @@ def equity_metrics(
     periods_per_year: int = 252,
     risk_free_rate: float = 0.0,
 ) -> EquityMetrics:
-    series = daily_series(points)
-    if len(series) < 2:
-        raise MetricsError("at least two daily equity observations are required")
+    """Metrics of an equity curve (DEC-0032).
+
+    * Total return, CAGR and max drawdown use the full-resolution curve: from the first point (the starting
+      equity) to the last, over the exact elapsed time, and drawdowns between daily closes count too.
+    * Volatility, Sharpe, Sortino and best/worst day use daily returns (last value per UTC day), with the
+      starting equity as the base of the first day's return.
+    """
+    raw = sorted(points, key=lambda p: p[0])
+    series = daily_series(raw)  # validates timestamps and values
+    if len(series) < 2 and len(raw) < 2:
+        raise MetricsError("at least two equity observations are required")
     days = [d for d, _ in series]
     values = [v for _, v in series]
-    rets = simple_returns(values)
+    first_ts, start_equity = raw[0]
+    last_ts, end_equity = raw[-1]
+    # The starting equity is the base of the first day's return when it was recorded before that day's close.
+    first_close_ts = max(t for t, _ in raw if t.astimezone(UTC).date() == days[0])
+    rets = simple_returns(([start_equity] if first_ts < first_close_ts else []) + values)
 
-    total_return = values[-1] / values[0] - 1.0
-    years = (days[-1] - days[0]).days / 365.25
-    cagr = (values[-1] / values[0]) ** (1.0 / years) - 1.0 if years > 0 else None
+    total_return = end_equity / start_equity - 1.0
+    years = (last_ts - first_ts).total_seconds() / 86400.0 / 365.25
+    cagr = (end_equity / start_equity) ** (1.0 / years) - 1.0 if years > 0 else None
 
     rf_period = (1.0 + risk_free_rate) ** (1.0 / periods_per_year) - 1.0
     excess = [r - rf_period for r in rets]
@@ -126,15 +140,15 @@ def equity_metrics(
     downside = math.sqrt(_mean([min(x, 0.0) ** 2 for x in excess])) if excess else 0.0
     sortino = _mean(excess) / downside * math.sqrt(periods_per_year) if downside > 0 else None
 
-    max_dd, dd_days = drawdown_stats(days, values)
+    max_dd, dd_days = drawdown_stats([t for t, _ in raw], [v for _, v in raw])
     calmar = cagr / max_dd if cagr is not None and max_dd > 0 else None
 
     return EquityMetrics(
         start=days[0].isoformat(),
         end=days[-1].isoformat(),
         observations=len(values),
-        start_equity=values[0],
-        end_equity=values[-1],
+        start_equity=start_equity,
+        end_equity=end_equity,
         total_return=total_return,
         cagr=cagr,
         annual_volatility=annual_vol,

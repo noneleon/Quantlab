@@ -279,3 +279,17 @@ ends the gateway. (5) Orders of an earlier run that are still working stay under
 but the new run does not manage them (cancel by hand or with the kill switch).
 Amendment (CHANGE-0035): run ids are issued by the gateway; earlier runs' unfinished orders block new orders until
 cancelled (`cancel_orphans`) or resolved; refusals are audited and stay refused for the run.
+
+### DEC-0032 — Native LEAN launcher; metric definitions aligned with LEAN after the first real engine run
+State: ACCEPTED (owner chose "finish Phase 5" incl. 5c-3, 2026-11-07)
+Decisions: (1) `[engine.lean] launcher = "native"` runs LEAN 2.5.18229 from QuantConnect's NuGet packages on the
+local .NET 10 runtime (`lean/QuantLabLauncher`, installed by `quantlab engine native-install` together with LEAN's
+databases and sample data from the matching repository tag 18229; versions and checksums are recorded). C# strategies
+are compiled per run against the same LEAN version. Python algorithms stay on the Docker launcher until pythonnet is
+set up natively (KI-0078). (2) Dataset runs get a data folder with LEAN's databases and the dataset only (no sample
+prices), as in the Docker launcher. (3) The first real LEAN run showed that QuantLab's daily-close metrics disagreed
+with LEAN's statistics because they ignored the starting equity, the exact time span and intraday drawdowns. From now
+on total return, CAGR and max drawdown are computed on the full-resolution equity curve (starting equity, exact
+elapsed time, all points); volatility, Sharpe, Sortino and best/worst day stay on daily returns (with the starting
+equity as the base of the first day). Earlier runs keep their recorded metrics; recomputed metrics can differ
+(more conservative drawdowns).

@@ -103,3 +103,40 @@ def test_cross_check_statuses():
     assert checks["total_return"].status == "match"
     assert checks["max_drawdown"].status == "mismatch"
     assert checks["cagr"].status == "unavailable"
+
+
+# ---- DEC-0032: full-resolution total return / CAGR / drawdown (found by the first real LEAN run) ----------
+
+
+def test_starting_equity_and_exact_span_define_return_and_cagr():
+    """Intraday points: the curve starts at the starting cash, not at the first daily close."""
+    t0 = datetime(2013, 10, 7, 0, 0, tzinfo=UTC)
+    pts = [
+        (t0, 100_000.0),  # starting cash
+        (t0 + timedelta(hours=14), 99_000.0),  # first day's close (after buying)
+        (t0 + timedelta(days=4, hours=16), 101_000.0),
+    ]
+    m = equity_metrics(pts)
+    assert m.start_equity == 100_000.0 and m.total_return == pytest.approx(0.01)
+    years = (4 + 16 / 24) / 365.25
+    assert m.cagr == pytest.approx(1.01 ** (1 / years) - 1)
+    assert m.worst_day == pytest.approx(-0.01)  # day one's return is measured from the starting cash
+
+
+def test_intraday_drawdown_between_daily_closes_counts():
+    t0 = datetime(2024, 1, 2, 15, tzinfo=UTC)
+    pts = [
+        (t0, 100.0),
+        (t0 + timedelta(hours=2), 90.0),  # intraday dip
+        (t0 + timedelta(hours=5), 101.0),  # closes higher
+        (t0 + timedelta(days=1), 102.0),
+    ]
+    m = equity_metrics(pts)
+    assert m.max_drawdown == pytest.approx(0.10)  # daily closes alone would show none
+
+
+def test_daily_only_curves_keep_their_previous_metrics():
+    pts = [(datetime(2024, 1, d, 21, tzinfo=UTC), v) for d, v in ((2, 100.0), (3, 110.0), (4, 99.0))]
+    m = equity_metrics(pts)
+    assert m.total_return == pytest.approx(-0.01) and m.max_drawdown == pytest.approx(0.1)
+    assert m.best_day == pytest.approx(0.10)  # no extra base point when the first point is a daily close

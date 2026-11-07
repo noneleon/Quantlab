@@ -1,0 +1,4 @@
+[strategy]
+entry_file = "BuyAndHold.cs"
+language = "csharp"
+description = "Example (C#, native launcher): buy SPY with all cash on the first bar — LEAN's BasicTemplateAlgorithm logic on LEAN's sample data."

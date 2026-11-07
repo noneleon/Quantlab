@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Market data & research (2a data foundation, 2b LEAN export/backtests on datasets, 2c research API + Jupyter, 2d web UI shell done; 2e corporate actions + Tiingo provider done; Phase 2 functionally complete except RES-003/005 and UI polish).
 Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
-**Last change:** CHANGE-0037 (2026-11-07)
+**Last change:** CHANGE-0038 (2026-11-07)
 **Overall health:** Core, LEAN engine adapter (never run against real LEAN), strategies, backtests, analytics, CLI, read-only API and the data catalog are implemented and tested (CI green). No trading or portfolio yet; the web UI edits strategy files only (everything else read-only).
 
 ## Phase progress

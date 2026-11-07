@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Native LEAN engine for QuantLab (ENG-003): builds a runnable LEAN folder from QuantConnect's NuGet packages
+       (version pinned below; must match the LEAN data tag in src/quantlab/engine/lean/native.py).
+       QuantLab starts it as: dotnet QuantConnect.Lean.Launcher.dll with a per-run config file. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <NuGetAudit>false</NuGetAudit> <!-- advisories of LEAN's own transitive packages -->
+    <LeanVersion>2.5.18229</LeanVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="QuantConnect.Lean" Version="$(LeanVersion)" GeneratePathProperty="true" />
+    <ProjectReference Include="../QuantLabBrokerage/QuantLabBrokerage.csproj" />
+  </ItemGroup>
+  <!-- LEAN's launcher ships its own runtime configuration; place it next to the launcher DLL. -->
+  <Target Name="CopyLeanRuntimeConfig" AfterTargets="Build">
+    <Copy SourceFiles="$(PkgQuantConnect_Lean)/lib/net10.0/QuantConnect.Lean.Launcher.runtimeconfig.json" DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

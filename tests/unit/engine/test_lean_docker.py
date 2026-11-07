@@ -182,8 +182,12 @@ def test_unknown_handle(tmp_path, strategy):
 def test_factory_from_settings():
     with pytest.raises(EngineError, match=r"engine\.lean\.image is not set"):
         create_engine_adapter(load_settings())
-    with pytest.raises(EngineError, match="ENG-003"):
-        create_engine_adapter(load_settings(overrides={"engine": {"lean": {"launcher": "native"}}}))
+    from quantlab.engine.lean.native import LeanNativeAdapter
+
+    native = create_engine_adapter(load_settings(overrides={"engine": {"lean": {"launcher": "native"}}}))
+    assert isinstance(native, LeanNativeAdapter)
+    with pytest.raises(EngineError, match="native-install"):  # nothing installed in the test home
+        native.probe()
     adapter = create_engine_adapter(
         load_settings(overrides={"engine": {"lean": {"image": IMAGE, "docker_command": ["podman"]}}})
     )

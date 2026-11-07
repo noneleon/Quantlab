@@ -730,3 +730,26 @@ LEAN engine.
 Tests: C# 14 passed (against the real Python gateway); Python 599 passed, 1 skipped; ruff, mypy --strict,
 lint-imports (5 contracts) clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0038 — Phase 5c-3a: native LEAN launcher, C# strategies, first real LEAN run (ENG-003, ENG-008)
+Date: 2026-11-07 · Modules: engine, analytics, cli, lean (C#), CI · Feature IDs: ENG-003, ENG-008, AN-001 ·
+Decision: DEC-0032
+Change: `engine/lean/native.py` (install, per-run C# compile, LeanNativeAdapter mirroring the Docker adapter,
+dataset-only data folders), `lean/QuantLabLauncher` (LEAN NuGet launcher + QuantLab brokerage in one folder),
+`quantlab engine native-install`, `Settings.lean_native_dir`, LEAN config builder generalised (`LeanPaths`, C#),
+example `strategies/examples/buy_and_hold_cs`, metrics per DEC-0032, CI steps (Linux + Windows) that install the
+native engine and run the real-LEAN golden check.
+**First real LEAN runs (KI-0002):** LEAN's own BasicTemplateAlgorithm and QuantLab's C# example reproduce LEAN's
+published ExpectedStatistics at tag 18229 exactly (Total Orders 1, End Equity 101691.92, Net Profit 1.692%,
+CAGR 271.453%, Drawdown 2.200%, Sharpe 8.854, OrderListHash 3da9fa60…), run natively on .NET 10.0.403 in this
+session, also through `quantlab backtest run` end to end (compile → run → parse → record). LEAN sample data —
+provenance `sample`, not a performance claim.
+**Bug found by that run:** QuantLab's cross-checks flagged CAGR (344% vs 271%) and max drawdown (1.15% vs 2.2%) as
+mismatches. Root cause: daily-close metrics ignored the starting equity, the exact time span and intraday drawdowns.
+Fixed (DEC-0032); the same run now matches on total return, CAGR and drawdown. QuantLab's Sharpe (4.75) still differs
+from LEAN's (8.854) by definition (LEAN's risk-free rate and estimator; not a cross-checked metric; KI-0079).
+Tests: unit tests for the metric definitions and the native adapter (guards, data isolation, config, compile errors);
+`tests/integration/test_lean_native.py` passed against the real engine here. Python 608 passed, 2 skipped; ruff,
+mypy --strict, lint-imports clean. The Docker launcher is still unverified against a real image (KI-0002 remains open
+for Docker / Python algorithms).
+Result: PASS · Regression status: PASS

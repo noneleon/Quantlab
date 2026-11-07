@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0037 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0038 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -56,13 +56,17 @@
 - CHANGE-0036 (5c-2): C# `lean/QuantLabBrokerage` plugin + xUnit tests against the real Python gateway
   (`dotnet test lean/QuantLabBrokerage.Tests`, needs `uv sync`; 14 tests); CI job `lean-plugin`. CHANGE-0037 fixed its
   review (no updates via the brokerage model, auto-reconnect, unknown vs not-placed). Next: 5c-3 native launcher.
+- CHANGE-0038 (5c-3a, DEC-0032): **first real LEAN runs** — native launcher (`quantlab engine native-install`,
+  `[engine.lean] launcher = "native"`), C# strategies, LEAN's published statistics reproduced exactly; metrics fixed
+  (full-resolution total return / CAGR / drawdown). Next: 5c-3b, a LEAN paper run through the gateway.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 599 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 608 passed, 2 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 28 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
-No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
+Real LEAN has run natively (C#, LEAN sample data) and matches LEAN's published statistics. Not yet: a real run of
+the Docker launcher, Python algorithms, or a dataset run on real LEAN. KI-0002/0014/0028 list what is unverified.
 
 ## Owner verification (Windows PC with Docker) — now covers datasets too
 ```

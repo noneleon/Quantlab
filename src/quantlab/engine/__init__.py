@@ -12,9 +12,9 @@ from quantlab.engine.base import EngineAdapter, EngineError
 def create_engine_adapter(settings: Settings) -> EngineAdapter:
     lean = settings.engine.lean
     if lean.launcher == "native":
-        raise EngineError(
-            "the native LEAN launcher is not implemented yet (ENG-003, Phase 3); use launcher='docker'"
-        )
+        from quantlab.engine.lean.native import LeanNativeAdapter
+
+        return LeanNativeAdapter(settings.lean_native_dir, default_timeout_s=lean.timeout_s)
     if lean.image is None:
         raise EngineError(
             "engine.lean.image is not set. Pin the LEAN image by digest in quantlab.toml, e.g.\n"

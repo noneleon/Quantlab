@@ -605,6 +605,25 @@ def engine_pull(home: HomeOpt = None) -> None:
         typer.echo("done")
 
 
+@engine_app.command("native-install")
+def engine_native_install(home: HomeOpt = None) -> None:
+    """Build the native LEAN engine (.NET 10) and fetch LEAN's databases + sample data (network, once)."""
+    from quantlab.engine.base import EngineError
+    from quantlab.engine.lean.native import LEAN_DATA_TAG, LEAN_VERSION, install
+
+    repo_root = Path(__file__).resolve().parents[3]
+    with context(home) as ctx:
+        target = ctx.settings.lean_native_dir
+        typer.echo(f"installing LEAN {LEAN_VERSION} (data tag {LEAN_DATA_TAG}) into {target} …")
+        try:
+            manifest = install(target, repo_root)
+        except EngineError as exc:
+            fail(str(exc))
+    typer.echo(
+        f'done (LEAN data commit {manifest["lean_data_commit"][:12]}); set [engine.lean] launcher = "native"'
+    )
+
+
 @api_app.command("token")
 def api_token(
     home: HomeOpt = None,
