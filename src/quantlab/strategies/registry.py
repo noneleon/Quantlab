@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Boolean, ForeignKey, String, Text, UniqueConstraint, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from quantlab.core.audit import AuditLog
@@ -193,12 +194,14 @@ class StrategyRegistry:
     def record_version(
         self, session: Session, strategy: Strategy, manifest: TreeManifest, git: GitInfo | None = None
     ) -> StrategyVersion:
-        """Return the version for this tree hash, creating it on first use."""
-        existing = session.execute(
-            select(StrategyVersion).where(
-                StrategyVersion.strategy_id == strategy.id, StrategyVersion.tree_hash == manifest.tree_hash
-            )
-        ).scalar_one_or_none()
+        """Return the version for this tree hash, creating it on first use.
+
+        Safe under concurrency (parallel optimization trials): if another session inserts the same version
+        first, the unique constraint fires inside a savepoint and the existing row is returned."""
+        query = select(StrategyVersion).where(
+            StrategyVersion.strategy_id == strategy.id, StrategyVersion.tree_hash == manifest.tree_hash
+        )
+        existing = session.execute(query).scalar_one_or_none()
         if existing is not None:
             return existing
         git = git or GitInfo(None, None)
@@ -211,8 +214,14 @@ class StrategyRegistry:
             git_dirty=git.dirty,
             created_at=self._clock.now(),
         )
-        session.add(version)
-        session.flush()
+        try:
+            with session.begin_nested():
+                session.add(version)
+        except IntegrityError:
+            raced = session.execute(query).scalar_one_or_none()
+            if raced is None:
+                raise
+            return raced
         return version
 
     def current_version(self, session: Session, strategy: Strategy) -> StrategyVersion:

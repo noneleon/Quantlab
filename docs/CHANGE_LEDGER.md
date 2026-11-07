@@ -396,3 +396,13 @@ Tests: Python 447 passed, 1 skipped; ruff, mypy --strict, lint-imports clean. Al
 engine with synthetic equity — no market data, no performance claims.
 Not verified: optimization on real LEAN runs (KI-0002); UI views (Phase 4b).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0022 — Fix: concurrent backtests raced on strategy_versions (CI #59)
+Date: 2026-11-07 · Modules: strategies · Feature IDs: STR-002, OPT-001
+Problem: CI #59 (ubuntu) failed `tests/unit/optimize/test_service.py::test_parallel_trials` with
+`UNIQUE constraint failed: strategy_versions.strategy_id, tree_hash`; CI #60 on the same commit passed — a race.
+Parallel trials of the same strategy each found no version row and both inserted it. Not caught locally (timing).
+Fix: `StrategyRegistry.record_version` inserts inside a savepoint and, on IntegrityError, returns the row the other
+session inserted. Regression test `test_concurrent_runs_record_one_strategy_version` (4 concurrent runs): fails 3/5
+times against the old code, passes 10/10 with the fix.
+Result: PASS · Regression status: PASS

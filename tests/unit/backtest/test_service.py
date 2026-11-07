@@ -386,3 +386,17 @@ def test_invalid_execution_models_rejected_before_anything_runs(env):
     with pytest.raises(BacktestError, match="invalid execution models"):
         service.run("sma", models={"slippage": "magic"})
     assert service.list() == []
+
+
+def test_concurrent_runs_record_one_strategy_version(env):
+    """Regression (CI #59): parallel trials raced on strategy_versions' unique (strategy, tree_hash)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from quantlab.strategies.registry import StrategyVersion
+
+    service = env["service"]()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        runs = list(pool.map(lambda _: service.run("sma"), range(4)))
+    assert [r.status for r in runs] == ["succeeded"] * 4
+    with env["sessions"]() as s:
+        assert s.query(StrategyVersion).count() == 1
