@@ -121,7 +121,7 @@ namespace QuantLab.Brokerages
                     CloseSocket();
                     throw new GatewayException("QuantLab gateway refused the connection: " + Describe(welcome));
                 }
-                if (welcome.TryGetProperty("mode", out var mode) && mode.GetString() != "paper")
+                if (!welcome.TryGetProperty("mode", out var mode) || mode.GetString() != "paper") // must say paper
                 {
                     CloseSocket();
                     throw new GatewayException("QuantLab gateway is not in paper mode; refusing to trade");

@@ -136,6 +136,8 @@ def install(target: Path, repo_root: Path, *, dotnet: str = "dotnet", git: str =
 
 
 LIVE_ENVIRONMENT = "live-quantlab"
+# Data-queue handlers a QuantLab live config may use: they supply prices only, never a brokerage connection.
+ALLOWED_DATA_QUEUES = frozenset({"QuantConnect.Lean.Engine.DataFeeds.Queues.FakeDataQueue"})
 
 
 def build_live_config(
@@ -155,6 +157,12 @@ def build_live_config(
     own brokerages are never configured. ``data_queue_handler`` supplies live prices to the algorithm (e.g.
     LEAN's ``FakeDataQueue`` for synthetic tests); the risk gate always uses QuantLab's own quotes.
     """
+    if data_queue_handler not in ALLOWED_DATA_QUEUES:
+        raise EngineError(
+            f"data-queue handler {data_queue_handler!r} is not allowed "
+            f"(allowed: {sorted(ALLOWED_DATA_QUEUES)}); "
+            "brokerage data handlers could open a broker connection"
+        )
     return {
         "environment": LIVE_ENVIRONMENT,
         "algorithm-type-name": type_name,

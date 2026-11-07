@@ -772,3 +772,15 @@ Safety review: a trading-safety review was still running when this was committed
 recorded in the next entry.
 Tests: C# 15 passed; Python 608 passed, 3 skipped (real-engine tests run separately here: 2 passed).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0040 — Phase 5c-3b follow-up: live-config safety review
+Date: 2026-11-07 · Modules: engine (native), lean (C#) · Feature IDs: OMS-007
+Review (trading-safety-reviewer, started before CHANGE-0039 was committed): no BLOCKER/MAJOR — no path to a real
+broker or real money (brokerage hard-wired to QuantLabBrokerage, LEAN stops rather than falling back when a factory
+is missing, the bin folder contains only LEAN's simulated brokerages, `build_live_config` has no production caller).
+Fixed: the data-queue handler is allow-listed (FakeDataQueue only, until QuantLab's own data handler exists), and the
+plugin now requires the gateway to state `mode: "paper"` explicitly. Recorded for the future launch command: check
+that the config file exists (LEAN falls back to `config.json`) and pass no extra launcher arguments; label LEAN live
+result files by price provenance before they are ever ingested (KI-0077).
+Tests: unit test for the allow-list; C# 15 passed; Python 609 passed, 3 skipped; real-LEAN tests 2 passed.
+Result: PASS · Regression status: PASS

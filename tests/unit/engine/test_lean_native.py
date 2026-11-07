@@ -102,3 +102,13 @@ def test_compile_errors_are_reported(tmp_path, monkeypatch):
 def test_install_never_overwrites(tmp_path, install):
     with pytest.raises(EngineError, match="already exists"):
         native.install(install, tmp_path)
+
+
+def test_live_config_only_routes_through_quantlab_and_allowed_data_queues():
+    kw = {"algorithm_location": "/a.dll", "type_name": "A", "algorithm_id": "x", "gateway_file": "/g.json",
+          "data_folder": "/d/", "results": "/r", "storage": "/s"}  # fmt: skip
+    cfg = native.build_live_config(data_queue_handler=next(iter(native.ALLOWED_DATA_QUEUES)), **kw)
+    env = cfg["environments"][native.LIVE_ENVIRONMENT]
+    assert env["live-mode-brokerage"] == "QuantLabBrokerage" and "live-mode-brokerage" not in cfg
+    with pytest.raises(EngineError, match="not allowed"):
+        native.build_live_config(data_queue_handler="InteractiveBrokersBrokerage", **kw)
