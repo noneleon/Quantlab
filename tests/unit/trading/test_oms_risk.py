@@ -767,3 +767,19 @@ def test_cash_account_cannot_allow_shorting(tmp_path):
     p.write_text(LIMITS.replace("allow_short = false", "allow_short = true"))
     with pytest.raises(RiskConfigError, match="cash account cannot sell short"):
         load_limits(p)
+
+
+def test_cancel_all_survives_a_failing_quote_source(stack):
+    """5b-2 review: a quote-source outage (e.g. IB Gateway down) must not stop the kill-switch cancel."""
+    oms, quotes = stack["oms"], stack["quotes"]
+    a = oms.submit(req("a", order_type=OrderType.LIMIT, limit_price=10.0))
+    b = oms.submit(req("b", order_type=OrderType.LIMIT, limit_price=11.0))
+
+    def down(symbol):
+        raise ConnectionError("gateway down")  # not a MarketDataError
+
+    stack["broker"]._quotes = down
+    oms._quotes = down
+    del quotes
+    out = oms.cancel_all(reason="kill switch: outage")
+    assert out.results == {a.order.id: "CANCELLED", b.order.id: "CANCELLED"} and out.complete

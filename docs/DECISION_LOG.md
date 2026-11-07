@@ -227,3 +227,14 @@ working blocks new orders.
 Addendum (CHANGE-0028): new limits are added as required keys (old files fail closed; `quantlab risk template`
 shows the current set); the kill switch cancels working orders by default but never flattens positions; cooldowns
 and loss limits always let position-reducing orders through.
+
+### DEC-0028 — Web console: read-only trading views; engaging the kill switch is the only trading write
+State: ACCEPTED (owner approved Phase 5b, 2026-11-07; refines DEC-0027 point 7)
+Decisions: (1) The web console (UI-006) shows portfolio, orders (state history, every risk check, fills with their
+price data state) and risk (limits, decisions, kill switch) read-only. (2) `POST /api/risk/kill-switch/engage` is the
+only trading write in the API, because engaging can only reduce risk: it needs the session token, a reason and the
+typed phrase "ENGAGE KILL SWITCH", is committed before working orders are cancelled, records the channel
+("web console") in the audit log, and the response lists anything that may still be working. (3) Disengaging, placing
+or cancelling individual orders and changing limits stay CLI-only (CLAUDE.md §4); there is no API route for them and
+a test asserts it. (4) Cancelling orders never depends on market data: the paper OMS builds its quote provider on
+first use.

@@ -29,12 +29,12 @@ describe("components", () => {
 
   it("planned module pages contain no controls", () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter initialEntries={["/modules/risk"]}>
+      <MemoryRouter initialEntries={["/modules/ml"]}>
         <Routes><Route path="/modules/:id" element={<ModulePage />} /></Routes>
       </MemoryRouter>,
     );
     expect(html).toContain("Not available yet");
-    expect(html).toContain("RISK-001");
+    expect(html).toContain("ML-001");
     expect(html).not.toMatch(/<(button|input|select|form)\b/);
   });
 

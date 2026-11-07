@@ -246,9 +246,16 @@ class PaperBroker:
     def _fetch_quotes(self, extra: Iterable[str] = ()) -> dict[str, Quote | None]:
         with self._locked():
             symbols = {w["symbol"] for w in self._state["working"].values()} | set(extra)
-        quotes = {sym: self._quotes(sym) for sym in sorted(symbols)}
+        quotes = {sym: self._safe_quote(sym) for sym in sorted(symbols)}
         self._fetched_at = time.monotonic()
         return quotes
+
+    def _safe_quote(self, symbol: str) -> Quote | None:
+        """A failing quote source means "no quote" (no fill), never a failed cancel or event read."""
+        try:
+            return self._quotes(symbol)
+        except Exception:
+            return None
 
     def _reload(self) -> None:
         if self._file.is_file():

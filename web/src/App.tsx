@@ -11,6 +11,7 @@ import { ModulePage } from "./pages/ModulePage";
 import { ComparePage } from "./pages/Compare";
 import { OptimizationDetailPage, OptimizationList } from "./pages/Optimizations";
 import { StrategyList } from "./pages/Strategies";
+import { OrderDetailPage, OrdersPage, PortfolioPage, RiskPage } from "./pages/Trading";
 
 // The editor (CodeMirror) is loaded on demand so the rest of the workstation stays small.
 const EditorIndex = lazy(() => import("./pages/Editor").then((m) => ({ default: m.EditorIndex })));
@@ -55,6 +56,10 @@ export function App({ token }: { token: string | null }) {
               <Route path="/optimizations" element={<OptimizationList />} />
               <Route path="/optimizations/:id" element={<OptimizationDetailPage />} />
               <Route path="/compare" element={<ComparePage />} />
+              <Route path="/portfolio" element={<PortfolioPage />} />
+              <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/risk" element={<RiskPage />} />
               <Route path="/modules/:id" element={<ModulePage />} />
               <Route path="*" element={<p className="muted">Page not found.</p>} />
             </Routes>

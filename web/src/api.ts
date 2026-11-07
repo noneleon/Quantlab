@@ -429,3 +429,70 @@ export interface BacktestCharts {
 export function isRealProvenance(provenance: string): boolean {
   return provenance === "real_historical" || provenance === "live_recorded";
 }
+
+// ---- paper trading console (UI-006): read-only, except engaging the kill switch (DEC-0028) ----
+export interface PaperOrderRow {
+  id: string;
+  client_order_key: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  order_type: string;
+  limit_price: number | null;
+  stop_price: number | null;
+  time_in_force: string;
+  mode: string;
+  source: string;
+  state: string;
+  created_at: string;
+}
+
+export interface RiskCheck {
+  check: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface PaperOrderDetail {
+  order_id: string;
+  events: { seq: number; state: string; detail: Record<string, unknown>; at: string }[];
+  risk_decisions: { approved: boolean; checks: RiskCheck[]; limits_sha256: string | null; at: string }[];
+  fills: { exec_id: string; quantity: number; price: number; commission: number; at: string; price_state: string }[];
+}
+
+export interface PositionRow {
+  symbol: string;
+  quantity: number;
+  average_price: number;
+  realized_pnl: number;
+  mark: number | null;
+  market_value: number | null;
+  unrealized_pnl: number | null;
+}
+
+export interface PaperPortfolio {
+  account: string;
+  mode: string;
+  fill_price_states: string[];
+  warning: string | null;
+  starting_cash: number;
+  cash: number;
+  commissions: number;
+  realized_pnl: number;
+  positions: PositionRow[];
+}
+
+export interface RiskStatus {
+  kill_switch: { engaged: boolean; reason: string | null; at: string | null };
+  limits: { valid: true; sha256: string; values: Record<string, unknown> } | { valid: false; error: string };
+  decisions: { order_id: string; approved: boolean; failed: RiskCheck[]; at: string }[];
+}
+
+export interface EngageResult {
+  engaged: boolean;
+  cancelled: Record<string, string> | null;
+  still_working: Record<string, string> | null;
+  error: string | null;
+}
+
+export const ENGAGE_CONFIRMATION = "ENGAGE KILL SWITCH";

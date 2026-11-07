@@ -313,6 +313,8 @@ class OMS:
                 out[oid] = self.cancel(oid).value
             except OMSError as exc:  # e.g. it filled meanwhile
                 out[oid] = f"not cancelled: {exc}"
+            except Exception as exc:  # never stop: every other order still gets its cancel
+                out[oid] = f"cancel outcome unknown: {exc!r}"
         with self._sessions() as session:
             open_states = [(o.id, st) for o, st in self.orders(session, limit=None) if st not in TERMINAL]
             still = {oid: st.value for oid, st in open_states}

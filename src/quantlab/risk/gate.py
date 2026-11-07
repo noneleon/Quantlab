@@ -35,6 +35,7 @@ from quantlab.risk.limits import RiskConfigError, load_limits
 from quantlab.risk.models import KillSwitchEvent, RiskDecision
 
 DISENGAGE_CONFIRMATION = "DISENGAGE KILL SWITCH"
+ENGAGE_CONFIRMATION = "ENGAGE KILL SWITCH"  # web console only: guards against an accidental click
 
 
 class RiskError(RuntimeError):
@@ -109,8 +110,10 @@ class KillSwitch:
         last = self.state(session)
         return bool(last and last.engaged)
 
-    def engage(self, session: Session, *, actor: str, reason: str) -> KillSwitchEvent:
-        return self._record(session, True, actor, reason)
+    def engage(
+        self, session: Session, *, actor: str, reason: str, channel: str = "unspecified"
+    ) -> KillSwitchEvent:
+        return self._record(session, True, actor, reason, channel)
 
     def disengage(
         self, session: Session, *, actor: str, reason: str, confirmation: str, channel: str = "unspecified"

@@ -544,3 +544,26 @@ unpriceable working buy fails buying power, short+cash-account combination inval
 Remaining minors recorded as KI-0072/0073.
 Tests: Python 529 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. Synthetic SIMULATED quotes.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0029 — Phase 5b-2: paper trading console (UI-006)
+Date: 2026-11-07 · Modules: web, api, risk, bootstrap · Feature IDs: UI-006, RISK-004 · Decision: DEC-0028
+Change: web pages Portfolio (`/portfolio`), Orders (`/orders`, `/orders/:id` with append-only state history, every
+risk check with the limits sha256, fills labelled with their price data state) and Risk (`/risk`: kill switch,
+limits, recent decisions). Engage-only kill-switch form (reason + typed phrase; no disengage control; nothing is
+shown once engaged). `POST /api/risk/kill-switch/engage` (DEC-0028); `KillSwitch.engage(channel=)`; the paper OMS
+creates its quote provider lazily so cancel-all works without market-data configuration (found while testing: the
+first version failed to cancel when no mock dataset was configured). Module registry: Portfolio, Order Management
+and Risk are now available pages; Paper Trading is CLI.
+Verification: Python API tests (engage guard, no disengage/order/limits routes, cancel on engage); vitest 27 tests (6 new);
+real Chromium (Playwright) against `quantlab serve` on a scratch home with synthetic data: engage button disabled
+until the exact phrase, engaging cancelled the working limit order (confirmed via `quantlab paper orders`), no
+controls once engaged, no console errors.
+Safety review (trading-safety-reviewer, before commit): no BLOCKER; no API path disengages, orders, cancels single
+orders or changes limits. 1 MAJOR fixed with a regression test (confirmed failing without the fix): a quote-source
+outage other than MarketDataError (e.g. IB Gateway down) aborted cancel-all and left orders working — the paper quote
+function now treats any failure as "no quote" and remembers it for that OMS, the paper broker guards each quote fetch,
+and cancel-all continues past any per-order failure and always reports/audits what may still be working. Minors fixed:
+reason length bounded, concurrent engage handled, clearer recovery hint in the UI. Remaining minor: the engage
+endpoint test covers zero working orders only (cancel paths are covered at OMS level).
+Tests: Python 533 passed, 1 skipped; web 27 passed; ruff, mypy --strict, lint-imports (5 contracts), tsc, vite build clean.
+Result: PASS · Regression status: PASS

@@ -22,8 +22,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 
@@ -42,6 +43,12 @@ from quantlab.strategies.snapshot import SnapshotError
 from quantlab.strategies.workspace import ConflictError, bundled_templates_dir, list_templates
 
 LOCAL_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
+
+
+class EngageRequest(BaseModel):
+    reason: str = Field(max_length=500)
+    confirm: str = Field(max_length=64)
+    cancel_orders: bool = True
 
 
 class StrategyOut(BaseModel):
@@ -670,6 +677,37 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                     for d in decisions
                 ],
             }
+
+    # The only trading write in the API (DEC-0028): engaging the kill switch can only *reduce* risk.
+    # Disengaging, orders and limits stay CLI-only (CLAUDE.md §4).
+    @app.post("/api/risk/kill-switch/engage", dependencies=auth)
+    def engage_kill_switch(body: EngageRequest) -> dict[str, Any]:
+        from quantlab.risk.gate import ENGAGE_CONFIRMATION
+
+        if body.confirm != ENGAGE_CONFIRMATION:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f'type exactly "{ENGAGE_CONFIRMATION}" to confirm'
+            )
+        if not body.reason.strip():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "a reason is required")
+        with ctx.sessions() as session:  # committed first: nothing below can delay or undo it
+            try:
+                ctx.kill_switch().engage(session, actor="owner", reason=body.reason, channel="web console")
+                session.commit()
+            except IntegrityError:  # engaged at the same instant from elsewhere (same sequence number)
+                session.rollback()
+                if not ctx.kill_switch().engaged(session):
+                    raise
+
+        out: dict[str, Any] = {"engaged": True, "cancelled": None, "still_working": None, "error": None}
+        if body.cancel_orders:
+            try:
+                with ctx.sessions() as session:
+                    result = ctx.paper_oms(session).cancel_all(reason=f"kill switch: {body.reason.strip()}")
+                out["cancelled"], out["still_working"] = result.results, result.still_working
+            except Exception as exc:  # the switch stays engaged; the owner must cancel by hand
+                out["error"] = f"kill switch engaged, but cancelling working orders failed: {exc}"
+        return out
 
     # ---- web UI (same origin) ---------------------------------------------------------------------
     if ui_dir is not None and (ui_dir / "index.html").is_file():

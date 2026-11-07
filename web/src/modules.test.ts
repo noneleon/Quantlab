@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MODULES } from "./modules";
 
-const ROUTED = new Set(["/", "/data", "/backtests", "/strategies", "/editor", "/optimizations"]);
+const ROUTED = new Set(["/", "/data", "/backtests", "/strategies", "/editor", "/optimizations", "/portfolio", "/orders", "/risk"]);
 
 describe("workstation modules (UI-008)", () => {
   it("lists all 18 modules from the master prompt exactly once", () => {

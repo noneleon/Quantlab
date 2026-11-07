@@ -20,7 +20,7 @@ from quantlab.backtest.service import BacktestService
 from quantlab.brokers.paper import PaperBroker
 from quantlab.core.config import Settings, load_settings
 from quantlab.core.db import create_db_engine, current_revision, head_revision, migrate, session_factory
-from quantlab.core.logging import configure_from_settings
+from quantlab.core.logging import configure_from_settings, get_logger
 from quantlab.core.secret_store import SecretError, SecretNotFoundError, SecretStore
 from quantlab.data.catalog import DataCatalog
 from quantlab.data.market_data import MarketDataError, Quote
@@ -48,6 +48,8 @@ launcher = "docker"
 [logging]
 level = "INFO"
 """
+
+log = get_logger(__name__)
 
 
 class BootstrapError(RuntimeError):
@@ -137,12 +139,22 @@ class AppContext:
         from quantlab.data.factory import realtime_provider
 
         paper = self.settings.paper
-        provider = realtime_provider(self.settings, self.data, session)
+        provider: list[Any] = []  # built on first use: cancelling orders must never depend on market data
+        failed: list[str] = []  # a failed build/connect is remembered for this OMS (no repeated timeouts)
 
         def quote(symbol: str) -> Quote | None:
+            if failed:
+                return None
             try:
-                quotes = provider.snapshot([symbol])
-            except MarketDataError:
+                if not provider:
+                    provider.append(realtime_provider(self.settings, self.data, session))
+                quotes = provider[0].snapshot([symbol])
+            except MarketDataError as exc:  # no quote: no paper fill, and the risk gate rejects new orders
+                log.warning("paper.quote_unavailable", symbol=symbol, error=str(exc))
+                return None
+            except Exception as exc:  # e.g. IB Gateway down, catalog unreadable: fail closed the same way
+                failed.append(repr(exc))
+                log.warning("paper.quote_source_failed", symbol=symbol, error=repr(exc))
                 return None
             return quotes[0] if quotes else None
 

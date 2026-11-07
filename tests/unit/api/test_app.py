@@ -401,3 +401,54 @@ def test_paper_and_risk_endpoints_are_read_only(ctx, client, tmp_path):
     for path in ("/api/paper/orders", "/api/risk", "/api/paper/portfolio"):
         for method in ("post", "put", "delete", "patch"):
             assert getattr(client, method)(path, headers=h).status_code == 405
+
+
+def test_web_console_can_only_engage_the_kill_switch(ctx, client):
+    """DEC-0028: the one trading write in the API reduces risk; disengage, orders and limits stay CLI-only."""
+    from quantlab.core.audit import AuditEntry
+
+    h = auth(ctx)
+    path = "/api/risk/kill-switch/engage"
+    assert client.post(path, json={"reason": "x", "confirm": "ENGAGE KILL SWITCH"}).status_code == 401
+    wrong = client.post(path, headers=h, json={"reason": "x", "confirm": "yes", "cancel_orders": False})
+    assert wrong.status_code == 422 and "ENGAGE KILL SWITCH" in wrong.json()["detail"]
+    blank = client.post(path, headers=h, json={"reason": " ", "confirm": "ENGAGE KILL SWITCH"})
+    assert blank.status_code == 422
+    assert client.get("/api/risk", headers=h).json()["kill_switch"]["engaged"] is False
+    ok = client.post(
+        path,
+        headers=h,
+        json={"reason": "market halt", "confirm": "ENGAGE KILL SWITCH", "cancel_orders": False},
+    )
+    assert ok.status_code == 200 and ok.json()["engaged"] is True
+    status = client.get("/api/risk", headers=h).json()["kill_switch"]
+    assert status["engaged"] is True and status["reason"] == "market halt"
+    with ctx.sessions() as s:
+        entry = s.query(AuditEntry).filter_by(action="risk.kill_switch.engage").one()
+        assert "web console" in entry.details
+    for p in (
+        "/api/risk/kill-switch/disengage",
+        "/api/risk/kill-switch",
+        "/api/paper/orders/new",
+        "/api/risk/limits",
+    ):
+        assert client.post(p, headers=h, json={}).status_code in (404, 405)
+    assert not [r for r in client.app.routes if "disengage" in getattr(r, "path", "")]
+
+
+def test_engage_from_the_console_cancels_working_paper_orders(ctx, client):
+    h = auth(ctx)
+    r = client.post(
+        "/api/risk/kill-switch/engage", headers=h, json={"reason": "x", "confirm": "ENGAGE KILL SWITCH"}
+    )
+    body = r.json()
+    assert r.status_code == 200 and body["engaged"] is True
+    assert body["error"] is None and body["cancelled"] == {} and body["still_working"] == {}
+
+
+def test_engage_reason_length_is_bounded(ctx, client):
+    h = auth(ctx)
+    r = client.post(
+        "/api/risk/kill-switch/engage", headers=h, json={"reason": "x" * 501, "confirm": "ENGAGE KILL SWITCH"}
+    )
+    assert r.status_code == 422

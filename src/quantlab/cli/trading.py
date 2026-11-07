@@ -101,7 +101,7 @@ def kill_engage(
         fail("--reason is required")
     with context(home) as ctx:
         with ctx.sessions() as session:  # engaged and committed first: nothing below can delay it
-            ctx.kill_switch().engage(session, actor="owner", reason=reason)
+            ctx.kill_switch().engage(session, actor="owner", reason=reason, channel="cli")
             session.commit()
         typer.secho("kill switch ENGAGED: no new orders will pass the risk gate", fg=typer.colors.RED)
         if not cancel_orders:
