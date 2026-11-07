@@ -59,7 +59,7 @@ markers = [
 line-length = 110
 target-version = "py311"
 src = ["src", "tests", "tools"]
-extend-exclude = ["docs"]
+extend-exclude = ["docs", "*.md"]  # prose is never reformatted by the code formatter
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "PTH", "DTZ"]
