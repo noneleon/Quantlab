@@ -133,3 +133,56 @@ def test_crlf_files_round_trip_byte_exact(ws):
     assert content.content == "a = 1\r\nb = 2\r\n"  # line endings preserved for the editor
     w.write(session, s, "win.py", content.content.replace("2", "3"), content.sha256)
     assert (root / "win.py").read_bytes() == b"a = 1\r\nb = 3\r\n"
+
+
+def test_promote_notebook_strips_outputs_and_records_provenance(db_session, tmp_path):
+    import json as _json
+
+    nb = tmp_path / "idea.ipynb"
+    original = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {"cell_type": "markdown", "metadata": {}, "source": ["# idea"]},
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": 7,
+                "source": ["r.bars('spy')"],
+                "outputs": [
+                    {
+                        "output_type": "stream",
+                        "name": "stdout",
+                        "text": ["2024-07-01,SPY,544.2 (vendor data)"],
+                    }
+                ],
+            },
+        ],
+    }
+    nb.write_text(_json.dumps(original))
+    before = nb.read_bytes()
+    w = StrategyWorkspace(StrategyRegistry())
+    templates = list_templates(bundled_templates_dir())
+    s = w.promote_notebook(
+        db_session,
+        nb,
+        "from-idea",
+        templates["rsi_mean_reversion"],
+        tmp_path / "home",
+        now="2026-11-07T00:00:00+00:00",
+    )
+    attached = _json.loads((s.directory / "research" / "idea.ipynb").read_text())
+    code = attached["cells"][1]
+    assert code["outputs"] == [] and code["execution_count"] is None and code["source"] == ["r.bars('spy')"]
+    assert "vendor data" not in (s.directory / "research" / "idea.ipynb").read_text()
+    promoted = (s.directory / "research" / "PROMOTED.md").read_text()
+    assert hashlib.sha256(before).hexdigest() in promoted and "rsi_mean_reversion" in promoted
+    assert nb.read_bytes() == before  # the original notebook is never modified
+    for bad in (tmp_path / "missing.ipynb", tmp_path / "x.py"):
+        with pytest.raises(WorkspaceError):
+            w.promote_notebook(db_session, bad, "nope", templates["pairs_zscore"], tmp_path / "home", now="x")
+    broken = tmp_path / "broken.ipynb"
+    broken.write_text("{not json")
+    with pytest.raises(WorkspaceError, match="not valid notebook"):
+        w.promote_notebook(db_session, broken, "nope2", templates["pairs_zscore"], tmp_path / "home", now="x")

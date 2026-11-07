@@ -25,6 +25,7 @@ from quantlab.backtest.models import BacktestRun
 from quantlab.bootstrap import AppContext, initialize
 from quantlab.cli.common import EXPECTED, HomeOpt, JsonOpt, context, emit_json, fail
 from quantlab.cli.data import data_app
+from quantlab.cli.lifecycle import register as register_lifecycle
 from quantlab.cli.market import md_app
 from quantlab.cli.optimize import optimize_app
 from quantlab.cli.secret_commands import secret_app
@@ -35,6 +36,7 @@ backtest_app = typer.Typer(no_args_is_help=True, help="Run and inspect backtests
 engine_app = typer.Typer(no_args_is_help=True, help="Inspect the trading engine.")
 api_app = typer.Typer(no_args_is_help=True, help="Local API utilities.")
 app.add_typer(strategy_app, name="strategy")
+register_lifecycle(strategy_app)
 app.add_typer(backtest_app, name="backtest")
 golden_app = typer.Typer(no_args_is_help=True, help="Golden-result regression suite (record, list, check).")
 backtest_app.add_typer(golden_app, name="golden")

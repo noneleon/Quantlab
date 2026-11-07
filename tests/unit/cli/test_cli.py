@@ -246,3 +246,31 @@ def test_optimize_tpe_cli(home, tmp_path, monkeypatch):
     assert r.exit_code == 0, r.output
     assert "pareto" in r.stdout and "trials 4" in r.stdout
     assert ql("optimize", "sweep", "opt", "-s", "fast=4,6", "--tpe", "2", "--random", "2").exit_code == 1
+
+
+def test_lifecycle_cli(home, tmp_path, monkeypatch):
+    import json as _json
+
+    ql("strategy", "add", "sma", EXAMPLE_STRATEGY)
+    assert "stage research" in ql("strategy", "status", "sma").stdout
+    run_id = _json.loads(ql("backtest", "run", "sma", "--json").stdout)["id"]
+    r = ql("strategy", "promote", "sma", "--to", "backtested", "--run", run_id, "--reason", "first")
+    assert (
+        r.exit_code == 1 and "NOT PASSED" in r.stdout and "provenance sample" in r.stdout
+    )  # sample data refused
+    r = ql("strategy", "promote", "sma", "--to", "backtested", "--run", run_id, "--dry-run")
+    assert r.exit_code == 1
+    assert ql("strategy", "promote", "sma", "--to", "backtested", "--run", run_id).exit_code == 1  # no reason
+    r = ql("strategy", "retire", "sma", "--reason", "superseded")
+    assert r.exit_code == 0 and "→ retired" in r.stdout
+    assert "#1 research → retired" in ql("strategy", "status", "sma").stdout
+    assert ql("strategy", "promote", "sma", "--to", "retired", "--reason", "x").exit_code == 1
+
+    nb = tmp_path / "idea.ipynb"
+    nb.write_text(
+        '{"cells": [{"cell_type": "code", "source": ["1"], '
+        '"outputs": [{"text": "x"}], "execution_count": 1}]}'
+    )
+    r = ql("strategy", "from-notebook", str(nb), "idea-strat", "--template", "pairs_zscore")
+    assert r.exit_code == 0 and "research/" in r.stdout
+    assert ql("strategy", "from-notebook", str(nb), "other", "--template", "nope").exit_code == 1

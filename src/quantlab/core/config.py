@@ -200,6 +200,18 @@ class ExecutionModelSettings(_Section):
         return self
 
 
+class LifecycleSettings(_Section):
+    """Promotion gates (STR-004, DEC-0026). Changing them is an owner decision; each event records them."""
+
+    require_real_data: bool = True  # evidence runs must use real_historical / live_recorded data
+    min_oos_windows: int = Field(default=3, ge=1)
+    min_oos_sharpe: float = 0.5
+    max_oos_drawdown: float = Field(default=0.30, gt=0, le=1)
+    require_overfitting_checks: bool = True  # validation also needs a sweep with DSR / PBO within limits
+    min_dsr_probability: float = Field(default=0.90, ge=0, le=1)
+    max_pbo: float = Field(default=0.50, ge=0, le=1)
+
+
 class BacktestSettings(_Section):
     models: ExecutionModelSettings = ExecutionModelSettings()
 
@@ -268,6 +280,7 @@ class Settings(BaseSettings):
     risk: RiskSettings = RiskSettings()
     market_data: MarketDataSettings = MarketDataSettings()
     backtest: BacktestSettings = BacktestSettings()
+    lifecycle: LifecycleSettings = LifecycleSettings()
     ai: AiSettings = AiSettings()
     logging: LoggingSettings = LoggingSettings()
 

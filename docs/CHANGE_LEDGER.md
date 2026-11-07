@@ -421,3 +421,22 @@ walk-forward): heatmap colours apply under the strict CSP (React sets styles via
 load; zero console/CSP errors. Synthetic numbers only.
 Tests: Python 453 passed, 1 skipped; web 21 passed, typecheck + build OK; ruff, mypy --strict, lint-imports clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0024 — Phase 4c: strategy lifecycle with evidence gates; notebook → strategy promotion
+Date: 2026-11-07 · Modules: strategies, lifecycle (new), core (config), migrations, bootstrap, cli, api, web ·
+Feature IDs: STR-004, RES-006 · Decision: DEC-0026
+Files added: `src/quantlab/strategies/lifecycle.py`, `src/quantlab/lifecycle/{__init__,service}.py`,
+`src/quantlab/migrations/versions/0005_strategy_lifecycle.py`, `src/quantlab/cli/lifecycle.py`,
+`tests/unit/lifecycle/{__init__,conftest,test_lifecycle}.py`
+Files modified: `core/config.py` (`[lifecycle]` thresholds), `strategies/workspace.py` (`promote_notebook`),
+`bootstrap.py` (`lifecycle()`), `cli/main.py` (`strategy status|promote|demote|retire|from-notebook`), `api/app.py`
+(`stage` in strategy list, `GET /api/strategies/{name}/lifecycle`), `migrations/env.py`, `pyproject.toml` (layer
+contract: lifecycle above optimize), `web/src/{api.ts,pages/Strategies.tsx,styles.css}` (stage column), tests
+(migration head 0004 → 0005), docs.
+Bugs found during the change: the ORM model lacked the migration's unique (strategy_id, seq) constraint — caught by
+the schema-drift test (`test_migrations_match_orm_models`).
+Verification: browser check of the library stage column on a scratch home (migration 0005 applied to an existing
+database), zero console/CSP errors. Gates exercised on the fake engine (sample data refused by default; passing path
+with `require_real_data=false` only in tests).
+Tests: Python 461 passed, 1 skipped; web 21 passed, typecheck + build OK; ruff, mypy --strict, lint-imports clean.
+Result: PASS · Regression status: PASS

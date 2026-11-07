@@ -38,6 +38,10 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `backtest.models.slippage` | `brokerage` | `brokerage`, `none`, `constant` (+ `slippage_percent`), `volume_share` (+ `volume_limit`, `price_impact`) |
 | `backtest.models.fill` | `brokerage` | `brokerage` or `immediate` |
 | `backtest.models.settlement` | `brokerage` | `brokerage` (US equity cash: T+1 06:00), `immediate`, `delayed` (+ `settlement_days`, `settlement_hour`) |
+| `lifecycle.require_real_data` | `true` | promotion evidence must use real_historical / live_recorded data |
+| `lifecycle.min_oos_windows` | `3` | walk-forward OOS windows required for `validated` |
+| `lifecycle.min_oos_sharpe` / `max_oos_drawdown` | `0.5` / `0.30` | stitched OOS limits for `validated` |
+| `lifecycle.require_overfitting_checks` | `true` | `validated` also needs a sweep with `min_dsr_probability` (0.90) and `max_pbo` (0.50) |
 | `risk.limits_file` | `{home}/risk_limits.toml` | changes require UI confirmation + audit |
 | `ai.provider` | `none` | `anthropic`, `openai`, `ollama`, `none` |
 | `ai.api_key_ref` | unset | must start with `secret://` |

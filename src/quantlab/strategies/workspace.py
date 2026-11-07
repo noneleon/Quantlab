@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -36,6 +37,7 @@ from quantlab.strategies.snapshot import EXCLUDED_DIRS, EXCLUDED_FILES, hash_tre
 EDITABLE_SUFFIXES = (".py", ".toml", ".md", ".txt", ".json", ".cs", ".csproj")
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES = 500
+MAX_NOTEBOOK_BYTES = 5 * 1024 * 1024
 
 
 class WorkspaceError(StrategyError):
@@ -229,3 +231,62 @@ class StrategyWorkspace:
         except StrategyError:
             shutil.rmtree(destination)  # only the folder created just now
             raise
+
+    def promote_notebook(
+        self,
+        session: Session,
+        notebook: Path,
+        name: str,
+        template: Path,
+        destination_root: Path,
+        *,
+        now: str,
+        actor: str = "owner",
+    ) -> Strategy:
+        """RES-006: new strategy from ``template`` + the research notebook attached under ``research/``.
+
+        Notebook outputs and execution counts are stripped before copying: outputs can contain vendor market
+        data (licences forbid redistribution) and the strategy folder may be committed to Git. The original
+        notebook is never modified; its sha256 and path are recorded in ``research/PROMOTED.md``.
+        """
+        if notebook.suffix != ".ipynb" or not notebook.is_file():
+            raise WorkspaceError(f"not a notebook file: {notebook}")
+        raw = notebook.read_bytes()
+        if len(raw) > MAX_NOTEBOOK_BYTES:
+            raise WorkspaceError(f"notebook larger than {MAX_NOTEBOOK_BYTES // (1024 * 1024)} MB")
+        try:
+            nb = json.loads(raw)
+        except ValueError as exc:
+            raise WorkspaceError(f"{notebook.name} is not valid notebook JSON") from exc
+        cells = nb.get("cells") if isinstance(nb, dict) else None
+        if not isinstance(cells, list):
+            raise WorkspaceError(f"{notebook.name} has no cells")
+        for cell in cells:
+            if isinstance(cell, dict) and cell.get("cell_type") == "code":
+                cell["outputs"] = []
+                cell["execution_count"] = None
+        stripped = (json.dumps(nb, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
+        strategy = self.create_from_template(session, name, template, destination_root, actor=actor)
+        research = strategy.directory / "research"
+        research.mkdir()
+        (research / notebook.name).write_bytes(stripped)
+        (research / "PROMOTED.md").write_text(
+            f"# Promoted from a research notebook (RES-006)\n\n"
+            f"- source: `{notebook.resolve()}`\n"
+            f"- source sha256: `{_sha(raw)}`\n"
+            f"- attached copy (outputs stripped) sha256: `{_sha(stripped)}`\n"
+            f"- template: `{template.name}`\n"
+            f"- promoted at: {now}\n\n"
+            "The notebook is context for the strategy, not executed by LEAN. Port the research logic into "
+            "`main.py`; the strategy starts in lifecycle stage `research`.\n",
+            encoding="utf-8",
+        )
+        self._audit.record(
+            session,
+            actor_type="user",
+            actor=actor,
+            action="strategy.promote_notebook",
+            target=name,
+            details={"notebook": str(notebook.resolve()), "sha256": _sha(raw), "template": template.name},
+        )
+        return strategy

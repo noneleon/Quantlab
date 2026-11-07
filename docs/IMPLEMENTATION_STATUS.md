@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0023)
+Last updated: 2026-11-07 (CHANGE-0024)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -87,7 +87,7 @@ Last updated: 2026-11-07 (CHANGE-0023)
 | RES-003 | LEAN QuantBook support (research image) | research | L | 2 | — | DATA-009 | — | PLANNED | |
 | RES-004 | Statistics: returns dist., correlation, factor analysis | research | C | 2 | `src/quantlab/analytics/statistics.py` | RES-002 | `tests/unit/analytics/test_statistics.py` | IN_PROGRESS | Done + TESTED: returns, distribution (moments, quantiles, historical VaR/ES), correlation, rolling volatility. Missing: factor analysis |
 | RES-005 | Research report export (HTML/PDF) | research | C | 2 | — | RES-004 | — | PLANNED | |
-| RES-006 | Promote notebook prototype → strategy | research | C | 4 | — | STR-001 | — | PLANNED | |
+| RES-006 | Promote notebook prototype → strategy | research/strategies | C | 4 | `StrategyWorkspace.promote_notebook`, `quantlab strategy from-notebook NOTEBOOK NAME --template T` | STR-001, STR-005 | `test_workspace.py`, CLI test | TESTED | Strategy from a template + notebook attached under `research/` with outputs stripped (no vendor data) + provenance (sha256) in `research/PROMOTED.md`; logic must still be ported to `main.py` |
 
 ## STR — Strategy management
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -95,7 +95,7 @@ Last updated: 2026-11-07 (CHANGE-0023)
 | STR-001 | Strategy registry (register/get/list/archive; import = register by path) | strategies | C | 1 | `src/quantlab/strategies/registry.py` | CORE-004 | `tests/unit/strategies/test_registry.py` | TESTED | Clone not implemented yet; archive audited, never deletes |
 | STR-002 | Strategy versioning (tree hash + git commit/dirty) | strategies | C | 1 | `src/quantlab/strategies/snapshot.py`, `registry.py` | STR-001 | `tests/unit/strategies/test_snapshot.py`, `test_registry.py` | TESTED | Version diff (compare two versions' files) not implemented; byte-exact hash (CRLF differences matter, KI-0020) |
 | STR-003 | Strategy parameters schema (`strategy.toml`) | strategies | LI | 1 | `registry.py: load_manifest, resolve_parameters` | STR-001 | `test_registry.py` | TESTED | Delivery to LEAN `get_parameter` not yet verified with a real run (KI-0002) |
-| STR-004 | Lifecycle state (Research→…→Monitoring) with gates | strategies | C | 4 | — | STR-001 | — | PLANNED | |
+| STR-004 | Lifecycle state (Research→…→Monitoring) with gates | strategies/lifecycle | C | 4 | `src/quantlab/strategies/lifecycle.py` (append-only history, migration 0005), `src/quantlab/lifecycle/service.py` (gates), `quantlab strategy status|promote|demote|retire`, `GET /api/strategies/{name}/lifecycle`, stage column in the library | STR-001, OPT-003, OPT-005 | `tests/unit/lifecycle/`, CLI/API tests; browser check | TESTED | research→backtested→validated→paper→live_candidate (+retired). Evidence must be from the current files and real data; thresholds in `[lifecycle]`, recorded per event. `live_candidate` gate always refused until Phase 5 paper records exist |
 | STR-005 | Strategy templates (momentum, mean-rev, pairs, …) as examples | strategies | C | 3 | `strategies/templates/{momentum_rotation,rsi_mean_reversion,pairs_zscore}` | ENG-009 | `tests/unit/strategies/test_templates.py`, fake-engine CLI runs | IMPLEMENTED | Syntax, manifests, pairs math tested; fake engine confirms they apply the models. Never run on real LEAN (KI-0050) |
 
 ## BT — Backtesting

@@ -191,3 +191,17 @@ its equity curve from OOS runs only. (4) Objectives/constraints are an allow-lis
 never `eval`. (5) Walk-forward windows are passed to strategies through declared `start`/`end` parameters (names
 configurable). (6) Studies are started from the CLI; the API exposes them read-only. Slices: 4a (this) engine-free
 optimisation + statistics; 4b UI-005 views + Optuna (OPT-002) + AN-004; 4c STR-004 lifecycle + RES-006 promotion.
+
+### DEC-0026 — Strategy lifecycle: evidence-gated, version-bound, append-only; no path to live from here
+State: ACCEPTED (owner approved Phase 4c, 2026-11-07)
+Decisions: (1) Stages research → backtested → validated → paper → live_candidate, plus retired; demotion to
+research and retirement allowed from anywhere with a reason. (2) Transitions are CLI-only (the API is read-only for
+lifecycle), recorded in an append-only table (DB triggers) and the audit log, each with the tree hash of the
+strategy files and the gate checks + thresholds applied. (3) Gates check evidence produced by QuantLab: backtested =
+succeeded run(s) on real data of the current files; validated = walk-forward of the current files on real data with
+≥ N OOS windows, OOS Sharpe and drawdown within `[lifecycle]` limits, plus a sweep with deflated Sharpe probability and
+PBO within limits; paper = validation still matches the current files (approval only until Phase 5). (4)
+live_candidate requires paper-trading records and is therefore refused until Phase 5 exists; it never enables live
+trading (LIVE-003 + human activation, CLAUDE.md §4). (5) Synthetic/sample data never satisfies a gate unless the owner
+explicitly sets `lifecycle.require_real_data = false` (used only in tests). (6) Notebook promotion attaches the
+notebook with outputs stripped (vendor data must not land in a possibly-committed strategy folder).

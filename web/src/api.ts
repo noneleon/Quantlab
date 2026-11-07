@@ -110,6 +110,8 @@ export interface Strategy {
   language: string;
   description: string;
   archived: boolean;
+  /** Lifecycle stage (STR-004): research, backtested, validated, paper, live_candidate, retired. */
+  stage: string;
 }
 
 export interface Dataset {

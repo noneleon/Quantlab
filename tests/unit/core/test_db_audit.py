@@ -11,7 +11,7 @@ from quantlab.core.db import current_revision, head_revision, migrate
 
 def test_migration_creates_schema_and_is_idempotent(db_engine, ql_home):
     assert (ql_home / "db" / "quantlab.sqlite").is_file()
-    assert current_revision(db_engine) == head_revision(db_engine) == "0004"
+    assert current_revision(db_engine) == head_revision(db_engine) == "0005"
     migrate(db_engine)  # second run is a no-op
     with db_engine.connect() as c:
         assert c.execute(text("PRAGMA journal_mode")).scalar() == "wal"
@@ -112,7 +112,7 @@ def test_alembic_config_handles_percent_encoded_urls():
     cfg = _alembic_config(engine)
     assert cfg.get_main_option("sqlalchemy.url") == engine.url.render_as_string(hide_password=False)
     assert "%3A" in cfg.get_main_option("sqlalchemy.url")
-    assert head_revision(engine) == "0004"  # parses the config + script directory
+    assert head_revision(engine) == "0005"  # parses the config + script directory
 
 
 def test_migrations_match_orm_models(db_engine):

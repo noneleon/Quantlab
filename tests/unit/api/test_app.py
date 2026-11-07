@@ -329,3 +329,17 @@ def test_compare_endpoint(ctx, client):
     assert "fast=5" in out["runs"][1]["label"]
     assert client.get(f"/api/compare?runs={a.id}", headers=h).status_code == 404
     assert client.get(f"/api/compare?runs={a.id},{a.id}", headers=h).status_code == 404
+
+
+def test_lifecycle_endpoint_is_read_only(ctx, client):
+    with ctx.sessions() as s:
+        ctx.registry.register(s, "sma", EXAMPLE_STRATEGY)
+        s.commit()
+    h = auth(ctx)
+    assert client.get("/api/strategies", headers=h).json()[0]["stage"] == "research"
+    st = client.get("/api/strategies/sma/lifecycle", headers=h).json()
+    assert st["stage"] == "research" and st["next_stage"] == "backtested" and st["history"] == []
+    assert st["gates"]["require_real_data"] is True
+    assert client.get("/api/strategies/nope/lifecycle", headers=h).status_code == 404
+    for method in ("post", "put", "patch", "delete"):
+        assert getattr(client, method)("/api/strategies/sma/lifecycle", headers=h).status_code == 405

@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0023 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0024 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -35,10 +35,12 @@
 - CHANGE-0022: fix race on strategy_versions under parallel trials (CI #59).
 - CHANGE-0023 (Phase 4b): Optuna TPE (`--tpe N`, `--extra-objective` → Pareto), optimization pages, run comparison
   (`/compare`), robustness panel.
+- CHANGE-0024 (Phase 4c, DEC-0026): lifecycle stages with evidence gates (`strategy status|promote|demote|retire`),
+  append-only history (migration 0005), `strategy from-notebook` (outputs stripped).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 453 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: 21 passed, typecheck + build OK; browser check of optimization, compare and robustness pages (fake engine).
+Python: `uv run pytest` → 461 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: 21 passed, typecheck + build OK; browser check of the library stage column.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -66,7 +68,9 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-1. Phase 4c (DEC-0025): strategy lifecycle states with gates (STR-004: Research → Backtested → Validated (walk-forward
-   OOS + overfitting thresholds) → Paper → Live-candidate; transitions audited, no automatic live) and promoting a
-   notebook prototype into a registered strategy (RES-006).
-2. Owner: first real LEAN Docker run (KI-0002), golden cases (KI-0053), IBKR paper check (KI-0043/0044).
+Phase 4 is complete for everything that can run without LEAN. Next per ROADMAP: **Phase 5 — portfolio & paper
+trading** (PORT-*, OMS-*, BRK-* incl. the IBKR broker adapter = migration slice C, RISK-*, LIVE-001/002): OMS state
+machine and event store, central risk gate + kill switch, paper broker, IBKR paper adapter, reconciliation. All
+order paths must go through the risk gate (DEC-0007); paper is the default and live stays disabled (LIVE-003).
+Owner actions still open: first real LEAN run (KI-0002), golden cases (KI-0053), IBKR paper check (KI-0043/0044),
+review `[lifecycle]` thresholds (KI-0059).

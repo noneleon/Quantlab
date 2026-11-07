@@ -32,6 +32,7 @@ from quantlab.backtest.service import BacktestError
 from quantlab.bootstrap import AppContext
 from quantlab.data.catalog import DataError
 from quantlab.optimize.service import OptimizationError
+from quantlab.strategies.lifecycle import LifecycleLog
 from quantlab.strategies.registry import StrategyError, load_manifest
 from quantlab.strategies.snapshot import SnapshotError
 from quantlab.strategies.workspace import ConflictError, bundled_templates_dir, list_templates
@@ -47,6 +48,7 @@ class StrategyOut(BaseModel):
     language: str
     description: str
     archived: bool
+    stage: str = "research"  # lifecycle stage (STR-004)
 
 
 UI_CSP = (
@@ -173,8 +175,9 @@ class SaveFileIn(BaseModel):
     expected_sha256: str | None  # sha256 the editor last read; null for a new file
 
 
-def _strategy_out(s: Any) -> StrategyOut:
+def _strategy_out(s: Any, stage: str = "research") -> StrategyOut:
     return StrategyOut(
+        stage=stage,
         id=s.id,
         name=s.name,
         path=s.path,
@@ -224,7 +227,19 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     @app.get("/api/strategies", dependencies=auth)
     def list_strategies(include_archived: bool = False) -> list[StrategyOut]:
         with ctx.sessions() as session:
-            return [_strategy_out(s) for s in ctx.registry.list(session, include_archived=include_archived)]
+            log = LifecycleLog()
+            return [
+                _strategy_out(s, log.current(session, s)[0])
+                for s in ctx.registry.list(session, include_archived=include_archived)
+            ]
+
+    @app.get("/api/strategies/{name}/lifecycle", dependencies=auth)
+    def strategy_lifecycle(name: str) -> dict[str, Any]:
+        """STR-004 stage, history and gate thresholds (read-only; transitions are CLI-only)."""
+        try:
+            return ctx.lifecycle().status(name)
+        except StrategyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
     # ---- strategy files (UI-003, DEC-0024): the only write endpoints; token-protected like the rest ----
     def _strategy(session: Any, name: str) -> Any:

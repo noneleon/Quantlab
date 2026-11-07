@@ -23,6 +23,7 @@ from quantlab.core.logging import configure_from_settings
 from quantlab.core.secret_store import SecretError, SecretNotFoundError, SecretStore
 from quantlab.data.catalog import DataCatalog
 from quantlab.engine import EngineAdapter, create_engine_adapter
+from quantlab.lifecycle.service import LifecycleService
 from quantlab.optimize.service import OptimizationService
 from quantlab.strategies.registry import StrategyRegistry
 from quantlab.strategies.workspace import StrategyWorkspace
@@ -114,6 +115,15 @@ class AppContext:
 
     def read_only_optimizer(self) -> OptimizationService:
         return OptimizationService(self.sessions, self.read_only_backtests(), self.registry)
+
+    def lifecycle(self) -> LifecycleService:
+        backtests = self.read_only_backtests()
+        return LifecycleService(
+            self.settings,
+            self.sessions,
+            backtests,
+            OptimizationService(self.sessions, backtests, self.registry),
+        )
 
     def backtests(self) -> BacktestService:
         return BacktestService(self.settings, self.sessions, self.engine, self.registry)

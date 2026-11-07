@@ -47,16 +47,18 @@ export function StrategyList() {
   return (
     <section>
       <h1>Strategy Library</h1>
-      <p className="muted">Register existing folders with <code>quantlab strategy add &lt;name&gt; &lt;path&gt;</code>, or create one from a template below. Edit in the <Link to="/editor">Algorithm Editor</Link>.</p>
+      <p className="muted">Register existing folders with <code>quantlab strategy add &lt;name&gt; &lt;path&gt;</code>, or create one from a template below. Edit in the <Link to="/editor">Algorithm Editor</Link>.
+        Lifecycle stages change only through gated CLI commands (<code>quantlab strategy status|promote|demote|retire</code>).</p>
       {data.length === 0 ? <Empty>No strategies registered.</Empty> : (
         <table>
-          <thead><tr><th>Name</th><th>Language</th><th>Entry</th><th>Path</th><th>Description</th><th>State</th></tr></thead>
+          <thead><tr><th>Name</th><th>Language</th><th>Entry</th><th>Path</th><th>Description</th><th>Stage</th><th>State</th></tr></thead>
           <tbody>
             {data.map((s) => (
               <tr key={s.id}>
                 <td>{s.archived ? s.name : <Link to={`/editor/${encodeURIComponent(s.name)}`}>{s.name}</Link>}</td>
                 <td>{s.language}</td><td>{s.entry_file}</td><td><code>{s.path}</code></td>
-                <td>{s.description}</td><td>{s.archived ? "archived (read-only)" : "active"}</td>
+                <td>{s.description}</td><td><span className="stage">{s.stage.replace("_", " ")}</span></td>
+                <td>{s.archived ? "archived (read-only)" : "active"}</td>
               </tr>
             ))}
           </tbody>
