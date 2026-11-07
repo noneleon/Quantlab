@@ -37,10 +37,12 @@ export function CodeEditor({ docKey, value, path, onChange, onSave }: {
         doc: value,
         extensions: [
           basicSetup,
+          // Keep the file's line endings (CodeMirror would otherwise save CRLF files as LF).
+          EditorState.lineSeparator.of(value.includes("\r\n") ? "\r\n" : "\n"),
           ...(path.endsWith(".py") ? [python()] : []),
           keymap.of([{ key: "Mod-s", preventDefault: true, run: () => (handlers.current.onSave(), true) }]),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) handlers.current.onChange(u.state.doc.toString());
+            if (u.docChanged) handlers.current.onChange(u.state.sliceDoc()); // sliceDoc honours lineSeparator
           }),
           EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" } }),
         ],

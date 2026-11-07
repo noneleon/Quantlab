@@ -25,8 +25,9 @@ def sha(text):
 def ws(db_session, tmp_path):
     root = tmp_path / "strat"
     root.mkdir()
-    (root / "main.py").write_text("x = 1\n")
-    (root / "strategy.toml").write_text('[strategy]\nentry_file = "main.py"\n\n[parameters]\nfast = 10\n')
+    # bytes, not write_text: on Windows text mode would write CRLF and change the hashes
+    (root / "main.py").write_bytes(b"x = 1\n")
+    (root / "strategy.toml").write_bytes(b'[strategy]\nentry_file = "main.py"\n\n[parameters]\nfast = 10\n')
     registry = StrategyRegistry()
     strategy = registry.register(db_session, "s1", root)
     db_session.commit()
@@ -77,12 +78,12 @@ def test_write_conflict_new_file_and_audit(ws):
     assert result.sha256 == sha("x = 2\n") and not result.created and result.syntax_error is None
     with pytest.raises(ConflictError, match="changed since it was opened"):
         w.write(session, s, "main.py", "x = 3\n", sha("x = 1\n"))  # stale hash
-    assert (root / "main.py").read_text() == "x = 2\n"
+    assert (root / "main.py").read_bytes() == b"x = 2\n"
     with pytest.raises(ConflictError):
         w.write(session, s, "lib/helper.py", "y = 1\n", sha("anything"))  # new file must send None
     created = w.write(session, s, "lib/helper.py", "def f(:\n", None)
     assert created.created and created.syntax_error.startswith("line 1")  # saved anyway, error reported
-    assert (root / "lib" / "helper.py").read_text() == "def f(:\n"
+    assert (root / "lib" / "helper.py").read_bytes() == b"def f(:\n"
     session.commit()
     entries = (
         session.execute(select(AuditEntry).where(AuditEntry.action == "strategy.file_write")).scalars().all()
@@ -93,11 +94,11 @@ def test_write_conflict_new_file_and_audit(ws):
 
 def test_manifest_validated_before_replacing(ws):
     w, s, session, root = ws
-    original = (root / "strategy.toml").read_text()
+    original = (root / "strategy.toml").read_bytes().decode()
     for bad in ("[strategy\n", '[strategy]\nentry_file = "missing.py"\n', "[bogus]\nx = 1\n"):
         with pytest.raises(StrategyError):
             w.write(session, s, "strategy.toml", bad, sha(original))
-        assert (root / "strategy.toml").read_text() == original
+        assert (root / "strategy.toml").read_bytes().decode() == original
     good = '[strategy]\nentry_file = "main.py"\n\n[parameters]\nfast = 12\n'
     assert w.write(session, s, "strategy.toml", good, sha(original)).sha256 == sha(good)
     assert not (root / ".quantlab-manifest-check").exists()
@@ -123,3 +124,12 @@ def test_create_from_template(db_session, tmp_path):
     with pytest.raises(Exception, match="invalid strategy name"):
         w.create_from_template(db_session, "Bad Name", templates["pairs_zscore"], tmp_path / "home")
     assert not (tmp_path / "home" / "Bad Name").exists()  # rolled back
+
+
+def test_crlf_files_round_trip_byte_exact(ws):
+    w, s, session, root = ws
+    (root / "win.py").write_bytes(b"a = 1\r\nb = 2\r\n")
+    content = w.read(s, "win.py")
+    assert content.content == "a = 1\r\nb = 2\r\n"  # line endings preserved for the editor
+    w.write(session, s, "win.py", content.content.replace("2", "3"), content.sha256)
+    assert (root / "win.py").read_bytes() == b"a = 1\r\nb = 3\r\n"

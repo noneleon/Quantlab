@@ -365,3 +365,14 @@ mypy --strict, lint-imports clean.
 Not done: native .NET launcher (ENG-003) and C# algorithms (ENG-008) — no .NET SDK and its download hosts are blocked
 here; golden cases from real LEAN runs (owner).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0020 — Fix: Windows CI failure in workspace tests; editor preserves CRLF line endings
+Date: 2026-11-07 · Modules: tests, web · Feature IDs: UI-003
+Problem: CI #55 (windows-latest) failed 3 tests in `tests/unit/strategies/test_workspace.py`: fixtures used
+`Path.write_text`, which writes CRLF on Windows, so file hashes differed from the LF strings the tests hashed (test
+bug). It exposed a real defect: CodeMirror's `doc.toString()` always joins lines with LF, so saving a CRLF file from the
+editor silently rewrote all line endings.
+Fix: tests write bytes; the editor sets `EditorState.lineSeparator` from the file and reports changes with
+`state.sliceDoc()` (which honours it). Added a CRLF round-trip test (backend).
+Verification: browser — CRLF file edited + saved stays CRLF, LF file stays LF (byte comparison on disk).
+Tests: workspace tests 16 passed locally; full gate before push. Result: PASS · Regression status: PASS
