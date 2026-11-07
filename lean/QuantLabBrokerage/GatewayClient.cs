@@ -79,7 +79,18 @@ namespace QuantLab.Brokerages
             {
                 CloseSocket();
                 var tcp = new TcpClient { NoDelay = true };
-                if (!tcp.ConnectAsync(_endpoint.Host, _endpoint.Port).Wait(_timeout))
+                bool connected;
+                try
+                {
+                    connected = tcp.ConnectAsync(_endpoint.Host, _endpoint.Port).Wait(_timeout);
+                }
+                catch (AggregateException exc) // refused / unreachable: surfaced as GatewayException like any failure
+                {
+                    tcp.Dispose();
+                    var reason = exc.InnerException?.Message ?? exc.Message;
+                    throw new GatewayException($"QuantLab gateway {_endpoint} not reachable: {reason}");
+                }
+                if (!connected)
                 {
                     tcp.Dispose();
                     throw new GatewayException($"QuantLab gateway {_endpoint} did not accept the connection");

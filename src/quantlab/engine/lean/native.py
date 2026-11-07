@@ -135,6 +135,68 @@ def install(target: Path, repo_root: Path, *, dotnet: str = "dotnet", git: str =
     return manifest
 
 
+LIVE_ENVIRONMENT = "live-quantlab"
+
+
+def build_live_config(
+    *,
+    algorithm_location: str,
+    type_name: str,
+    algorithm_id: str,
+    gateway_file: str,
+    data_folder: str,
+    results: str,
+    storage: str,
+    data_queue_handler: str,
+) -> dict[str, Any]:
+    """LEAN live-mode configuration routing every order through the QuantLab gateway (OMS-007).
+
+    The brokerage is always ``QuantLabBrokerage`` (orders → QuantLab OMS → risk gate → paper broker); LEAN's
+    own brokerages are never configured. ``data_queue_handler`` supplies live prices to the algorithm (e.g.
+    LEAN's ``FakeDataQueue`` for synthetic tests); the risk gate always uses QuantLab's own quotes.
+    """
+    return {
+        "environment": LIVE_ENVIRONMENT,
+        "algorithm-type-name": type_name,
+        "algorithm-language": "CSharp",
+        "algorithm-location": algorithm_location,
+        "algorithm-id": algorithm_id,
+        "data-folder": data_folder,
+        "results-destination-folder": results,
+        "object-store-root": storage,
+        "close-automatically": True,
+        "debugging": False,
+        "debugging-method": "LocalCmdline",
+        "composer-dll-directory": ".",
+        "job-user-id": "0",
+        "api-access-token": "",
+        "job-organization-id": "",
+        "log-handler": "QuantConnect.Logging.CompositeLogHandler",
+        "messaging-handler": "QuantConnect.Messaging.Messaging",
+        "job-queue-handler": "QuantConnect.Queues.JobQueue",
+        "api-handler": "QuantConnect.Api.Api",
+        "map-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskMapFileProvider",
+        "factor-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskFactorFileProvider",
+        "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DefaultDataProvider",
+        "parameters": {},
+        "quantlab-gateway-file": gateway_file,
+        "environments": {
+            LIVE_ENVIRONMENT: {
+                "live-mode": True,
+                "live-mode-brokerage": "QuantLabBrokerage",
+                "setup-handler": "QuantConnect.Lean.Engine.Setup.BrokerageSetupHandler",
+                "result-handler": "QuantConnect.Lean.Engine.Results.LiveTradingResultHandler",
+                "data-feed-handler": "QuantConnect.Lean.Engine.DataFeeds.LiveTradingDataFeed",
+                "data-queue-handler": [data_queue_handler],
+                "real-time-handler": "QuantConnect.Lean.Engine.RealTime.LiveTradingRealTimeHandler",
+                "transaction-handler": (
+                    "QuantConnect.Lean.Engine.TransactionHandlers.BrokerageTransactionHandler"
+                ),
+            }
+        },
+    }
+
+
 def compile_csharp(source_dir: Path, out_dir: Path, *, dotnet: str = "dotnet") -> Path:
     """Compile a C# strategy directory against LEAN_VERSION; returns the assembly path."""
     if not any(source_dir.rglob("*.cs")):

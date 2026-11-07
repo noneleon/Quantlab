@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0038 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0039 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -58,7 +58,9 @@
   review (no updates via the brokerage model, auto-reconnect, unknown vs not-placed). Next: 5c-3 native launcher.
 - CHANGE-0038 (5c-3a, DEC-0032): **first real LEAN runs** — native launcher (`quantlab engine native-install`,
   `[engine.lean] launcher = "native"`), C# strategies, LEAN's published statistics reproduced exactly; metrics fixed
-  (full-resolution total return / CAGR / drawdown). Next: 5c-3b, a LEAN paper run through the gateway.
+  (full-resolution total return / CAGR / drawdown).
+- CHANGE-0039 (5c-3b): **a real LEAN engine (live mode) placed a paper order through the gateway, OMS and risk gate**
+  and received the fill (synthetic prices). Next: a live data feed + `quantlab paper deploy`, Python on native.
 
 ## Tests (actually executed)
 Python: `uv run pytest` → 608 passed, 2 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.

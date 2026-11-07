@@ -246,5 +246,17 @@ namespace QuantLab.Brokerages.Tests
             Assert.False(model.CanSubmitOrder(null!, WithId(new MarketOnOpenOrder(Spy, 1, DateTime.UtcNow)), out var submit));
             Assert.Equal("QuantLabUnsupported", submit.Code);
         }
+    
+
+        [Fact]
+        public void AnUnreachableGatewayIsAGatewayException()
+        {
+            var endpoint = _harness.Endpoint;
+            _brokerage.Dispose();
+            _harness.Dispose(); // nothing listens on the port any more
+            using var b = new QuantLabBrokerage(endpoint, _ => Spy);
+            var exc = Assert.Throws<GatewayException>(b.Connect);
+            Assert.Contains("not reachable", exc.Message);
+        }
     }
 }

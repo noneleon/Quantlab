@@ -753,3 +753,22 @@ Tests: unit tests for the metric definitions and the native adapter (guards, dat
 mypy --strict, lint-imports clean. The Docker launcher is still unverified against a real image (KI-0002 remains open
 for Docker / Python algorithms).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0039 — Phase 5c-3b: first real LEAN paper order through the QuantLab gateway (OMS-007 end to end)
+Date: 2026-11-07 · Modules: engine (native), lean (C#), tests · Feature IDs: OMS-007, ENG-003 · Decision: DEC-0031
+Change: `native.build_live_config` (LEAN live-mode configuration whose brokerage is always `QuantLabBrokerage`;
+data-queue handler configurable), probe algorithm `tests/fixtures/lean_live_probe`, integration test
+`test_real_lean_paper_order_goes_through_the_gateway_and_risk_gate`. Plugin fix found by the first real run: a refused
+TCP connection surfaced as `AggregateException` (which the reconnect loop does not catch) instead of
+`GatewayException` (C# regression test).
+**Verified (this session, real LEAN 2.5.18229 natively):** LEAN in live mode loaded the QuantLab brokerage, connected
+to the gateway, and a 1-share limit order went NEW → PENDING_SUBMIT → SUBMITTED → ACCEPTED → FILLED in the QuantLab
+OMS with an approved risk decision (18 checks) and a paper fill at 50.01; LEAN received `Filled qty 1 @ 50.01` with
+the broker's exec id and exited cleanly. All prices synthetic: gateway harness quotes, LEAN's FakeDataQueue, and —
+because the market was closed — a synthetic price the probe seeds so LEAN accepts the order.
+Not yet: a live data feed for LEAN deployments (prices for the algorithm come from a data-queue handler; only
+FakeDataQueue was used), a `quantlab paper deploy` command, Python algorithms on the native launcher (KI-0078).
+Safety review: a trading-safety review was still running when this was committed; its outcome and any fixes are
+recorded in the next entry.
+Tests: C# 15 passed; Python 608 passed, 3 skipped (real-engine tests run separately here: 2 passed).
+Result: PASS · Regression status: PASS
