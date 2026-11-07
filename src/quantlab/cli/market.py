@@ -136,3 +136,7 @@ def md_status(provider: ProviderOpt = None, dataset: DatasetOpt = None, home: Ho
         f"status: {'connected' if st.connected else 'disconnected'}  data state: {state}  {st.detail}",
         fg=STATE_COLOUR.get(st.state) if st.state else None,
     )
+    if st.reconnects:
+        typer.echo(f"reconnects: {st.reconnects}")
+    if st.last_error:
+        typer.secho(f"last error: {st.last_error}", fg=typer.colors.RED)

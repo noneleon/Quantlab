@@ -31,7 +31,7 @@ Last reviewed: 2026-11-07
 | Corporate actions (map/factor files) | LI / X | DATA-008 | QuantLab builds factor files from vendor split/dividend data; accuracy = vendor accuracy. |
 | Survivorship-bias-free universes, delisted symbols | X | DATA-014 | Generally requires paid data (e.g. Norgate, CRSP, QC library). Free sources are survivorship-biased — reports must say so. |
 | Fundamentals (Morningstar) | X / N/A | — (not yet registered) | Licensed; adapter only if user has a source. |
-| Historical data download | X | DATA-011 | Tiingo EOD (daily, raw + dividends/splits) and IEX minute bars; personal-use licence. IBKR planned (DATA-019). |
+| Historical data download | X | DATA-011 | Tiingo EOD (daily, raw + dividends/splits) and IEX minute bars; personal-use licence. IBKR (DATA-019) implemented, not yet verified against a real Gateway. |
 | Data-source switching (dev → prod) | C | DATA-018, DATA-022 | `[market_data]` config; quotes always labelled LIVE/DELAYED/FROZEN/SIMULATED. |
 | Live data feeds | X | DATA-013 | IBKR (subscription) first; crypto exchange public feeds possible. |
 | Data quality / validation tooling | C | DATA-005, DATA-006 | QuantLab addition. |

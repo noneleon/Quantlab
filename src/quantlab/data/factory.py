@@ -20,8 +20,26 @@ from quantlab.core.secret_store import SecretNotFoundError, SecretStore
 from quantlab.data.catalog import DataCatalog
 from quantlab.data.market_data import MarketDataError, QuoteGuard, RealtimeProvider
 from quantlab.data.providers.base import DataProvider, ProviderError
+from quantlab.data.providers.ibkr import IBKRProvider
 
-IBKR_PENDING = "the IBKR provider is not implemented yet (DATA-019, next slice)"
+
+def ibkr_provider(settings: Settings, calendar: str = "XNYS") -> IBKRProvider:
+    """Read-only market-data connection to TWS / IB Gateway (paper port while trading.mode is paper)."""
+    from quantlab.data.providers.ib_async_client import IbAsyncClient
+
+    ib = settings.brokers.ibkr
+    port = ib.port_paper if settings.trading.mode == "paper" else ib.port_live
+    md = settings.market_data
+    return IBKRProvider(
+        IbAsyncClient(),
+        host=ib.host,
+        port=port,
+        client_id=ib.market_data_client_id,
+        calendar=calendar,
+        data_type=md.ibkr_data_type,
+        require_live=md.require_live,
+        stale_after_s=md.stale_after_s,
+    )
 
 
 def historical_provider(
@@ -40,7 +58,7 @@ def historical_provider(
             ) from exc
         return TiingoProvider(key, calendar=calendar)
     if choice == "ibkr":
-        raise ProviderError(IBKR_PENDING)
+        return ibkr_provider(settings, calendar)
     raise ProviderError(f"unknown historical provider {choice!r}")
 
 
@@ -63,7 +81,7 @@ def realtime_provider(
         frame, version = catalog.read(session, source)
         return MockStreamingProvider(frame, source=f"{source}@{version.content_hash[:12]}")
     if choice == "ibkr":
-        raise MarketDataError(IBKR_PENDING)
+        return ibkr_provider(settings)
     raise MarketDataError(f"unknown real-time provider {choice!r}")
 
 

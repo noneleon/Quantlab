@@ -276,3 +276,27 @@ stream labelled SIMULATED and refused under `--require-live`; Tiingo vs LEAN sam
 Not verified: same-strategy results across providers through real LEAN (no Docker daemon here); IBKR (slice B).
 Tests: Python 335 passed, 1 skipped; ruff, mypy --strict, lint-imports clean.
 Result: PASS · Regression status: PASS (one CLI test updated: `data fetch` now checks the dataset before the API key)
+
+### CHANGE-0016 — Market-data migration slice B: IBKR market data provider (TWS / IB Gateway)
+Date: 2026-11-07 · Modules: data, core (config), cli · Feature IDs: DATA-019, DATA-022, DATA-013 (partial), DATA-017
+Problem: DEC-0021 slice B — IBKR historical bars + Level I real-time quotes behind the provider-agnostic interface.
+Research: `ib_async` 2.1.0 (BSD, PyPI 2025-12-08) source: `Ticker.time` = local arrival (UTC), `lastTimestamp` = tick 45,
+`marketDataType` 1/2/3/4 = live/frozen/delayed/delayed-frozen, `reqHistoricalData(formatDate=2)` → UTC datetimes
+(daily → dates), `connect(readonly=True)`, warning codes. IB's API docs could not be fetched here (hosts blocked) →
+unverified assumptions listed in KI-0044.
+Files added: `src/quantlab/data/providers/ibkr.py` (IBClient protocol, IBKRProvider, HistoricalPacer),
+`src/quantlab/data/providers/ib_async_client.py` (thin ib_async adapter), `tests/unit/market/test_ibkr.py`
+Files modified: `core/config.py` (`brokers.ibkr.market_data_client_id`, `market_data.ibkr_data_type`, validators),
+`data/factory.py` (IBKR wiring; paper port), `data/catalog.py` (fetch refuses provider/dataset price-adjustment
+mismatch), `data/providers/tiingo.py` (`adjustment = "raw"`), `cli/market.py` (status shows reconnects/last error),
+`pyproject.toml` + `uv.lock` (`ibkr` extra and dev dependency `ib_async>=2.1,<3`), tests, docs.
+Behaviour: read-only market-data connection with its own client id (cannot place orders); quote state from what IB
+delivered (fallback to delayed → DELAYED, rejected under require_live; IB 10167/354 shown in status); require_live
+requests live only; reconnect with exponential backoff + resubscribe, gives up loudly after 5 attempts; 1101 →
+resubscribe; historical: daily windows ≤ 365 days, minute per regular session, bar start + 1 min = bar end, paced,
+pacing violations retried with backoff, no-security-definition errors clear; non-session daily bars passed to
+validation (rejected, never hidden).
+Real checks: CLI against a closed port 4002 → clear "Start IB Gateway or TWS…" error, `md status` shows last error.
+Not verified: anything against a real IB Gateway/TWS (owner action, paper account).
+Tests: Python 354 passed, 1 skipped; ruff, mypy --strict, lint-imports clean.
+Result: PASS (fake client) · Regression status: PASS (factory test updated: IBKR now builds instead of failing)

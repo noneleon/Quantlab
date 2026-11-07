@@ -30,6 +30,9 @@ research = [
     "jupyterlab>=4.2",
     "matplotlib>=3.9",
 ]
+ibkr = [
+    "ib_async>=2.1,<3",  # BSD-2; TWS API client for IB Gateway / TWS (DATA-019)
+]
 
 [dependency-groups]
 dev = [
@@ -39,6 +42,7 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "import-linter>=2.1",
+    "ib_async>=2.1,<3",  # adapter type-checks and translation tests (no network)
 ]
 
 [build-system]

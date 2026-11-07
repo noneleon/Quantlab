@@ -51,6 +51,7 @@ class TiingoProvider:
 
     name = "tiingo"
     license = LICENSE
+    adjustment = "raw"  # unadjusted prices; dividends/splits stored as corporate actions
 
     def __init__(
         self,

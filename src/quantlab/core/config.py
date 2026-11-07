@@ -126,7 +126,14 @@ class IbkrSettings(_Section):
     host: str = "127.0.0.1"
     port_paper: int = Field(default=4002, ge=1, le=65535)
     port_live: int = Field(default=4001, ge=1, le=65535)
-    client_id: int = Field(default=17, ge=0)
+    client_id: int = Field(default=17, ge=0)  # broker (orders) connection — Phase 5
+    market_data_client_id: int = Field(default=18, ge=0)  # read-only market-data connection (DATA-019)
+
+    @model_validator(mode="after")
+    def _distinct_client_ids(self) -> IbkrSettings:
+        if self.client_id == self.market_data_client_id:
+            raise ValueError("brokers.ibkr.client_id and market_data_client_id must differ")
+        return self
 
 
 class BrokersSettings(_Section):
@@ -145,6 +152,8 @@ class MarketDataSettings(_Section):
     require_live: bool = False  # reject anything but LIVE quotes (live trading always requires LIVE)
     mock_dataset: str | None = None  # catalog dataset replayed by the mock real-time provider
     stale_after_s: float = Field(default=15.0, gt=0)
+    # Market data type requested from IBKR. Whatever IB actually delivers is reported per quote.
+    ibkr_data_type: Literal["live", "frozen", "delayed", "delayed_frozen"] = "live"
 
     @model_validator(mode="after")
     def _mock_cannot_be_live(self) -> MarketDataSettings:
@@ -152,6 +161,8 @@ class MarketDataSettings(_Section):
             raise ValueError(
                 "market_data.require_live=true is impossible with realtime='mock' (mock data is SIMULATED)"
             )
+        if self.require_live and self.ibkr_data_type != "live":
+            raise ValueError("market_data.require_live=true requires ibkr_data_type='live'")
         return self
 
 

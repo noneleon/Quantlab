@@ -24,9 +24,11 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `brokers.ibkr.host` | `127.0.0.1` | TWS/IB Gateway host |
 | `brokers.ibkr.port_paper` | `4002` | IB Gateway paper (TWS paper: 7497) |
 | `brokers.ibkr.port_live` | `4001` | IB Gateway live (TWS live: 7496) |
-| `brokers.ibkr.client_id` | `17` | |
-| `market_data.historical` | `tiingo` | `tiingo` or `ibkr` (IBKR: DATA-019, not implemented yet — fails clearly); default for `quantlab data fetch` |
-| `market_data.realtime` | `mock` | `mock` (SIMULATED replay of a catalog dataset) or `ibkr` (not implemented yet) |
+| `brokers.ibkr.client_id` | `17` | broker (orders) connection, Phase 5 |
+| `brokers.ibkr.market_data_client_id` | `18` | read-only market-data connection; must differ from `client_id` |
+| `market_data.historical` | `tiingo` | `tiingo` or `ibkr` (DATA-019; datasets must be `--adjustment split_adjusted` for IBKR); default for `quantlab data fetch` |
+| `market_data.realtime` | `mock` | `mock` (SIMULATED replay of a catalog dataset) or `ibkr` (read-only TWS/IB Gateway connection, paper port) |
+| `market_data.ibkr_data_type` | `live` | requested IB market data type: `live`, `frozen`, `delayed`, `delayed_frozen`; quotes are labelled by what IB actually delivers; `require_live` needs `live` |
 | `market_data.require_live` | `false` | refuse any quote that is not LIVE; `true` with `realtime = "mock"` is rejected |
 | `market_data.mock_dataset` | unset | catalog dataset replayed by the mock real-time provider |
 | `market_data.stale_after_s` | `15.0` | LIVE quotes older than this (by exchange time) are flagged `stale` |
@@ -51,6 +53,10 @@ launcher = "docker"
 [market_data]          # development defaults; production: historical = "ibkr", realtime = "ibkr", require_live = true
 historical = "tiingo"
 realtime = "mock"
+# production (IB Gateway paper on 4002 with API enabled):
+# historical = "ibkr"
+# realtime = "ibkr"
+# require_live = true
 
 [logging]
 level = "INFO"

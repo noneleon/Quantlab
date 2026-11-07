@@ -365,6 +365,12 @@ class DataCatalog:
                 f"redistributed ({provider.license.terms}); "
                 "use a dataset created without --redistribution-allowed"
             )
+        delivered = getattr(provider, "adjustment", None)  # price adjustment the provider declares, if any
+        if delivered is not None and str(delivered) != str(dataset.price_adjustment):
+            raise DataError(
+                f"dataset {dataset_name!r} holds {dataset.price_adjustment} prices but {provider.name} "
+                f"delivers {delivered} prices; create a dataset with --adjustment {delivered}"
+            )
         raw = provider.fetch_bars(request)
         return self.import_bars(session, dataset_name, provider, raw, on_conflict=on_conflict, actor=actor)
 

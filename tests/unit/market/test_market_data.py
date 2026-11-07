@@ -122,10 +122,13 @@ def test_config_switch_and_validation(ql_home):
     prod = load_settings(
         overrides={"market_data": {"historical": "ibkr", "realtime": "ibkr", "require_live": True}}
     )
-    with pytest.raises(ProviderError, match="IBKR provider is not implemented"):
-        historical_provider(prod, None, "XNYS")
-    with pytest.raises(MarketDataError, match="IBKR provider is not implemented"):
-        realtime_provider(prod, None, None)
+    hist, live = historical_provider(prod, None, "XNYS"), realtime_provider(prod, None, None)
+    assert hist.name == live.name == "ibkr"  # built without connecting
+    assert "4002" in live.endpoint and "client id 18" in live.endpoint  # paper port, market-data client id
+    with pytest.raises(ConfigError, match="ibkr_data_type='live'"):
+        load_settings(
+            overrides={"market_data": {"realtime": "ibkr", "require_live": True, "ibkr_data_type": "delayed"}}
+        )
     assert quote_guard(prod).allowed == frozenset({DataState.LIVE})
     with pytest.raises(MarketDataError, match="needs a dataset"):
         realtime_provider(s, None, None)

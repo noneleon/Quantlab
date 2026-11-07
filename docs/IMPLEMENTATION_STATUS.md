@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0015)
+Last updated: 2026-11-07 (CHANGE-0016)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -74,7 +74,7 @@ Last updated: 2026-11-07 (CHANGE-0015)
 | DATA-016 | Data export (Parquet/CSV) for zero lock-in | data | C | 2 | `DataCatalog.export`, `quantlab data export` | DATA-003 | `test_catalog.py`, `test_cli_data.py` | TESTED | Refuses licence-restricted data without `--acknowledge-license`; audited |
 | DATA-017 | Delayed/stale market data detection | data | C | 5 | `market_data.normalize_quote`, `QuoteGuard` | DATA-018 | `tests/unit/market/test_market_data.py` | TESTED | Stale (by exchange time), clock skew, crossed, no-price flags; guard refuses non-LIVE when live is required. Real-feed behaviour verified only with IBKR (DATA-019) |
 | DATA-018 | Provider-agnostic MarketDataProvider (historical + real-time), DataState LIVE/DELAYED/FROZEN/SIMULATED, quote normalisation, QuoteGuard | data | C | 2 | `src/quantlab/data/market_data.py` | DATA-001 | `tests/unit/market/test_market_data.py` | TESTED | Real-time side exercised with the mock provider only |
-| DATA-019 | IBKR market data provider (TWS/IB Gateway): historical bars, Level I streaming, market-data-type state, reconnection, pacing | data | X | 2f | — | DATA-018 | — | PLANNED | Next slice (B); cannot be verified without the owner's IB Gateway |
+| DATA-019 | IBKR market data provider (TWS/IB Gateway): historical bars, Level I streaming, market-data-type state, reconnection, pacing | data | X | 2f | `src/quantlab/data/providers/{ibkr,ib_async_client}.py`, `data.factory.ibkr_provider` | DATA-018, DATA-022 | `tests/unit/market/test_ibkr.py` (fake IB client; ib_async object translation) | TESTED | Not verified against a real IB Gateway (none reachable here); IB facts from ib_async source, IB docs unreadable here (KI-0044). Read-only connection, own client id |
 | DATA-020 | Cross-provider comparison (`data compare`, `backtest compare`) | data/backtest | C | 2f | `src/quantlab/data/compare.py`, `BacktestService.compare_results` | DATA-018 | `test_market_data.py`, `test_cli_data.py`, `tests/unit/cli/test_cli.py` | VERIFIED | Real check: Tiingo vs LEAN sample (QuantConnect) SPY daily 2013–2021, 1888/1888 bars, max close diff 0.114 % |
 | DATA-021 | Mock real-time provider (SIMULATED replay of catalog bars) | data | C | 2f | `src/quantlab/data/providers/mock_stream.py` | DATA-018 | `test_market_data.py` | TESTED | Synthetic bid/ask from close ± spread |
 | DATA-022 | Provider selection by configuration (`[market_data]`) | data/core | C | 2f | `core/config.py` (MarketDataSettings), `data/factory.py` | DATA-018 | `test_market_data.py` | TESTED | `require_live` + mock rejected by config validation |

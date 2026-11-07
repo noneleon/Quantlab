@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0015 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0016 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -21,10 +21,12 @@
 - CHANGE-0015 (migration slice A, DEC-0021): `MarketDataProvider` + DataState/QuoteGuard, Tiingo 1-minute bars, mock
   SIMULATED streaming (`quantlab md`), `[market_data]` provider switch, `data compare` / `backtest compare`,
   minute-coverage validation.
+- CHANGE-0016 (slice B): `IBKRProvider` (historical + Level I, read-only connection, client id 18) via `ib_async`;
+  fake-client tests only — **not yet run against a real IB Gateway** (KI-0043/0044).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 335 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: unchanged (16 passed). Real-data checks: see CHANGE-0014/0015. CI for CHANGE-0015: see latest run on the PR.
+Python: `uv run pytest` → 354 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: unchanged (16 passed). IBKR: fake client only; CLI against closed port 4002 gives the clear connect error.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -52,8 +54,8 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Migration slice B (DATA-019): `IBKRProvider` implementing `MarketDataProvider` via the TWS API (library choice to verify:
-`ib_async`), historical bars → catalog, Level I streaming with `reqMarketDataType` mapped to LIVE/FROZEN/DELAYED (+
-detection of IB's "delayed data displayed" fallback → DELAYED, refused when live is required), reconnection with
-backoff, historical pacing limits. Test against a fake IB client; real verification needs the owner's IB Gateway (paper).
-Then slice C in Phase 5 (BrokerAdapter, OMS, risk gate, paper trading) — orders never bypass the risk gate (DEC-0007).
+1. Owner: verify IBKR with IB Gateway **paper** (API enabled, port 4002): `quantlab md status --provider ibkr`,
+   `quantlab md snapshot SPY --provider ibkr`, then a `split_adjusted` minute dataset `data fetch --provider ibkr`
+   and `data compare` against the Tiingo dataset (checks bar timestamps/volume units, KI-0044).
+2. Phase 3 per ROADMAP (backtesting depth), or Phase 5 slice C (BrokerAdapter + OMS + risk gate + paper trading) if
+   the owner prioritises the IBKR migration; orders never bypass the risk gate (DEC-0007).
