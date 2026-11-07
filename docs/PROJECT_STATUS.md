@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Market data & research (2a data foundation, 2b LEAN export/backtests on datasets, 2c research API + Jupyter, 2d web UI shell done; 2e corporate actions + Tiingo provider done; Phase 2 functionally complete except RES-003/005 and UI polish).
 Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
-**Last change:** CHANGE-0029 (2026-11-07)
+**Last change:** CHANGE-0030 (2026-11-07)
 **Overall health:** Core, LEAN engine adapter (never run against real LEAN), strategies, backtests, analytics, CLI, read-only API and the data catalog are implemented and tested (CI green). No trading or portfolio yet; the web UI edits strategy files only (everything else read-only).
 
 ## Phase progress
@@ -14,7 +14,7 @@ Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
 | 2f | Market-data migration (Tiingo → IBKR) | IN PROGRESS — slices A + B done (B tested with a fake client only; needs owner's IB Gateway); C in Phase 5 |
 | 3 | Backtesting depth | IN PROGRESS — 3a (charts, benchmark, report, UI) and 3b (quantlab_lean, execution models, templates; stub-tested) done; 3c part 1 (editor + library, golden suite) done; remaining 3c: native launcher + C# (need .NET, KI-0055) |
 | 4 | Optimization | DONE (engine-free parts) — 4a statistics, 4b Optuna/views/comparison, 4c lifecycle + notebook promotion; real-LEAN verification pending (KI-0002) |
-| 5 | Portfolio & paper | IN PROGRESS — 5a (OMS, risk gate, kill switch, paper broker, book, reconciliation) done; 5b-1 (drawdown, buying power, cooldown, cancel-all on kill) and 5b-2 (web console, DEC-0028) done; next 5b-3 IBKR paper adapter, 5b-4 supervisor |
+| 5 | Portfolio & paper | IN PROGRESS — 5a (OMS, risk gate, kill switch, paper broker, book, reconciliation) done; 5b-1 (drawdown, buying power, cooldown, cancel-all on kill) 5b-2 (web console, DEC-0028) and 5b-3 (IBKR paper adapter, fake-client tested, DEC-0029) done; next 5b-4 supervisor |
 | 6–9 | — | Not started |
 
 ## What exists

@@ -581,7 +581,7 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                     "state": state.value,
                     "created_at": o.created_at,
                 }
-                for o, state in oms_queries.orders_with_state(session, ctx.settings.paper.account, limit)
+                for o, state in oms_queries.orders_with_state(session, ctx.settings.paper.oms_account, limit)
             ]
 
     @app.get("/api/paper/orders/{order_id}", dependencies=auth)
@@ -616,7 +616,7 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                         "at": f.executed_at,
                         "price_state": f.price_state,
                     }
-                    for f in oms_queries.fills(session, ctx.settings.paper.account)
+                    for f in oms_queries.fills(session, ctx.settings.paper.oms_account)
                     if f.order_id == order_id
                 ],
             }
@@ -625,9 +625,9 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     def paper_portfolio() -> dict[str, Any]:
         """Confirmed book from fills (unmarked: marking needs live quotes, see `quantlab paper positions`)."""
         with ctx.sessions() as session:
-            account = ctx.settings.paper.account
+            account = ctx.settings.paper.oms_account
             pinned = oms_queries.account_starting_cash(session, account)
-            configured = ctx.settings.paper.starting_cash
+            configured = ctx.settings.paper.oms_starting_cash
             book = oms_queries.confirmed_book(session, account, pinned if pinned is not None else configured)
             states = oms_queries.fill_price_states(session, account)
             warnings = [w for w in [oms_queries.simulation_warning(states)] if w]

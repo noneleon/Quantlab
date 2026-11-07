@@ -152,10 +152,10 @@ Last updated: 2026-11-07 (CHANGE-0025)
 ## BRK — Brokerage
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| BRK-001 | BrokerAdapter protocol + contract test suite | brokers | C | 5 | `brokers/base.py` | OMS-001 | `test_paper_broker_book.py` | IN_PROGRESS | Protocol + events done; reusable contract suite to run against IBKR comes with BRK-003 |
+| BRK-001 | BrokerAdapter protocol + contract test suite | brokers | C | 5 | `brokers/base.py` (SequencedEvent, BrokerSnapshot) | OMS-001 | `test_paper_broker_book.py`, `test_ibkr_broker.py` | IN_PROGRESS | Protocol implemented by the local and IBKR paper adapters; a shared contract suite run against both is not yet extracted |
 | BRK-002 | Simulated paper broker (local) | brokers | C | 5 | `brokers/paper.py`, `[paper]` config, `quantlab paper …` | BRK-001 | `test_paper_broker_book.py`, `test_oms_risk.py`, CLI test | TESTED | Fills from quotes (no partial fills/impact, KI-0061); persisted state under an OS lock; events acked by sequence; snapshot for reconcile; failure injection (CHANGE-0027) |
-| BRK-003 | IBKR adapter (TWS/IB Gateway): account, positions, funds, orders, executions, commissions | brokers | X | 5 | — | BRK-001 | — | PLANNED | Requires IBKR account; TWS/Gateway running; daily restarts |
-| BRK-004 | Connection monitoring & automatic reconnection | brokers | C | 5 | — | BRK-003 | — | PLANNED | |
+| BRK-003 | IBKR adapter (TWS/IB Gateway): account, positions, funds, orders, executions, commissions | brokers | X | 5 | `brokers/ibkr.py`, `brokers/ib_async_trading.py`, `[paper] broker = "ibkr"` (DEC-0029) | BRK-001 | `test_ibkr_broker.py` (fake client) | IMPLEMENTED | Paper accounts only; not yet run against a real gateway (KI-0075) |
+| BRK-004 | Connection monitoring & automatic reconnection | brokers | C | 5 | `IBKRPaperBroker._ensure` (reconnect on every call, re-verifies paper accounts) | BRK-003 | `test_ibkr_broker.py` | IMPLEMENTED | Reconnect-on-use; continuous monitoring comes with the supervisor (LIVE-001) |
 | BRK-005 | Broker reconciliation (positions, open orders, cash) | brokers/oms | C | 5 | `OMS.reconcile`, `quantlab paper reconcile` | BRK-003, PORT-002 | `test_oms_risk.py` | TESTED | Paper broker only; reports differences, never rewrites positions |
 | BRK-006 | Additional broker/exchange adapters | brokers | X | 7 | — | BRK-001 | — | PLANNED | |
 

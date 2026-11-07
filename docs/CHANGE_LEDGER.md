@@ -567,3 +567,21 @@ reason length bounded, concurrent engage handled, clearer recovery hint in the U
 endpoint test covers zero working orders only (cancel paths are covered at OMS level).
 Tests: Python 533 passed, 1 skipped; web 27 passed; ruff, mypy --strict, lint-imports (5 contracts), tsc, vite build clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0030 — Phase 5b-3: IBKR paper broker adapter (BRK-003/004)
+Date: 2026-11-07 · Modules: brokers, oms, risk, core.config, bootstrap, api · Feature IDs: BRK-001, BRK-003, BRK-004 ·
+Decision: DEC-0029
+Change: `brokers/ibkr.py` (`IBKRPaperBroker` over the small `IBTradingClient` protocol: paper-port and paper-account
+guards, orderRef mapping, duplicate check, acknowledgement timeout → SUBMIT_UNKNOWN, events from order statuses and
+executions with sequence-numbered acknowledgement, executions held until their commission report, untracked orders
+reported as `ib-perm:<id>`, reconnect with re-verification); `brokers/ib_async_trading.py` (thin `ib_async` client,
+not yet run against a real gateway); `[paper] broker = "local" | "ibkr"` with required `ibkr_account` (DU…) and
+`ibkr_starting_cash`; the OMS accepts the IBKR paper adapter; new gate check "broker reachable" (the broker's open
+orders could not be read → no new orders, with an honest reason instead of "unresolved submissions").
+Tests: fake-client tests for every guard and mapping plus OMS integration (fill booked from IBKR report, unreachable
+gateway → rejected by the gate with nothing sent, unknown submission resolved, manual TWS order blocks trading).
+Not verified against a real IB Gateway / TWS paper login (KI-0075).
+Safety review: a trading-safety review of this change was still running when it was committed (the adapter is off by
+default: `paper.broker = "local"`); its outcome and any fixes are recorded in the next ledger entry.
+Tests: Python 553 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean.
+Result: PASS · Regression status: PASS

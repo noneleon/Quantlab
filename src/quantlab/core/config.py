@@ -201,14 +201,45 @@ class ExecutionModelSettings(_Section):
 
 
 class PaperSettings(_Section):
-    """Simulated paper account (BRK-002)."""
+    """Paper trading: the local simulated broker (BRK-002) or an IBKR paper account (BRK-003, DEC-0029)."""
 
+    broker: Literal["local", "ibkr"] = "local"
     account: str = "paper"
     starting_cash: float = Field(default=100_000.0, gt=0)
     commission_per_share: float = Field(default=0.005, ge=0)
     min_commission: float = Field(default=1.0, ge=0)
     slippage_bps: float = Field(default=1.0, ge=0)
     allow_short: bool = False
+    ibkr_account: str | None = None  # the IBKR paper account id (DU...), required with broker = "ibkr"
+    ibkr_starting_cash: float | None = Field(
+        default=None, gt=0
+    )  # that account's cash when QuantLab starts using it
+
+    @property
+    def oms_account(self) -> str:
+        """OMS account name of the selected paper broker (orders and fills are kept per account)."""
+        return f"ibkr-{self.ibkr_account}" if self.broker == "ibkr" else self.account
+
+    @property
+    def oms_starting_cash(self) -> float:
+        if self.broker == "ibkr":
+            assert self.ibkr_starting_cash is not None  # validated
+            return self.ibkr_starting_cash
+        return self.starting_cash
+
+    @model_validator(mode="after")
+    def _ibkr_needs_account(self) -> PaperSettings:
+        if self.broker == "ibkr":
+            if not self.ibkr_account or not self.ibkr_account.startswith("DU"):
+                raise ValueError(
+                    "paper.broker = 'ibkr' needs paper.ibkr_account = your IBKR paper account id (DU...)"
+                )
+            if self.ibkr_starting_cash is None:
+                raise ValueError(
+                    "paper.broker = 'ibkr' needs paper.ibkr_starting_cash "
+                    "(the paper account's cash when you start)"
+                )
+        return self
 
 
 class LifecycleSettings(_Section):

@@ -17,6 +17,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from quantlab.backtest.service import BacktestService
+from quantlab.brokers.ibkr import IBKRPaperBroker
 from quantlab.brokers.paper import PaperBroker
 from quantlab.core.config import Settings, load_settings
 from quantlab.core.db import create_db_engine, current_revision, head_revision, migrate, session_factory
@@ -158,6 +159,16 @@ class AppContext:
                 return None
             return quotes[0] if quotes else None
 
+        gate = RiskGate(self.settings.risk_limits_file, self.kill_switch())
+        if paper.broker == "ibkr":
+            return OMS(
+                self.sessions,
+                self.ibkr_paper_broker(),
+                gate,
+                quote,
+                account=paper.oms_account,
+                starting_cash=paper.oms_starting_cash,
+            )
         broker = PaperBroker(
             self.settings.home / "paper" / f"{paper.account}.json",
             quote,
@@ -167,9 +178,22 @@ class AppContext:
             slippage_bps=paper.slippage_bps,
             allow_short=paper.allow_short,
         )
-        gate = RiskGate(self.settings.risk_limits_file, self.kill_switch())
         return OMS(
             self.sessions, broker, gate, quote, account=paper.account, starting_cash=paper.starting_cash
+        )
+
+    def ibkr_paper_broker(self) -> IBKRPaperBroker:
+        """IBKR paper account adapter (BRK-003): its own client id, paper port only, paper accounts only."""
+        from quantlab.brokers.ib_async_trading import IbAsyncTradingClient
+
+        ib = self.settings.brokers.ibkr
+        return IBKRPaperBroker(
+            IbAsyncTradingClient(),
+            host=ib.host,
+            port=ib.port_paper,
+            client_id=ib.client_id,
+            live_port=ib.port_live,
+            expected_account=self.settings.paper.ibkr_account,
         )
 
     def backtests(self) -> BacktestService:

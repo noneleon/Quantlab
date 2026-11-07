@@ -42,6 +42,7 @@ from quantlab.brokers.base import (
     SubmitUnknown,
     TimeInForce,
 )
+from quantlab.brokers.ibkr import IBKRPaperBroker
 from quantlab.brokers.paper import PaperBroker, QuoteSource
 from quantlab.core.audit import AuditEntry, AuditLog, encode_details
 from quantlab.core.clock import Clock, SystemClock
@@ -55,7 +56,9 @@ from quantlab.risk.gate import Decision, OrderIntent, PendingOrder, RiskContext,
 
 log = get_logger(__name__)
 S = OrderState
-PAPER_ADAPTERS: tuple[type, ...] = (PaperBroker,)  # the IBKR *paper* adapter is added here in Phase 5b
+# Only these adapter classes are accepted, whatever mode they claim (DEC-0027); the IBKR adapter verifies
+# on every connection that all managed accounts are paper accounts (DEC-0029).
+PAPER_ADAPTERS: tuple[type, ...] = (PaperBroker, IBKRPaperBroker)
 PENDING_SUBMIT_GRACE_S = 60.0  # a younger PENDING_SUBMIT may still be in flight in another process
 
 
@@ -610,10 +613,11 @@ class OMS:
         # Orders the broker still works but the OMS considers finished (or never knew) are invisible to the
         # exposure checks: block new orders until reconcile/a person resolves them. Unknown = blocked too.
         tracked = {o.id for o, st in everything if st in WORKING or st is S.PENDING_SUBMIT}
+        broker_error = None
         try:
             unresolved += len(self._broker.open_order_ids() - tracked - {order.id})
-        except BrokerError:
-            unresolved += 1
+        except BrokerError as exc:
+            broker_error = f"cannot read the broker's open orders: {exc}"
         pending = [
             PendingOrder(
                 o.symbol,
@@ -647,6 +651,7 @@ class OMS:
             unresolved_orders=unresolved,
             peak_equity=peak,
             recent_rejections=rejections,
+            broker_error=broker_error,
         )
 
     def _start_of_day(self, session: Session, now: datetime, equity: float | None) -> float | None:

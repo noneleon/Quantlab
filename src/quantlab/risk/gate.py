@@ -75,6 +75,7 @@ class RiskContext:
     unresolved_orders: int = 0  # PENDING_SUBMIT / SUBMIT_UNKNOWN: reconcile before trading on
     peak_equity: float | None = None  # high-water mark of recorded equity (drawdown limit)
     recent_rejections: int | None = None  # rejected orders in the last hour (cooldown); None = unknown
+    broker_error: str | None = None  # the broker's open orders could not be read: no new orders
 
 
 @dataclass
@@ -172,6 +173,8 @@ class RiskGate:
         d.check(
             "broker mode", ctx.broker_mode == "paper", f"{ctx.broker_mode} (live trading is not available)"
         )
+        if ctx.broker_error is not None:
+            d.check("broker reachable", False, ctx.broker_error)
         d.check(
             "unresolved submissions",
             ctx.unresolved_orders == 0,

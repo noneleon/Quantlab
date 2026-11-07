@@ -238,3 +238,16 @@ typed phrase "ENGAGE KILL SWITCH", is committed before working orders are cancel
 or cancelling individual orders and changing limits stay CLI-only (CLAUDE.md §4); there is no API route for them and
 a test asserts it. (4) Cancelling orders never depends on market data: the paper OMS builds its quote provider on
 first use.
+
+### DEC-0029 — IBKR paper broker adapter: paper accounts only, verified on every connection
+State: ACCEPTED (owner approved Phase 5b, 2026-11-07; implements DEC-0010 for paper)
+Decisions: (1) `IBKRPaperBroker` connects only to the configured paper port; the configured live port and IBKR's
+standard live ports (7496, 4001) are refused before connecting. (2) After every (re)connect all managed accounts must
+be IBKR paper accounts (ids `DU…`); otherwise the adapter disconnects and refuses before anything is sent. The OMS
+account (`ibkr-<DU id>`) and the paper account id are explicit configuration (`paper.ibkr_account`,
+`paper.ibkr_starting_cash`); orders always name that account and carry the QuantLab order id as `orderRef`.
+(3) The broker connection uses its own client id (`brokers.ibkr.client_id`, readonly=False), separate from the
+read-only market-data connection. (4) Orders without a QuantLab reference (placed by hand) count as untracked broker
+orders and block new orders. (5) Failures after handing an order to IBKR, and missing acknowledgements, are
+SUBMIT_UNKNOWN (reconcile), never "rejected". (6) Live trading stays unavailable (LIVE-003); this adapter is not a
+step towards it without a new decision.
