@@ -12,7 +12,7 @@ do not re-implement it elsewhere. Dependency rules: see ARCHITECTURE.md §7.
 | strategies | `src/quantlab/strategies/` | strategy registry, versioning, parameters, lifecycle state | contain strategy logic in platform code |
 | backtest | `src/quantlab/backtest/` | backtest runs, manifests, immutable history | simulate trades itself (LEAN does) |
 | analytics | `src/quantlab/analytics/` | all performance metrics & report datasets | be duplicated in UI or optimize |
-| optimize | `src/quantlab/optimize/` | searches, walk-forward, Monte Carlo, robustness | bypass BacktestService |
+| optimize | `src/quantlab/optimize/` | searches, objectives/constraints, walk-forward, optimization records (robustness math lives in analytics) | bypass BacktestService |
 | portfolio | `src/quantlab/portfolio/` | books, positions, P&L, exposure, sizing models | update positions from submissions |
 | oms | `src/quantlab/oms/` | orders, state machine, idempotency, order/fill event store | send orders without RISK-001 |
 | risk | `src/quantlab/risk/` | risk rules, limits, decisions log, kill switch | be configurable by strategies or AI |

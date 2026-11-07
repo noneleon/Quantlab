@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0019 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0021 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -29,10 +29,13 @@
   (mounted read-only, marker-confirmed), 3 strategy templates. Stub/fake-engine tested only (KI-0050/0051).
 - CHANGE-0019 (Phase 3c part 1, DEC-0024): no QuantConnect subscription ever; in-browser editor (CodeMirror, shadow
   root, strict CSP) + strategy library with create-from-template; `backtest golden record|list|check`; vitest 4.1.12.
+- CHANGE-0020: Windows CI fix (tests wrote CRLF) + editor preserves CRLF/LF.
+- CHANGE-0021 (Phase 4a, DEC-0025): `quantlab optimize sweep|walk-forward|list|show`, `backtest robustness`;
+  objectives/constraints, DSR, PBO (CSCV), sensitivity, stationary bootstrap, trade Monte Carlo; migration 0004.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 419 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: 20 passed, typecheck + build OK, npm audit 0; browser check of the editor (create, edit, save, conflict, CSP).
+Python: `uv run pytest` → 447 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: unchanged since CHANGE-0020 (20 passed). Optimization tested on the fake engine with synthetic equity only.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -60,8 +63,6 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-1. Owner: first real LEAN Docker run (KI-0002/0028), then `quantlab backtest golden record <run> <name>` for 1–3
-   runs (KI-0053) — this also verifies `quantlab_lean` (KI-0051) and the templates (KI-0050).
-2. Remaining Phase 3c: native .NET launcher (ENG-003) and C# algorithms (ENG-008) — need a .NET 10 SDK (not available
-   in this cloud environment; KI-0055).
-3. Phase 4 (optimization) — the local replacement for QuantConnect's cloud optimization (DEC-0024).
+1. Phase 4b (DEC-0025): optimization views (UI-005: trials table, 2-D heatmap, walk-forward windows + OOS curve,
+   DSR/PBO panel, robustness panel), Optuna search (OPT-002, optional extra), multi-run comparison (AN-004).
+2. Owner: first real LEAN Docker run (KI-0002), golden cases (KI-0053), IBKR paper check (KI-0043/0044).

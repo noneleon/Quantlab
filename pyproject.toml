@@ -104,6 +104,7 @@ layers = [
     "quantlab.api | quantlab.research",
     "quantlab.bootstrap",
     "quantlab.migrations",
+    "quantlab.optimize",
     "quantlab.backtest",
     "quantlab.strategies | quantlab.analytics | quantlab.engine | quantlab.data",
     "quantlab.core",

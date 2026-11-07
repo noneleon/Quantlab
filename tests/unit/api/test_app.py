@@ -295,3 +295,24 @@ def test_strategy_editor_endpoints(ctx, client):
         ).status_code
         == 401
     )
+
+
+def test_optimization_and_robustness_endpoints(ctx, client, monkeypatch):
+    from quantlab.optimize.objective import Objective
+    from quantlab.optimize.service import StudySpec
+    from quantlab.optimize.space import Space
+
+    with ctx.sessions() as s:
+        ctx.registry.register(s, "sma", EXAMPLE_STRATEGY)
+        s.commit()
+    opt = ctx.optimizer().sweep(StudySpec("sma", Space.parse(["fast=5,10"]), Objective.parse("sharpe")))
+    h = auth(ctx)
+    listing = client.get("/api/optimizations", headers=h).json()
+    assert [o["id"] for o in listing] == [opt.id] and listing[0]["objective"] == "sharpe"
+    detail = client.get(f"/api/optimizations/{opt.id}", headers=h).json()
+    assert len(detail["trials"]) == 2 and detail["summary"]["trials"] == 2
+    assert client.get("/api/optimizations/nope", headers=h).status_code == 404
+    run_id = detail["trials"][0]["run_id"]
+    rob = client.get(f"/api/backtests/{run_id}/robustness?samples=20", headers=h).json()
+    assert rob["run_id"] == run_id and rob["warnings"]
+    assert client.get(f"/api/backtests/{run_id}/robustness?samples=999999", headers=h).status_code == 422

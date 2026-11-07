@@ -179,3 +179,15 @@ conflict-checked (sha256), size-limited, audited. Backtests/trading/risk/broker 
 styles use constructable stylesheets — the CSP stays `style-src 'self'` with no nonce or 'unsafe-inline'.
 (4) Golden-result regression cases are rerun from stored snapshots and compared by result hash (same engine) or
 metric tolerance (allowed engine change); cases are immutable files.
+
+### DEC-0025 — Optimization: trials are backtests; selection bias always reported; Phase 4 slices
+State: ACCEPTED (owner approved Phase 4, 2026-11-07; slicing is an implementation decision the owner may revisit)
+Decisions: (1) `quantlab.optimize` sits between `migrations` and `backtest` in the layer contract and submits every
+trial through `BacktestService` (no second simulator; each trial is an immutable, reproducible run). LEAN's Optimizer
+launcher is not used: it would bypass QuantLab's run records and data binding. (2) The first trial pins the dataset
+version for the whole study. (3) Every sweep summary states the number of trials and includes the Deflated Sharpe
+Ratio of the selected trial, PBO (CSCV) and parameter sensitivity; walk-forward keeps IS/OOS runs labelled and builds
+its equity curve from OOS runs only. (4) Objectives/constraints are an allow-listed arithmetic language over metrics,
+never `eval`. (5) Walk-forward windows are passed to strategies through declared `start`/`end` parameters (names
+configurable). (6) Studies are started from the CLI; the API exposes them read-only. Slices: 4a (this) engine-free
+optimisation + statistics; 4b UI-005 views + Optuna (OPT-002) + AN-004; 4c STR-004 lifecycle + RES-006 promotion.

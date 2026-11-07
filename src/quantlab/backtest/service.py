@@ -20,6 +20,7 @@ import json
 import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ import quantlab
 from quantlab.analytics.charts import Fill, chart_datasets
 from quantlab.analytics.metrics import MetricsError, cross_check, equity_metrics
 from quantlab.analytics.report import render_report
+from quantlab.analytics.robustness import RobustnessError, stationary_bootstrap, trade_monte_carlo
 from quantlab.backtest.models import BacktestRun
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.config import ExecutionModelSettings, Settings
@@ -432,6 +434,33 @@ class BacktestService:
             "charts": charts,
             "orders": raw["orders"],
         }
+
+    def robustness(
+        self, run_id: str, *, samples: int = 1000, seed: int = 0, mean_block: float = 5.0
+    ) -> dict[str, Any]:
+        """OPT-004: stationary bootstrap of daily returns + trade-sequence Monte Carlo of one run (seeded)."""
+        run = self.get(run_id)
+        data = self.chart_data(run_id)
+        values = [float(v) for _, v in data["charts"]["equity"]]
+        returns = [b / a - 1.0 for a, b in pairwise(values)]
+        out: dict[str, Any] = {
+            "run_id": run_id,
+            "data_provenance": run.data_provenance,
+            "warnings": data["warnings"],
+            "note": "descriptive resampling of this run's history, not a forecast",
+        }
+        try:
+            out["bootstrap"] = stationary_bootstrap(
+                returns, samples=samples, mean_block=mean_block, seed=seed
+            )
+        except RobustnessError as exc:
+            out["bootstrap_error"] = str(exc)
+        pnls = [float(t["pnl"]) for t in data["charts"]["trades"]]
+        try:
+            out["trade_monte_carlo"] = trade_monte_carlo(pnls, values[0], samples=samples, seed=seed)
+        except RobustnessError as exc:
+            out["trade_monte_carlo_error"] = str(exc)
+        return out
 
     def build_report(
         self,

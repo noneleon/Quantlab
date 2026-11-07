@@ -7,6 +7,8 @@ Behaviour is controlled by env vars:
   FAKE_DOCKER_DAEMON "0" makes `version` fail like an unreachable daemon
   FAKE_DOCKER_IMAGE  "0" makes `image inspect` fail like a missing image
   FAKE_DOCKER_EQUITY_SHIFT  add this amount to the last equity point (simulated result change)
+  FAKE_DOCKER_SYNTH  "1": synthetic daily equity over the start..end parameters, shaped by the "fast"
+  parameter
 `run` reads the mounted config.json, then writes <algorithm-id>.json into the mounted /Results folder
 from tests/fixtures/lean/sample_result.json — imitating LEAN's file layout, with synthetic content.
 """
@@ -81,6 +83,23 @@ elif args[:1] == ["run"]:
         (m["/Results"] / f"{config['algorithm-id']}-log.txt").write_text("\n".join(algo.logs) + "\n")
     sample = Path(__file__).parent / "lean" / "sample_result.json"
     result = json.loads(sample.read_text())
+    if os.environ.get("FAKE_DOCKER_SYNTH") == "1":  # synthetic equity depending on parameters + date range
+        import datetime as dt
+        import math
+
+        params = config.get("parameters", {})
+        fast = float(params.get("fast", 10))
+        first = dt.date.fromisoformat(params.get("start", "2020-01-01"))
+        last = dt.date.fromisoformat(params.get("end", "2020-12-31"))
+        value, points, day, i = 100_000.0, [], first, 0
+        while day <= last:
+            if day.weekday() < 5:
+                stamp = int(dt.datetime(day.year, day.month, day.day, 20, tzinfo=dt.UTC).timestamp())
+                value *= 1 + 0.0004 * (1 - abs(fast - 10) / 10) + 0.01 * math.sin(i * 0.7 + fast)
+                points.append([stamp, value])
+                i += 1
+            day += dt.timedelta(days=1)
+        result["charts"]["Strategy Equity"]["series"]["Equity"]["values"] = points
     shift = float(os.environ.get("FAKE_DOCKER_EQUITY_SHIFT", "0"))  # simulate an engine/result change
     if shift:
         values = result["charts"]["Strategy Equity"]["series"]["Equity"]["values"]

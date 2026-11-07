@@ -31,6 +31,7 @@ from quantlab.backtest.models import BacktestRun
 from quantlab.backtest.service import BacktestError
 from quantlab.bootstrap import AppContext
 from quantlab.data.catalog import DataError
+from quantlab.optimize.service import OptimizationError
 from quantlab.strategies.registry import StrategyError, load_manifest
 from quantlab.strategies.snapshot import SnapshotError
 from quantlab.strategies.workspace import ConflictError, bundled_templates_dir, list_templates
@@ -466,6 +467,65 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             media_type="text/html; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="backtest-{run_id}.html"'},
         )
+
+    # ---- optimization (read-only; studies are started from the CLI) --------------------------------------
+    @app.get("/api/optimizations", dependencies=auth)
+    def list_optimizations(limit: Annotated[int, Query(ge=1, le=1000)] = 100) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": o.id,
+                "kind": o.kind,
+                "strategy": o.strategy_name,
+                "status": o.status,
+                "created_at": o.created_at,
+                "finished_at": o.finished_at,
+                "objective": (o.json("spec") or {}).get("objective"),
+            }
+            for o in ctx.read_only_optimizer().recent(limit)
+        ]
+
+    @app.get("/api/optimizations/{optimization_id}", dependencies=auth)
+    def get_optimization(optimization_id: str) -> dict[str, Any]:
+        service = ctx.read_only_optimizer()
+        try:
+            opt = service.get(optimization_id)
+        except OptimizationError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return {
+            "id": opt.id,
+            "kind": opt.kind,
+            "strategy": opt.strategy_name,
+            "status": opt.status,
+            "created_at": opt.created_at,
+            "finished_at": opt.finished_at,
+            "error": opt.error,
+            "spec": opt.json("spec"),
+            "summary": opt.json("summary"),
+            "trials": [
+                {
+                    "seq": t.seq,
+                    "window": t.window,
+                    "segment": t.segment,
+                    "parameters": t.json("parameters"),
+                    "run_id": t.run_id,
+                    "status": t.status,
+                    "objective": t.objective,
+                    "metrics": t.json("metrics"),
+                }
+                for t in service.trials(optimization_id)
+            ],
+        }
+
+    @app.get("/api/backtests/{run_id}/robustness", dependencies=auth)
+    def backtest_robustness(
+        run_id: str,
+        samples: Annotated[int, Query(ge=10, le=5000)] = 1000,
+        seed: int = 0,
+    ) -> dict[str, Any]:
+        try:
+            return ctx.read_only_backtests().robustness(run_id, samples=samples, seed=seed)
+        except BacktestError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
     # ---- web UI (same origin) ---------------------------------------------------------------------
     if ui_dir is not None and (ui_dir / "index.html").is_file():

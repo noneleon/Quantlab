@@ -167,3 +167,61 @@ def test_golden_cli(home, monkeypatch):
     monkeypatch.setenv("FAKE_DOCKER_EQUITY_SHIFT", "25")
     r = ql("backtest", "golden", "check", "sma-ref")
     assert r.exit_code == 1 and "failed" in r.stdout and "result hash changed" in r.stdout
+
+
+def _optimizable(tmp_path):
+    import shutil
+
+    target = tmp_path / "opt-strategy"
+    shutil.copytree(EXAMPLE_STRATEGY, target)
+    (target / "strategy.toml").write_text(
+        '[strategy]\nentry_file = "main.py"\n\n[parameters]\nfast = 10\nslow = 30\n'
+        'start = "2020-01-01"\nend = "2020-12-31"\n'
+    )
+    return target
+
+
+def test_optimize_cli(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_SYNTH", "1")
+    ql("strategy", "add", "opt", _optimizable(tmp_path))
+    r = ql(
+        "optimize", "sweep", "opt", "-s", "fast=6,10,14", "--objective", "sharpe", "-c", "max_drawdown <= 0.9"
+    )
+    assert r.exit_code == 0, r.output
+    assert "best     {'fast': '10'" in r.stdout and "deflated Sharpe" in r.stdout and "PBO" in r.stdout
+    assert "in-sample selection" in r.stdout
+    opt_id = r.stdout.split()[1]
+    assert opt_id in ql("optimize", "list").stdout
+    shown = json.loads(ql("optimize", "show", opt_id, "--json").stdout)
+    assert len(shown["trials"]) == 3 and shown["spec"]["constraints"] == ["max_drawdown <= 0.9"]
+
+    r = ql(
+        "optimize",
+        "walk-forward",
+        "opt",
+        "-s",
+        "fast=6,10",
+        "--start",
+        "2020-01-01",
+        "--end",
+        "2020-12-31",
+        "--train-days",
+        "150",
+        "--test-days",
+        "90",
+    )
+    assert r.exit_code == 0, r.output
+    assert "window 0" in r.stdout and "OOS (stitched)" in r.stdout and "walk-forward efficiency" in r.stdout
+
+    assert ql("optimize", "sweep", "opt", "-s", "fast").exit_code == 1
+    r = ql("optimize", "sweep", "opt", "-s", "fast=1,2", "--objective", "__import__('os')")
+    assert r.exit_code == 1 and "not allowed" in r.output
+
+
+def test_backtest_robustness_cli(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_DOCKER_SYNTH", "1")
+    ql("strategy", "add", "opt", _optimizable(tmp_path))
+    run_id = json.loads(ql("backtest", "run", "opt", "--json").stdout)["id"]
+    r = ql("backtest", "robustness", run_id, "--samples", "50", "--seed", "1")
+    assert r.exit_code == 0 and "bootstrap (50 paths" in r.stdout and "P(loss)" in r.stdout
+    assert "trade Monte Carlo" in r.stdout

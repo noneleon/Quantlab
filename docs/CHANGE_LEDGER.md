@@ -376,3 +376,23 @@ Fix: tests write bytes; the editor sets `EditorState.lineSeparator` from the fil
 `state.sliceDoc()` (which honours it). Added a CRLF round-trip test (backend).
 Verification: browser — CRLF file edited + saved stays CRLF, LF file stays LF (byte comparison on disk).
 Tests: workspace tests 16 passed locally; full gate before push. Result: PASS · Regression status: PASS
+
+### CHANGE-0021 — Phase 4a: parameter optimization, walk-forward, Monte Carlo/bootstrap, overfitting statistics
+Date: 2026-11-07 · Modules: optimize (new), analytics, backtest, migrations, bootstrap, cli, api · Feature IDs:
+OPT-001, OPT-003, OPT-004, OPT-005, OPT-006 · Decision: DEC-0025
+Files added: `src/quantlab/optimize/{__init__,objective,space,models,service}.py`,
+`src/quantlab/analytics/robustness.py`, `src/quantlab/migrations/versions/0004_optimizations.py`,
+`src/quantlab/cli/optimize.py`, `tests/unit/optimize/{__init__,conftest,test_objective_space,test_service}.py`,
+`tests/unit/analytics/test_robustness.py`
+Files modified: `backtest/service.py` (`robustness`), `bootstrap.py` (`optimizer`, `read_only_optimizer`),
+`migrations/env.py`, `pyproject.toml` (layer contract), `cli/{main,common}.py` (`optimize` group, `backtest
+robustness`, OptimizationError), `api/app.py` (`/api/optimizations[/{id}]`, `/api/backtests/{id}/robustness`),
+`tests/fixtures/fake_docker.py` (`FAKE_DOCKER_SYNTH`: synthetic equity over the start..end parameters), tests
+(migration head 0003 → 0004), docs.
+Verification of the statistics: expected maximum Sharpe of 100 unit-variance trials = 2.5306 (closed form) vs 2.51
+(Monte Carlo of 5 000 draws); PBO = 0 when one trial dominates every period, ≈0.5 for pure noise; seeded bootstrap is
+reproducible.
+Tests: Python 447 passed, 1 skipped; ruff, mypy --strict, lint-imports clean. All optimization tests run on the fake
+engine with synthetic equity — no market data, no performance claims.
+Not verified: optimization on real LEAN runs (KI-0002); UI views (Phase 4b).
+Result: PASS · Regression status: PASS

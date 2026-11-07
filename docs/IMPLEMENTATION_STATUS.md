@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0019)
+Last updated: 2026-11-07 (CHANGE-0021)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -122,12 +122,12 @@ Last updated: 2026-11-07 (CHANGE-0019)
 ## OPT — Optimization & robustness
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| OPT-001 | Grid / random / parameter sweep | optimize | C | 4 | — | BT-001 | — | PLANNED | LEAN Optimizer launcher is an alternative; decide in Phase 4 |
-| OPT-002 | Bayesian & multi-objective (Optuna) | optimize | C | 4 | — | OPT-001 | — | PLANNED | |
-| OPT-003 | Walk-forward / rolling-window with IS/OOS labels | optimize | C | 4 | — | OPT-001 | — | PLANNED | |
-| OPT-004 | Monte Carlo & bootstrap | optimize | C | 4 | — | AN-001 | — | PLANNED | |
-| OPT-005 | Sensitivity/robustness heatmaps, overfitting metrics (e.g. deflated Sharpe, PBO) | optimize | C | 4 | — | OPT-001 | — | PLANNED | |
-| OPT-006 | Custom objective functions | optimize | C | 4 | — | OPT-001 | — | PLANNED | |
+| OPT-001 | Grid / random / parameter sweep | optimize | C | 4 | `src/quantlab/optimize/{space,service}.py`, `quantlab optimize sweep` | BT-001 | `tests/unit/optimize/` (fake engine, synthetic), CLI/API tests | TESTED | Every trial is a BacktestService run; dataset version pinned by the first trial; optional parallel trials. LEAN's Optimizer launcher not used (DEC-0025) |
+| OPT-002 | Bayesian & multi-objective (Optuna) | optimize | C | 4 | — | OPT-001 | — | PLANNED | Phase 4b |
+| OPT-003 | Walk-forward / rolling-window with IS/OOS labels | optimize | C | 4 | `OptimizationService.walk_forward`, `WalkForwardSpec`, `quantlab optimize walk-forward` | OPT-001 | `tests/unit/optimize/test_service.py`, CLI test | TESTED | Rolling or anchored calendar-day windows; trials labelled IS/OOS; stitched OOS equity + metrics; walk-forward efficiency; needs `start`/`end` strategy parameters |
+| OPT-004 | Monte Carlo & bootstrap | optimize/analytics | C | 4 | `analytics/robustness.py` (`stationary_bootstrap`, `trade_monte_carlo`), `BacktestService.robustness`, `quantlab backtest robustness`, `GET /api/backtests/{id}/robustness` | AN-001 | `tests/unit/analytics/test_robustness.py`, CLI/API tests | TESTED | Seeded, recorded; descriptive resampling, not forecasts |
+| OPT-005 | Sensitivity/robustness heatmaps, overfitting metrics (e.g. deflated Sharpe, PBO) | optimize/analytics | C | 4 | `analytics/robustness.py` (`deflated_sharpe`, `probability_of_backtest_overfitting`, `sensitivity`); in every sweep summary | OPT-001 | `test_robustness.py` (closed form vs Monte Carlo), `tests/unit/optimize/` | TESTED | DSR per Bailey & López de Prado 2014; PBO via CSCV (Bailey et al. 2017); marginal + neighbourhood ratio. Heatmap view: UI-005 |
+| OPT-006 | Custom objective functions | optimize | C | 4 | `optimize/objective.py` (allow-listed arithmetic over metrics, constraints) | OPT-001 | `tests/unit/optimize/test_objective_space.py` | TESTED | No eval; metrics + trade stats; constraints reject trials |
 
 ## PORT — Portfolio management
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -205,7 +205,7 @@ Last updated: 2026-11-07 (CHANGE-0019)
 | UI-003 | Algorithm editor (CodeMirror) + strategy library | web/strategies/api | C | 3 | `src/quantlab/strategies/workspace.py`, `/api/strategies/{name}/files[/{path}]` (GET/PUT), `POST /api/strategies`, `/api/strategy-templates`, `web/src/pages/{Editor,Strategies}.tsx`, `components/CodeEditor.tsx` | STR-001, STR-005 | `tests/unit/strategies/test_workspace.py`, API tests, vitest; browser check 2026-11-07 (create from template, edit, Ctrl+S, conflict refused, no CSP violations) | VERIFIED | Path-safe, conflict-checked, audited writes; strategy.toml validated; CodeMirror in a shadow root keeps CSP strict (DEC-0024). No delete/rename yet |
 | BT-010 | Golden-result regression suite (record / list / check, tolerance, engine-change handling) | backtest | C | 3 | `src/quantlab/backtest/golden.py`, `quantlab backtest golden record|list|check`, `BacktestService.rerun(require_same_engine=)` | BT-003 | `tests/unit/backtest/test_golden.py`, CLI test (fake engine) | TESTED | No golden cases from real LEAN exist yet: record them from the owner's first real runs (KI-0053) |
 | UI-004 | Market data browser & quality reports | web | C | 2 | `web/src/pages/Datasets.tsx`, `GET /api/datasets/{name}[/bars]` | DATA-005 | `tests/unit/api/test_app.py`, vitest, Playwright smoke | TESTED | Read-only (imports via CLI); close-price line chart only |
-| UI-005 | Optimization views | web | C | 4 | — | OPT-* | — | PLANNED | |
+| UI-005 | Optimization views | web | C | 4 | — (read API ready: `/api/optimizations[/{id}]`) | OPT-* | — | PLANNED | Phase 4b |
 | UI-006 | Portfolio, orders, risk, paper/live consoles, kill switch | web | C | 5 | — | PORT/OMS/RISK | — | PLANNED | |
 | UI-007 | ML, AI assistant, logs/monitoring, settings, project mgmt views | web | C | 7–8 | — | — | — | PLANNED | |
 | UI-008 | "Unavailable feature" indicator convention (no dead buttons) | web | C | 2 | `web/src/modules.ts`, `pages/ModulePage.tsx` | UI-001 | `modules.test.ts`, `components.test.tsx` | TESTED | Every module listed; planned ones show phase + feature IDs and contain no controls |

@@ -7,11 +7,12 @@ from quantlab.backtest import models as backtest_models
 from quantlab.core import audit
 from quantlab.core.db import Base
 from quantlab.data import catalog as data_models
+from quantlab.optimize import models as optimize_models
 from quantlab.strategies import registry as strategy_models
 
 # Every module that defines tables must be listed here so its models are registered on Base.metadata
 # (otherwise autogenerate would propose dropping their tables).
-MODEL_MODULES = (audit, strategy_models, backtest_models, data_models)
+MODEL_MODULES = (audit, strategy_models, backtest_models, data_models, optimize_models)
 target_metadata = Base.metadata
 config = context.config
 

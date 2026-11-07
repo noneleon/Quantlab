@@ -26,6 +26,7 @@ from quantlab.bootstrap import AppContext, initialize
 from quantlab.cli.common import EXPECTED, HomeOpt, JsonOpt, context, emit_json, fail
 from quantlab.cli.data import data_app
 from quantlab.cli.market import md_app
+from quantlab.cli.optimize import optimize_app
 from quantlab.cli.secret_commands import secret_app
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuantLab — self-hosted quant platform.")
@@ -45,6 +46,7 @@ app.add_typer(engine_app, name="engine")
 app.add_typer(api_app, name="api")
 app.add_typer(secret_app, name="secret")
 app.add_typer(md_app, name="md")
+app.add_typer(optimize_app, name="optimize")
 
 
 def _fmt_pct(value: float | None) -> str:
@@ -489,6 +491,41 @@ def golden_check(
                 typer.echo(f"    {d}")
     if any(not o.ok for o in outcomes):
         raise typer.Exit(1)
+
+
+@backtest_app.command("robustness")
+def backtest_robustness(
+    run_id: str,
+    samples: Annotated[int, typer.Option(min=10, max=100_000, help="Resampled paths.")] = 1000,
+    seed: Annotated[int, typer.Option(help="Random seed (recorded).")] = 0,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Bootstrap the run's daily returns and Monte-Carlo its trade sequence (descriptive, not a forecast)."""
+    with context(home) as ctx:
+        out = ctx.read_only_backtests().robustness(run_id, samples=samples, seed=seed)
+    if as_json:
+        emit_json(out)
+        return
+    for w in out["warnings"]:
+        typer.secho(f"warning: {w}", fg=typer.colors.YELLOW)
+    b = out.get("bootstrap")
+    if b:
+        typer.echo(f"bootstrap ({b['samples']} paths, mean block {b['mean_block']}, seed {b['seed']}):")
+        for key in ("total_return", "max_drawdown", "sharpe_annual"):
+            p = b[key]
+            typer.echo(f"  {key:<14} p5 {p['p5']:+.4f}  p50 {p['p50']:+.4f}  p95 {p['p95']:+.4f}")
+        typer.echo(f"  P(loss) {b['probability_of_loss']:.3f}")
+    else:
+        typer.echo(f"bootstrap: {out.get('bootstrap_error')}")
+    mc = out.get("trade_monte_carlo")
+    if mc:
+        dd = mc["max_drawdown_shuffled"]
+        typer.echo(
+            f"trade Monte Carlo ({mc['trades']} trades): max DD p50 {dd['p50']:.4f}  p95 {dd['p95']:.4f}"
+        )
+    else:
+        typer.echo(f"trade Monte Carlo: {out.get('trade_monte_carlo_error')}")
 
 
 @backtest_app.command("rerun")
