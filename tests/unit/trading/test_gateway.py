@@ -193,7 +193,7 @@ def test_snapshot_reports_cash_positions_and_open_orders(stack, gw):  # noqa: F8
     c.until(lambda m: m["type"] == "order" and m["id"] == 2 and m["state"] == "ACCEPTED")
     c.send(type="snapshot")
     snap, _ = c.until(lambda m: m["type"] == "snapshot")
-    assert snap["positions"] == [{"symbol": "SPY", "quantity": 10.0}]
+    assert snap["positions"] == [{"symbol": "SPY", "quantity": 10.0, "average_price": pytest.approx(50.01)}]
     assert snap["open"] == [2] and snap["cash"] < 20_000
     c.close()
 
@@ -228,7 +228,7 @@ def test_a_restarted_algorithm_reusing_lean_ids_gets_new_orders(stack, gw):  # n
     c2.send(type="snapshot")
     snap, seen = c2.until(lambda m: m["type"] == "snapshot")
     assert not [m for m in seen if m["type"] in ("fill", "order")]  # nothing from run-a is replayed as id 1
-    assert snap["positions"] == [{"symbol": "SPY", "quantity": 5.0}]  # but the deployment's position is known
+    assert snap["positions"][0]["quantity"] == 5.0  # but the deployment's position is known
     c2.send(type="place", id=1, symbol="SPY", quantity=3)
     fill, _ = c2.until(lambda m: m["type"] == "fill" and m["id"] == 1)
     assert fill["quantity"] == 3

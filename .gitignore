@@ -39,3 +39,7 @@ credentials*
 Thumbs.db
 .idea/
 .vscode/
+
+# .NET build output (LEAN plugin)
+lean/**/bin/
+lean/**/obj/

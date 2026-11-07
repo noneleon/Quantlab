@@ -53,6 +53,7 @@ from quantlab.oms import queries
 from quantlab.oms.models import FillRecord, Order
 from quantlab.oms.service import OMS, OMSError, OrderRequest, OrderType, Side, TimeInForce
 from quantlab.oms.states import TERMINAL, OrderState
+from quantlab.portfolio.book import Book, Fill
 
 log = get_logger(__name__)
 
@@ -255,6 +256,7 @@ class Gateway:
                 # "not_placed": refused before anything was stored; "unknown": the order may exist (reconcile)
                 definite = isinstance(exc, GatewayError | OMSError | ValueError | TypeError | KeyError)
                 send({"type": "error", "id": ident, "message": _short(exc),
+                      "reply": msg.get("type") if isinstance(msg, dict) else None,
                       "outcome": "not_placed" if definite else "unknown"})  # fmt: skip
 
     def _handle(self, msg: Any, send: Callable[[dict[str, Any]], None]) -> None:
@@ -329,7 +331,7 @@ class Gateway:
                 self._check_own_position(session, req)
         result = self._oms.submit(req)  # risk gate first, always
         reasons = result.decision.reasons if result.decision is not None else []
-        send(_order_message(lean_id, result.order.id, result.state.value, "; ".join(reasons)))
+        send(_order_message(lean_id, result.order.id, result.state.value, "; ".join(reasons), reply="place"))
 
     def _check_own_position(self, session: Session, req: OrderRequest) -> None:
         """A deployment sells only what it holds: the smaller of its own net position and the account's,
@@ -358,7 +360,7 @@ class Gateway:
         if order_id is None:  # other runs', deployments' and manual orders are not visible here
             raise GatewayError(f"no order {lean_id} in this run of deployment {self.deployment}")
         state = self._oms.cancel(order_id)
-        send(_order_message(lean_id, order_id, state.value, ""))
+        send(_order_message(lean_id, order_id, state.value, "", reply="cancel"))
 
     def _deployment_orders(
         self, session: Session, prefix: str | None = None
@@ -413,15 +415,29 @@ class Gateway:
             remaining = [o.id for o, _ in self._orphans(session)]
         send({"type": "orphans", "results": results, "remaining": remaining})
 
-    def _own_positions(self, session: Session) -> dict[str, float]:
+    def _own_book(self, session: Session) -> Book:
+        """This deployment's positions from its own fills, average cost included (its cash means nothing)."""
         ids = {o.id for o, _ in self._deployment_orders(session)}
-        net: dict[str, float] = {}
+        rows: list[FillRecord] = []
         if ids:
-            for f in session.execute(select(FillRecord).where(FillRecord.order_id.in_(ids))).scalars():
-                net[f.symbol] = net.get(f.symbol, 0.0) + (
-                    f.quantity if f.side == Side.BUY.value else -f.quantity
-                )
-        return {s: q for s, q in net.items() if abs(q) > 1e-9}
+            rows = list(
+                session.execute(
+                    select(FillRecord)
+                    .where(FillRecord.order_id.in_(ids))
+                    .order_by(FillRecord.executed_at, FillRecord.id)
+                ).scalars()
+            )
+        return Book.from_fills(
+            0.0,
+            (
+                Fill(f.symbol, f.quantity if f.side == Side.BUY.value else -f.quantity, f.price, 0.0)
+                for f in rows
+            ),
+        )
+
+    def _own_positions(self, session: Session) -> dict[str, float]:
+        book = self._own_book(session)
+        return {s: p.quantity for s, p in book.positions.items() if abs(p.quantity) > 1e-9}
 
     def _push(
         self, send: Callable[[dict[str, Any]], None], sent_states: dict[str, str], sent_fills: set[str]
@@ -468,13 +484,17 @@ class Gateway:
     def _snapshot(self) -> dict[str, Any]:
         with self._sessions() as session:
             cash = self._oms.book(session).cash
-            positions = self._own_positions(session)
+            own = self._own_book(session)
             open_ids = [lean for _o, st, lean in self._mine(session) if st not in TERMINAL]
             orphans = [o.id for o, _ in self._orphans(session)]
         return {
             "type": "snapshot",
             "cash": cash,  # the shared paper account's cash
-            "positions": [{"symbol": s, "quantity": q} for s, q in sorted(positions.items())],
+            "positions": [
+                {"symbol": s, "quantity": p.quantity, "average_price": p.average_price}
+                for s, p in sorted(own.positions.items())
+                if abs(p.quantity) > 1e-9
+            ],
             "open": open_ids,
             "orphans": orphans,
         }
@@ -567,8 +587,14 @@ def _lean_of(order: Order, prefix: str) -> int | None:
     return int(rest) if rest.isdigit() else None
 
 
-def _order_message(lean_id: int, order_id: str, state: str, reason: str) -> dict[str, Any]:
-    return {"type": "order", "id": lean_id, "order_id": order_id, "state": state, "reason": reason}
+def _order_message(
+    lean_id: int, order_id: str, state: str, reason: str, reply: str | None = None
+) -> dict[str, Any]:
+    """``reply`` marks the direct answer to a place/cancel request (pushed updates have none)."""
+    msg = {"type": "order", "id": lean_id, "order_id": order_id, "state": state, "reason": reason}
+    if reply is not None:
+        msg["reply"] = reply
+    return msg
 
 
 def _reason(detail: dict[str, Any]) -> str:

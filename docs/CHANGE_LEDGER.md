@@ -687,3 +687,22 @@ Remaining (KI-0077): cash in the snapshot is the shared account's; the CLI keeps
 provider (as the supervisor does); the per-deployment lock is not covered by an automated CLI test.
 Tests: Python 598 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean; gateway tests repeated.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0036 — Phase 5c-2: C# QuantLabBrokerage plugin for LEAN (OMS-007, client side)
+Date: 2026-11-07 · Modules: lean (C#), oms.gateway, CI · Feature IDs: OMS-007 · Decision: DEC-0031
+Change: `lean/QuantLabBrokerage` (net10.0, compile-time references to QuantConnect.Brokerages 2.5.18229 only):
+`GatewayClient` (hello with gateway-issued run id, request/reply matching, reconnect re-joins the run),
+`QuantLabBrokerage : Brokerage` (place/cancel through the gateway; Invalid only when QuantLab says definitely not
+placed, unknown outcomes stay Submitted; fills deduplicated by exec id; no order updates; equities with market /
+limit / stop / stop-limit and DAY/GTC only; holdings use the algorithm's own symbols; orphans reported and
+`CancelOrphans`), `QuantLabBrokerageFactory` (`quantlab-gateway-file` config, cash-account brokerage model). Gateway:
+direct replies tagged `reply: place|cancel`, snapshot positions carry the average price. CI job `lean-plugin`
+(Linux + Windows) builds the plugin and runs its tests.
+Tests: `lean/QuantLabBrokerage.Tests` — 10 xUnit tests against the **real** Python gateway and paper OMS
+(`tests/fixtures/gateway_harness.py`, synthetic SIMULATED quotes), passed in three consecutive runs locally.
+Python 598 passed, 1 skipped; ruff, mypy --strict, lint-imports clean.
+Not verified: no real LEAN engine has loaded the plugin yet (needs 5c-3, native launcher); no automatic reconnect
+(LEAN is told of the disconnect; `Connect` re-joins the run).
+Safety review: a trading-safety review was still running when this was committed; its outcome and any fixes are
+recorded in the next entry.
+Result: PASS · Regression status: PASS

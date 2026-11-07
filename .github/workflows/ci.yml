@@ -54,3 +54,25 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+  lean-plugin:
+    name: LEAN gateway brokerage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - name: Install Python (locked) for the gateway harness
+        run: uv sync --locked
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build plugin
+        run: dotnet build lean/QuantLabBrokerage -c Release
+      - name: Tests against the real Python gateway
+        run: dotnet test lean/QuantLabBrokerage.Tests -c Release
