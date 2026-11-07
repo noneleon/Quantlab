@@ -61,7 +61,8 @@ class IBOrderRecord:
     perm_id: int
     status: str  # ib_async OrderStatus.status
     account: str
-    reason: str = ""  # why an order is Inactive / rejected, when known
+    reason: str = ""  # why an order is Inactive / rejected, when known (IBKR error, warnings excluded)
+    ever_working: bool = False  # reached PreSubmitted/Submitted at some point (else a cancel is a rejection)
 
 
 @dataclass(frozen=True)
@@ -179,11 +180,13 @@ class IBKRPaperBroker:
             )
         if self._expected is not None and self._expected not in accounts:
             self._client.disconnect()
+            self._account = None
             raise BrokerError(
                 f"IBKR paper account {self._expected} is not managed by this login ({accounts})"
             )
         if self._expected is None and len(accounts) > 1:
             self._client.disconnect()
+            self._account = None
             raise BrokerError(f"several paper accounts {accounts}: set paper.ibkr_account to choose one")
         self._account = self._expected or accounts[0]
         return self._account
@@ -201,6 +204,8 @@ class IBKRPaperBroker:
             raise BrokerError(f"duplicate order id {order.order_id}")
         try:
             self._client.place(order, account)
+        except BrokerError:  # raised by the client *before* handing the order over (e.g. unknown symbol)
+            raise
         except Exception as exc:  # it may have reached IBKR: never assume "not placed"
             raise SubmitUnknown(f"IBKR: placing {order.order_id} failed midway: {exc!r}") from exc
         deadline = time.monotonic() + self._ack_timeout
@@ -222,22 +227,28 @@ class IBKRPaperBroker:
     def events(self) -> list[SequencedEvent]:
         account = self._ensure()
         self._client.wait(0.2)
-        for o in self._client.orders():
-            if not o.order_ref or o.account not in ("", account):
-                continue
-            if o.status in ACCEPTED_STATUSES | {"Filled"}:
+        orders = [o for o in self._client.orders() if o.order_ref and o.account in ("", account)]
+        reports, waiting = self._collect(account)
+        for o in orders:  # 1. acceptances
+            if o.status in ACCEPTED_STATUSES | {"Filled"} or (o.ever_working and o.status != "Inactive"):
                 self._emit(
                     ("accepted", o.order_ref), OrderAccepted(o.order_ref, f"ib-perm:{o.perm_id}", self._now())
                 )
-            if o.status in CANCELLED_STATUSES:
-                self._emit(("cancelled", o.order_ref), OrderCancelled(o.order_ref, self._now()))
-            elif o.status == "Inactive":
+        for report in reports:  # 2. fills, before any final status of their order
+            self._emit(("exec", report.exec_id), report)
+        for o in orders:  # 3. final states (held back while a fill of the order still waits for commission)
+            if o.order_ref in waiting:
+                continue
+            rejected = o.status == "Inactive" or (
+                o.status in CANCELLED_STATUSES and o.reason and not o.ever_working
+            )
+            if rejected:  # IBKR reports many rejections as "Cancelled" with an error
                 self._emit(
                     ("rejected", o.order_ref),
                     OrderRejected(o.order_ref, o.reason or "inactive at IBKR", self._now()),
                 )
-        for report in self._reports(account):
-            self._emit(("exec", report.exec_id), report)
+            elif o.status in CANCELLED_STATUSES:
+                self._emit(("cancelled", o.order_ref), OrderCancelled(o.order_ref, self._now()))
         return list(self._pending)
 
     def acknowledge(self, through_seq: int) -> None:
@@ -266,7 +277,7 @@ class IBKRPaperBroker:
         }
 
     def executions(self) -> list[ExecutionReport]:
-        return self._reports(self._ensure())
+        return self._collect(self._ensure())[0]
 
     def snapshot(self) -> BrokerSnapshot:
         # IBKR has no atomic multi-read: wait for pending updates first, then read in a fixed order.
@@ -287,8 +298,10 @@ class IBKRPaperBroker:
         self._seq += 1
         self._pending.append(SequencedEvent(self._seq, event))  # type: ignore[arg-type]
 
-    def _reports(self, account: str) -> list[ExecutionReport]:
+    def _collect(self, account: str) -> tuple[list[ExecutionReport], set[str]]:
+        """Reportable executions, and the order ids with an execution still waiting for its commission."""
         out = []
+        waiting: set[str] = set()
         now = self._now()
         for e in sorted(self._client.executions(account), key=lambda x: (x.time, x.exec_id)):
             if not e.order_ref or e.account != account:
@@ -296,9 +309,15 @@ class IBKRPaperBroker:
             commission = e.commission
             if commission is None:
                 if (now - e.time).total_seconds() < self._commission_wait:
+                    waiting.add(e.order_ref)
                     continue  # wait for the commission report
-                log.warning("ibkr.commission_unknown", exec_id=e.exec_id, order_id=e.order_ref)
+                log.warning(
+                    "ibkr.commission_unknown", exec_id=e.exec_id, order_id=e.order_ref, commission_known=False
+                )
                 commission = 0.0
+            if e.side not in ("BOT", "SLD"):
+                log.warning("ibkr.execution_side_unknown", exec_id=e.exec_id, side=e.side)
+                continue  # never guess a direction: shows up as a position mismatch in reconciliation
             out.append(
                 ExecutionReport(
                     order_id=e.order_ref,
@@ -312,4 +331,4 @@ class IBKRPaperBroker:
                     price_state=PRICE_STATE,
                 )
             )
-        return out
+        return out, waiting

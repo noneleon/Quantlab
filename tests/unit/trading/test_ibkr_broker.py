@@ -332,3 +332,78 @@ def test_config_requires_an_explicit_paper_account():
     p = PaperSettings(broker="ibkr", ibkr_account=ACCOUNT, ibkr_starting_cash=1e6)
     assert (p.oms_account, p.oms_starting_cash) == (f"ibkr-{ACCOUNT}", 1e6)
     assert PaperSettings().oms_account == "paper"
+
+
+# ---- IBKR adapter safety review (CHANGE-0031) ------------------------------------------------------
+
+
+def test_cancelled_with_an_error_before_working_is_a_rejection():
+    """IBKR reports many rejections (e.g. 201 margin) as "Cancelled": they must count as rejections."""
+    fake, b = make()
+
+    def rejected(o, a):
+        fake.orders_[o.order_id] = IBOrderRecord(o.order_id, 9, "Cancelled", a, "201: order rejected")
+
+    fake.on_place = rejected
+    b.submit(order("o1"))
+    (ev,) = [e.event for e in b.events()]
+    assert isinstance(ev, OrderRejected) and ev.reason == "201: order rejected"
+
+
+def test_cancel_after_working_stays_a_cancel_even_with_an_error_text():
+    fake, b = make()
+    b.submit(order("o1", kind=OrderType.LIMIT, limit_price=1.0))
+    o = fake.orders_["o1"]
+    fake.orders_["o1"] = replace(o, status="Cancelled", reason="202: order cancelled", ever_working=True)
+    kinds = [type(e.event) for e in b.events()]
+    assert kinds == [OrderAccepted, OrderCancelled]
+
+
+def test_partial_fill_is_reported_before_the_cancel_that_follows_it():
+    fake, b = make(commission_wait_s=10)
+    b.submit(order("o1", kind=OrderType.LIMIT, limit_price=1.0))
+    fake.fill("o1", shares=4, commission=None)  # partial fill, commission report not yet in
+    fake.orders_["o1"] = replace(fake.orders_["o1"], status="Cancelled", ever_working=True)
+    assert [type(e.event) for e in b.events()] == [OrderAccepted]  # cancel held back with its fill
+    fake.now = T0 + timedelta(seconds=11)
+    kinds = [type(e.event) for e in b.events()]
+    assert kinds == [OrderAccepted, ExecutionReport, OrderCancelled]
+
+
+def test_execution_with_an_unknown_side_is_never_guessed():
+    fake, b = make()
+    b.submit(order("o1"))
+    fake.fill("o1")
+    fake.execs[0] = replace(fake.execs[0], side="")
+    assert b.executions() == []
+
+
+def test_failure_before_handing_over_is_a_definite_rejection(ib_stack):
+    fake, _broker, oms, _sessions = ib_stack
+
+    def unknown_symbol(o, a):
+        raise BrokerError("IBKR: no security definition for 'SPY'")
+
+    fake.on_place = unknown_symbol
+    r = oms.submit(OrderRequest("k1", "SPY", Side.BUY, 10))
+    assert r.state is S.REJECTED  # not SUBMIT_UNKNOWN: nothing reached IBKR
+
+
+def test_any_failure_reading_the_broker_blocks_new_orders(ib_stack):
+    fake, _broker, oms, _sessions = ib_stack
+    fake.connected = True
+    oms.submit(OrderRequest("k0", "SPY", Side.BUY, 1))
+
+    def boom():
+        raise RuntimeError("socket glitch")
+
+    fake.orders = boom
+    r = oms.submit(OrderRequest("k1", "SPY", Side.BUY, 10))
+    assert r.state is S.RISK_REJECTED and any(x.startswith("broker reachable") for x in r.decision.reasons)
+
+
+def test_ibkr_fills_are_labelled_as_ibkr_simulated():
+    from quantlab.oms.queries import simulation_warning
+
+    w = simulation_warning(["IBKR_PAPER"])
+    assert w is not None and "simulated by IBKR" in w and "no partial fills" not in w and "quotes" not in w

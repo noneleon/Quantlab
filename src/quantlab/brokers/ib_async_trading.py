@@ -49,7 +49,7 @@ class IbAsyncTradingClient:  # pragma: no cover - needs a running IB Gateway / T
         self._ib.errorEvent += self._on_error
 
     def _on_error(self, req_id: int, code: int, text: str, *_: Any) -> None:
-        if req_id > 0:
+        if req_id > 0 and not (code == 399 or 2100 <= code < 2200):  # 399 / 21xx are warnings
             self._reasons[int(req_id)] = f"{code}: {text}"
 
     def connect(self, host: str, port: int, client_id: int, timeout: float) -> None:
@@ -98,6 +98,7 @@ class IbAsyncTradingClient:  # pragma: no cover - needs a running IB Gateway / T
         return False
 
     def orders(self) -> list[IBOrderRecord]:
+        self._ib.reqAllOpenOrders()  # refresh: also orders placed later by other clients / by hand in TWS
         return [
             IBOrderRecord(
                 order_ref=str(t.order.orderRef or ""),
@@ -105,6 +106,7 @@ class IbAsyncTradingClient:  # pragma: no cover - needs a running IB Gateway / T
                 status=str(t.orderStatus.status),
                 account=str(t.order.account or ""),
                 reason=self._reasons.get(int(t.order.orderId), ""),
+                ever_working=any(e.status in ("PreSubmitted", "Submitted") for e in t.log),
             )
             for t in self._ib.trades()
         ]
@@ -113,6 +115,8 @@ class IbAsyncTradingClient:  # pragma: no cover - needs a running IB Gateway / T
         fills = self._ib.reqExecutions(self._lib.ExecutionFilter(acctCode=account))
         out = []
         for f in fills:
+            if f.contract.secType != "STK":
+                continue  # QuantLab trades US stocks only; other instruments are not mapped by symbol
             e, c = f.execution, f.commissionReport
             commission = c.commission if c is not None and c.execId else None
             if commission is not None and not math.isfinite(commission):
@@ -136,6 +140,7 @@ class IbAsyncTradingClient:  # pragma: no cover - needs a running IB Gateway / T
         return [
             IBPositionRecord(str(p.account), str(p.contract.symbol), float(p.position), float(p.avgCost))
             for p in self._ib.positions(account)
+            if p.contract.secType == "STK"
         ]
 
     def cash(self, account: str) -> float | None:

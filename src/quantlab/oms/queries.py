@@ -80,11 +80,14 @@ def fill_price_states(session: Session, account: str) -> list[str]:
 def simulation_warning(states: list[str], *, paper: bool = True) -> str | None:
     """Paper results are always simulated executions (no partial fills, impact or queue position); non-LIVE
     prices make them doubly so. Real-broker fills on LIVE prices carry no warning."""
-    non_live = [s for s in states if s != "LIVE"]
+    non_live = [s for s in states if s not in ("LIVE", "IBKR_PAPER")]
     parts = []
-    if paper:
+    if paper and "IBKR_PAPER" in states:
+        parts.append("IBKR paper account: fills simulated by IBKR")
+    if paper and (non_live or "IBKR_PAPER" not in states):
         parts.append(
-            "paper trading: simulated executions (no partial fills, market impact or queue position)"
+            "paper trading: simulated executions (local paper broker: no partial fills, market impact or "
+            "queue position)"
         )
     if non_live:
         parts.append(f"fills priced from {'/'.join(non_live)} quotes")

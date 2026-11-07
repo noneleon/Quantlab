@@ -616,7 +616,7 @@ class OMS:
         broker_error = None
         try:
             unresolved += len(self._broker.open_order_ids() - tracked - {order.id})
-        except BrokerError as exc:
+        except Exception as exc:  # any failure to read the broker blocks new orders (fails closed)
             broker_error = f"cannot read the broker's open orders: {exc}"
         pending = [
             PendingOrder(

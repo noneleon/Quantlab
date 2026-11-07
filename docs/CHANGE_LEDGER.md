@@ -585,3 +585,23 @@ Safety review: a trading-safety review of this change was still running when it 
 default: `paper.broker = "local"`); its outcome and any fixes are recorded in the next ledger entry.
 Tests: Python 553 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0031 — Phase 5b-3 follow-up: IBKR adapter safety-review findings fixed
+Date: 2026-11-07 · Modules: brokers, oms · Feature IDs: BRK-003, RISK-001
+Review (trading-safety-reviewer, started before CHANGE-0030 was committed): no BLOCKER — no path to connect to or
+trade a live account was found. 2 MAJOR + 6 MINOR; the two `ib_async` behaviours behind the MAJORs are from the
+reviewer's knowledge of the library and still need confirming on a real gateway (KI-0075).
+Fixes (each with a regression test, all confirmed failing on the previous code):
+- MAJOR: an order IBKR cancels with an error before it was ever working is reported as REJECTED (with the IBKR
+  error), so rejections count towards the cooldown and the audit trail is right; warnings (399, 21xx) are ignored.
+- MAJOR: the client refreshes all open orders (`reqAllOpenOrders`) on every read, so orders placed by hand in TWS
+  after QuantLab connected are seen and block new orders.
+- MINOR: a client error raised before the order is handed over (unknown symbol) is a definite rejection, not
+  SUBMIT_UNKNOWN; a fill is always reported before its order's final state (final states wait for the fill's
+  commission); executions with an unknown side are never guessed (skipped, logged → reconciliation mismatch); any
+  failure reading the broker's open orders blocks new orders ("broker reachable"); non-stock instruments are ignored
+  in positions/executions; IBKR fills carry their own warning ("fills simulated by IBKR").
+Remaining (KI-0074/0075): late commission reports are not applied; IBKR execution corrections are not merged;
+`Inactive` is treated as final.
+Tests: Python 560 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean.
+Result: PASS · Regression status: PASS

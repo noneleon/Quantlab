@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0030 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0031 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -47,9 +47,10 @@
 - CHANGE-0029 (5b-2, DEC-0028): web console — Portfolio, Orders (+detail), Risk; engage-only kill switch in the UI.
 - CHANGE-0030 (5b-3, DEC-0029): IBKR paper broker adapter (`[paper] broker = "ibkr"`, `ibkr_account = "DU…"`,
   `ibkr_starting_cash`); paper logins only; **fake-client tested only — needs a real IB Gateway paper check (KI-0075)**.
+  CHANGE-0031 fixed its safety-review findings (rejections reported as Cancelled; manual TWS orders refreshed).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 553 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 560 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 27 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
