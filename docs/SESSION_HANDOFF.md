@@ -13,8 +13,8 @@
   (optional extra), starter notebook verified by real headless execution.
 
 ## Tests (actually executed)
-`uv run pytest` → 278 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI for CHANGE-0011: see
-latest run on the PR.
+`uv run pytest` → 278 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean. CI #33 failed (README code block
+formatting) → fixed by excluding *.md from ruff; CI #35 green on ubuntu + windows.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -30,6 +30,8 @@ uv run quantlab backtest rerun <run-id>
 ```
 
 ## Key design facts to remember
+- Push procedure: fresh clone → `uv sync --locked` → ruff check/format, mypy, lint-imports, pytest → `git push`, all chained
+  with `&&` (CHANGE-0004 and CHANGE-0011 incidents).
 - `BacktestService.run(name, params, dataset=..., dataset_version=...)`; `DataBinding` describes the data of a run.
 - LEAN export: `data/lean/<dataset>/<hash[:20]>/`, created once, verified on every use; equities only.
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).

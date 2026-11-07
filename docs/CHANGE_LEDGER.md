@@ -187,4 +187,8 @@ Manual verification: installed the extra, created a synthetic `spy-daily` datase
 (`jupyter nbconvert --execute`): all cells produced output (datasets, provenance attrs + warning, distribution, metrics,
 backtests). Found and fixed: the provenance warning pointed at `api.py` instead of the notebook cell (stacklevel); test
 added. Base environment restored afterwards (`uv sync`).
-Result: PASS · Regression status: PASS
+Incident: CI run #33 failed `ruff format --check` — this ruff version formats Python code blocks inside Markdown and
+the new README snippet was not ruff-formatted. The fresh-clone check caught it, but the push was chained with `;` and
+ran anyway. Fix (commit "Exclude Markdown from ruff"): `extend-exclude = ["docs", "*.md"]`; CI run #35 green on
+ubuntu + windows. Process fix: push is now chained with `&&` after every fresh-clone check.
+Result: PASS (after fix) · Regression status: PASS
