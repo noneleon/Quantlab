@@ -494,3 +494,30 @@ Fixes (each with a regression test):
 Tests: Python 508 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. A third review pass of these
 fixes was started at commit time; its outcome is recorded in the next entry.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0027 — Phase 5a follow-up: third safety-review findings fixed
+Date: 2026-11-07 · Modules: brokers, oms, risk, core.audit, cli · Feature IDs: BRK-002, OMS-003..006, RISK-001/004
+Problem: the third trading-safety review of CHANGE-0026 verified those fixes (no BLOCKER) and found 3 MAJOR + 5 MINOR
+concurrency/replay issues.
+Fixes (each with a regression test; the new OMS tests were confirmed to fail on the previous code):
+- MAJOR M1: the paper broker's age-broken O_EXCL lock file (two writers possible) is replaced by an OS lock
+  (`fcntl.flock` / `msvcrt.locking`) on a never-deleted `.lock` file, released by the OS if the holder dies; every call,
+  reads and the initial save included, runs under it; quotes are fetched before the lock is taken, and quotes that
+  waited longer than 2 s for the lock are not used to fill.
+- MAJOR M2: broker events carry a persisted sequence number; `events()` returns `SequencedEvent`s and
+  `acknowledge(through_seq)` replaces ack-by-count (two readers could drop an event neither had seen); old state files
+  are upgraded on load.
+- MAJOR M3: fill-driven state changes are never suppressed as replays (a late fill after a cancel is recorded and
+  reported); reconcile compares against one consistent `BrokerSnapshot`; a PENDING_CANCEL younger than 60 s whose order
+  is still working is reported, not resolved; terminal OMS orders still working at the broker are reported **and block
+  new orders** (gate "unresolved submissions"; fails closed, also when the broker cannot be read).
+- MINOR: refused cancel after a concurrent reconcile no longer crashes (`_try_event`); anomalies are audited once per
+  distinct message (fill anomalies include the exec id; `core.audit.encode_details`); the TTY check is documented as
+  defence in depth (KI-0068); the "reduces the position" exemption now requires no working order on the symbol, either
+  side (stricter).
+Review of these fixes (trading-safety-reviewer, before commit): no BLOCKER/MAJOR; M1/M2/M3/m1/m2/m5 verified, plus a
+4-process stress run of the paper broker (400 orders, no lost writes). Its minors #1 (stale prefetched quotes), #2
+(terminal-but-open orders not blocking) and #4 (dedupe merging distinct fills) were fixed above; #3, #5, #6 are
+recorded as KI-0069..0071.
+Tests: see the session handoff for the gate results of this commit. Paper tests use synthetic SIMULATED quotes only.
+Result: PASS · Regression status: PASS

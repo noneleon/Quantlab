@@ -27,7 +27,12 @@ ReasonOpt = Annotated[str, typer.Option(help="Why (recorded in the audit log).")
 
 
 def _interactive() -> bool:
-    """True only when a person is at a terminal (stdin and stdout are TTYs, nothing piped in)."""
+    """True when stdin and stdout are TTYs (nothing piped in).
+
+    Defence in depth, not proof of a human: a program driving a pseudo-terminal (``script``, ``expect``, tmux)
+    also passes. The real boundary is that AI agents must never disengage the kill switch (CLAUDE.md §4), the
+    typed phrase, and the audit entry; the recorded channel is self-reported by the caller (KI-0068).
+    """
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 

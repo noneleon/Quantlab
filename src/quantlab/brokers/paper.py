@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import json
 import math
-import os
+import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -31,6 +31,7 @@ from quantlab.brokers.base import (
     BrokerEvent,
     BrokerOrder,
     BrokerPosition,
+    BrokerSnapshot,
     BrokerUnavailable,
     ExecutionReport,
     OrderAccepted,
@@ -38,6 +39,7 @@ from quantlab.brokers.base import (
     OrderExpired,
     OrderRejected,
     OrderType,
+    SequencedEvent,
     Side,
     SubmitUnknown,
     TimeInForce,
@@ -47,7 +49,7 @@ from quantlab.data.market_data import Quote
 
 QuoteSource = Callable[[str], Quote | None]
 LOCK_TIMEOUT_S = 10.0
-LOCK_STALE_S = 60.0
+PREFETCH_MAX_AGE_S = 2.0  # quotes fetched before a longer wait for the lock are not used to fill
 
 
 class PaperBroker:
@@ -75,18 +77,20 @@ class PaperBroker:
         self._now = now
         self._triggered = False
         self.fail_next: str | None = None
-        if state_file.is_file():
-            self._state = json.loads(state_file.read_text(encoding="utf-8"))
-        else:
-            self._state = {
-                "cash": starting_cash,
-                "positions": {},
-                "working": {},
-                "executions": [],
-                "seen": [],
-                "seq": 0,
-            }
-            self._save()
+        self._prefetched: dict[str, Quote | None] = {}
+        self._fetched_at = 0.0
+        self._state: dict[str, Any] = {}
+        with self._locked():  # creating the initial state is a write like any other
+            if not self._state:
+                self._state = {
+                    "cash": starting_cash,
+                    "positions": {},
+                    "working": {},
+                    "executions": [],
+                    "seen": [],
+                    "seq": 0,
+                }
+                self._save()
 
     # ---- persistence ------------------------------------------------------------------------------
     def _save(self) -> None:
@@ -137,18 +141,31 @@ class PaperBroker:
         self._emit(OrderCancelled(order_id, self._now()))
         self._save()
 
-    def _events_unlocked(self) -> list[BrokerEvent]:
+    def _events_unlocked(self) -> list[SequencedEvent]:
         self._match()
-        return [_decode(e) for e in self._state.setdefault("pending_events", [])]
+        return [SequencedEvent(int(e["event_seq"]), _decode(e)) for e in self._pending()]
 
-    def _acknowledge_unlocked(self, count: int) -> None:
-        pending = self._state.setdefault("pending_events", [])
-        del pending[:count]
+    def _acknowledge_unlocked(self, through_seq: int) -> None:
+        """Drop events up to and including ``through_seq``: never one the caller has not seen, even when
+        another process acknowledged (or emitted) events meanwhile."""
+        self._state["pending_events"] = [e for e in self._pending() if int(e["event_seq"]) > through_seq]
         self._save()
+
+    def _pending(self) -> list[dict[str, Any]]:
+        pending: list[dict[str, Any]] = self._state.setdefault("pending_events", [])
+        for e in pending:  # state files written before events carried a sequence number
+            if "event_seq" not in e:
+                e["event_seq"] = self._next_event_seq()
+        return pending
+
+    def _next_event_seq(self) -> int:
+        self._state["event_seq"] = int(self._state.get("event_seq", 0)) + 1
+        return int(self._state["event_seq"])
 
     def _emit(self, ev: BrokerEvent) -> None:
         """Events are persisted with the broker state until acknowledged, so a crash never loses them."""
-        self._state.setdefault("pending_events", []).append(_encode(ev))
+        pending = self._pending()
+        pending.append({**_encode(ev), "event_seq": self._next_event_seq()})
 
     def _positions_unlocked(self) -> list[BrokerPosition]:
         return [
@@ -175,83 +192,94 @@ class PaperBroker:
                 self._emit(OrderExpired(order_id, self._now()))
         self._save()
 
-    # ---- process-safe public API: calls reload the state file; changes run under an exclusive lock ----
+    # ---- process-safe public API -----------------------------------------------------------------------
+    # Every call (reads included) reloads the state under an OS-level exclusive lock. Quotes are fetched
+    # *before* the lock is taken, so a slow quote source never holds other processes up.
     def submit(self, order: BrokerOrder) -> None:
-        with self._locked():
+        quotes = self._fetch_quotes([order.symbol])
+        with self._locked(quotes):
             self._submit_unlocked(order)
 
     def cancel(self, order_id: str) -> None:
         with self._locked():
             self._cancel_unlocked(order_id)
 
-    def events(self) -> list[BrokerEvent]:
-        with self._locked():
+    def events(self) -> list[SequencedEvent]:
+        quotes = self._fetch_quotes()
+        with self._locked(quotes):
             return self._events_unlocked()
 
-    def acknowledge(self, count: int) -> None:
+    def acknowledge(self, through_seq: int) -> None:
         with self._locked():
-            self._acknowledge_unlocked(count)
+            self._acknowledge_unlocked(through_seq)
 
     def expire_day_orders(self) -> None:
         with self._locked():
             self._expire_day_orders_unlocked()
 
     def positions(self) -> list[BrokerPosition]:
-        self._reload()
-        return self._positions_unlocked()
+        with self._locked():
+            return self._positions_unlocked()
 
     def cash(self) -> float:
-        self._reload()
-        return self._cash_unlocked()
+        with self._locked():
+            return self._cash_unlocked()
 
     def open_order_ids(self) -> set[str]:
-        self._reload()
-        return self._open_order_ids_unlocked()
+        with self._locked():
+            return self._open_order_ids_unlocked()
 
     def executions(self) -> list[ExecutionReport]:
-        self._reload()
-        return self._executions_unlocked()
+        with self._locked():
+            return self._executions_unlocked()
+
+    def snapshot(self) -> BrokerSnapshot:
+        """Open orders, executions, positions and cash read together, under one lock (reconciliation)."""
+        with self._locked():
+            return BrokerSnapshot(
+                open_order_ids=frozenset(self._open_order_ids_unlocked()),
+                executions=tuple(self._executions_unlocked()),
+                positions=tuple(self._positions_unlocked()),
+                cash=self._cash_unlocked(),
+            )
+
+    def _fetch_quotes(self, extra: Iterable[str] = ()) -> dict[str, Quote | None]:
+        with self._locked():
+            symbols = {w["symbol"] for w in self._state["working"].values()} | set(extra)
+        quotes = {sym: self._quotes(sym) for sym in sorted(symbols)}
+        self._fetched_at = time.monotonic()
+        return quotes
 
     def _reload(self) -> None:
         if self._file.is_file():
             self._state = json.loads(self._file.read_text(encoding="utf-8"))
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
-        """Exclusive lock file (O_EXCL): another process can never overwrite this state with a stale copy."""
+    def _locked(self, quotes: dict[str, Quote | None] | None = None) -> Iterator[None]:
+        """OS-level exclusive lock (``fcntl.flock`` / ``msvcrt.locking``) on a never-deleted lock file.
+
+        The operating system releases the lock when the holder exits or crashes, so a lock is never broken by
+        age and two writers can never overlap (DEC-0027). The state is reloaded once the lock is held.
+        """
         lock = self._file.with_suffix(".lock")
         lock.parent.mkdir(parents=True, exist_ok=True)
-        deadline = time.monotonic() + LOCK_TIMEOUT_S
-        while True:
+        with lock.open("a+b") as fh:
+            _acquire(fh, lock)
             try:
-                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                break
-            except FileExistsError:
-                try:
-                    stale = time.time() - lock.stat().st_mtime > LOCK_STALE_S
-                except FileNotFoundError:
-                    continue
-                if stale:  # left behind by a crashed process
-                    lock.unlink(missing_ok=True)
-                    continue
-                if time.monotonic() > deadline:
-                    raise BrokerUnavailable(
-                        f"paper broker state is locked by another process ({lock})"
-                    ) from None
-                time.sleep(0.02)
-        try:
-            self._reload()
-            yield
-        finally:
-            os.close(fd)
-            lock.unlink(missing_ok=True)
+                fresh = time.monotonic() - self._fetched_at <= PREFETCH_MAX_AGE_S
+                self._prefetched = (quotes or {}) if fresh else {}  # stale: no fills now, next call refetches
+                self._reload()
+                yield
+            finally:
+                self._prefetched = {}
+                _release(fh)
 
     # ---- matching -------------------------------------------------------------------------------------
     def _match(self) -> None:
         self._triggered = False
         changed = False
         for order_id, w in list(self._state["working"].items()):
-            quote = self._quotes(w["symbol"])
+            quote = self._prefetched.get(w["symbol"])
             if quote is None:
                 continue
             price = self._fill_price(w, quote)
@@ -339,6 +367,38 @@ class PaperBroker:
         self._emit(_report(report))
 
 
+def _acquire(fh: Any, lock: Path) -> None:
+    deadline = time.monotonic() + LOCK_TIMEOUT_S
+    while True:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError:
+            if time.monotonic() > deadline:
+                raise BrokerUnavailable(f"paper broker state is locked by another process ({lock})") from None
+            time.sleep(0.02)
+
+
+def _release(fh: Any) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 def _report(e: dict[str, Any]) -> ExecutionReport:
     return ExecutionReport(
         order_id=e["order_id"],
@@ -368,6 +428,7 @@ def _encode(ev: BrokerEvent) -> dict[str, Any]:
 
 def _decode(d: dict[str, Any]) -> BrokerEvent:
     data = dict(d)
+    data.pop("event_seq", None)
     cls = _EVENT_TYPES[data.pop("type")]
     data["ts"] = datetime.fromisoformat(data["ts"])
     if cls is ExecutionReport:

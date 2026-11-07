@@ -153,7 +153,7 @@ Last updated: 2026-11-07 (CHANGE-0025)
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
 | BRK-001 | BrokerAdapter protocol + contract test suite | brokers | C | 5 | `brokers/base.py` | OMS-001 | `test_paper_broker_book.py` | IN_PROGRESS | Protocol + events done; reusable contract suite to run against IBKR comes with BRK-003 |
-| BRK-002 | Simulated paper broker (local) | brokers | C | 5 | `brokers/paper.py`, `[paper]` config, `quantlab paper …` | BRK-001 | `test_paper_broker_book.py`, `test_oms_risk.py`, CLI test | TESTED | Fills from quotes (no partial fills/impact, KI-0061); persisted state; failure injection |
+| BRK-002 | Simulated paper broker (local) | brokers | C | 5 | `brokers/paper.py`, `[paper]` config, `quantlab paper …` | BRK-001 | `test_paper_broker_book.py`, `test_oms_risk.py`, CLI test | TESTED | Fills from quotes (no partial fills/impact, KI-0061); persisted state under an OS lock; events acked by sequence; snapshot for reconcile; failure injection (CHANGE-0027) |
 | BRK-003 | IBKR adapter (TWS/IB Gateway): account, positions, funds, orders, executions, commissions | brokers | X | 5 | — | BRK-001 | — | PLANNED | Requires IBKR account; TWS/Gateway running; daily restarts |
 | BRK-004 | Connection monitoring & automatic reconnection | brokers | C | 5 | — | BRK-003 | — | PLANNED | |
 | BRK-005 | Broker reconciliation (positions, open orders, cash) | brokers/oms | C | 5 | `OMS.reconcile`, `quantlab paper reconcile` | BRK-003, PORT-002 | `test_oms_risk.py` | TESTED | Paper broker only; reports differences, never rewrites positions |

@@ -92,6 +92,11 @@ class ChainCheck:
     reason: str | None = None
 
 
+def encode_details(details: dict[str, Any] | None) -> str:
+    """The stored (redacted, canonical) form of ``details`` — also used to look an entry up by its details."""
+    return json.dumps(redact(details or {}), sort_keys=True, default=str, separators=(",", ":"))
+
+
 class AuditLog:
     _lock = threading.Lock()
 
@@ -113,7 +118,7 @@ class AuditLog:
             raise ValueError(f"invalid actor_type: {actor_type!r}")
         if not actor or not action:
             raise ValueError("actor and action are required")
-        details_json = json.dumps(redact(details or {}), sort_keys=True, default=str, separators=(",", ":"))
+        details_json = encode_details(details)
         with self._lock:
             last = session.execute(
                 select(AuditEntry.hash).order_by(AuditEntry.seq.desc()).limit(1)

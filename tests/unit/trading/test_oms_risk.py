@@ -488,3 +488,157 @@ def test_daily_loss_check_uses_market_marks_not_the_order_reference(stack):
         req("more", qty=1, order_type=OrderType.LIMIT, limit_price=60.0)
     )  # reference 60 would inflate
     assert r.state is S.RISK_REJECTED and any("daily loss limit" in x for x in r.decision.reasons)
+
+
+# ---- third safety review (CHANGE-0027) ------------------------------------------------------------------
+
+
+def test_late_fill_after_cancel_is_recorded_and_reported_never_hidden_as_a_replay(stack):
+    """M3: a fill whose state the order already passed through (PARTIALLY_FILLED) is not a replay."""
+    from quantlab.brokers.base import ExecutionReport
+    from quantlab.core.audit import AuditEntry
+
+    oms, broker, now = stack["oms"], stack["broker"], stack["clock"].now
+    r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
+    broker._emit(ExecutionReport(r.order.id, "X-1", "SPY", Side.BUY, 3, 10.0, 1.0, now()))
+    broker._save()
+    oms.process_events()
+    assert oms.cancel(r.order.id) is S.CANCELLED  # after the partial fill
+    broker._emit(ExecutionReport(r.order.id, "X-2", "SPY", Side.BUY, 2, 10.0, 1.0, now()))  # late fill
+    broker._save()
+    oms.process_events()
+    assert any("broker reported PARTIALLY_FILLED while CANCELLED" in a for a in oms.anomalies)
+    with stack["sessions"]() as s:
+        assert oms.book(s).quantity("SPY") == 5  # the fill itself is recorded (DEC-0008)
+        assert oms.state(s, r.order.id) is S.CANCELLED
+        assert s.query(AuditEntry).filter_by(action="oms.anomaly").count() == 1
+
+
+def test_reconcile_reads_one_broker_snapshot(stack, monkeypatch):
+    """M3: open orders, executions, positions and cash come from a single consistent read."""
+    oms, broker = stack["oms"], stack["broker"]
+    oms.submit(req("k"))
+    for name in ("open_order_ids", "executions", "positions", "cash"):
+        monkeypatch.setattr(broker, name, lambda *a, n=name: pytest.fail(f"reconcile called {n}()"))
+    calls = []
+    real = PaperBroker.snapshot
+    monkeypatch.setattr(broker, "snapshot", lambda: calls.append(1) or real(broker))
+    report = oms.reconcile()
+    assert calls == [1] and report.clean
+
+
+def test_young_pending_cancel_is_not_resolved_while_the_order_is_still_working(stack):
+    """M3: another process may be between its PENDING_CANCEL commit and its broker call."""
+    oms, clock = stack["oms"], stack["clock"]
+    r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
+    with stack["sessions"]() as s:
+        oms._event(s, r.order.id, S.PENDING_CANCEL, {})  # the other process's committed intent
+        s.commit()
+    report = oms.reconcile()
+    assert report.open_order_mismatches == [
+        {"order_id": r.order.id, "state": "PENDING_CANCEL", "broker": "cancel may be in flight"}
+    ]
+    assert history(stack, r.order.id)[-1] == "PENDING_CANCEL"
+    clock.advance(timedelta(seconds=61))
+    stack["quotes"].age = timedelta(0)
+    report = oms.reconcile()
+    assert report.resolved == [{"order_id": r.order.id, "state": "ACCEPTED"}]
+
+
+def test_terminal_order_still_working_at_the_broker_is_reported(stack):
+    """M3: an order the OMS thinks is finished but the broker still works is invisible to the risk gate."""
+    oms = stack["oms"]
+    r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
+    with stack["sessions"]() as s:
+        oms._event(s, r.order.id, S.CANCELLED, {"note": "test: OMS and broker disagree"})
+        s.commit()
+    report = oms.reconcile()
+    assert {"order_id": r.order.id, "state": "CANCELLED", "broker": "still working at broker"} in (
+        report.open_order_mismatches
+    )
+    assert not report.clean
+
+
+def test_cancel_refused_after_reconcile_resolved_it_does_not_crash(stack, monkeypatch):
+    """m1: reconcile in another process restored ACCEPTED before this cancel's broker call was refused."""
+    from quantlab.brokers.base import BrokerError
+
+    oms = stack["oms"]
+    r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
+
+    def refused(order_id):
+        with stack["sessions"]() as s:  # the other process's reconcile
+            oms._event(s, order_id, S.ACCEPTED, {"resolved_by": "reconciliation"})
+            s.commit()
+        raise BrokerError("too late")
+
+    monkeypatch.setattr(stack["broker"], "cancel", refused)
+    assert oms.cancel(r.order.id) is S.ACCEPTED
+
+
+def test_repeated_reconcile_records_an_anomaly_once(stack):
+    """m2: reconcile re-applies every execution; the same anomaly is audited once."""
+    from quantlab.core.audit import AuditEntry
+
+    oms, broker = stack["oms"], stack["broker"]
+    broker._state["executions"].append(
+        {
+            "order_id": "UNKNOWN",
+            "exec_id": "E-x",
+            "symbol": "SPY",
+            "side": Side.BUY.value,
+            "quantity": 1.0,
+            "price": 50.0,
+            "commission": 1.0,
+            "ts": stack["clock"].now().isoformat(),
+            "price_state": "SIMULATED",
+        }
+    )
+    broker._save()
+    for _ in range(3):
+        oms.reconcile()
+    with stack["sessions"]() as s:
+        assert s.query(AuditEntry).filter_by(action="oms.anomaly").count() == 1
+    assert len(oms.anomalies) == 1
+
+
+def test_reducing_exemption_needs_no_working_order_on_the_symbol(stack):
+    """m5: an opposite-side working order could flip the position, so "reduces" no longer exempts."""
+    oms, quotes = stack["oms"], stack["quotes"]
+    assert oms.submit(req("buy", qty=80)).state is S.FILLED
+    rest = oms.submit(req("rest", qty=10, order_type=OrderType.LIMIT, limit_price=1.0))
+    assert rest.state is S.ACCEPTED
+    quotes.px["SPY"] = 45.0  # 2 % daily loss: only reducing orders
+    blocked = oms.submit(req("reduce", qty=40, side=Side.SELL))
+    assert blocked.state is S.RISK_REJECTED
+    assert any("daily loss limit" in r for r in blocked.decision.reasons)
+    assert oms.cancel(rest.order.id) is S.CANCELLED
+    assert oms.submit(req("reduce2", qty=40, side=Side.SELL)).state is S.FILLED
+
+
+def test_order_working_at_broker_but_finished_in_oms_blocks_new_orders(stack):
+    """Fourth review: such an order is invisible to the exposure checks, so the gate fails closed."""
+    oms = stack["oms"]
+    r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
+    with stack["sessions"]() as s:
+        oms._event(s, r.order.id, S.CANCELLED, {"note": "test: OMS and broker disagree"})
+        s.commit()
+    blocked = oms.submit(req("next"))
+    assert blocked.state is S.RISK_REJECTED
+    assert any("unresolved submissions" in x for x in blocked.decision.reasons)
+
+
+def test_distinct_late_fills_are_each_audited(stack):
+    """Fourth review: anomaly dedupe must not merge two different fills."""
+    from quantlab.brokers.base import ExecutionReport
+    from quantlab.core.audit import AuditEntry
+
+    oms, broker, now = stack["oms"], stack["broker"], stack["clock"].now
+    r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
+    assert oms.cancel(r.order.id) is S.CANCELLED
+    for x in ("X-1", "X-2"):
+        broker._emit(ExecutionReport(r.order.id, x, "SPY", Side.BUY, 1, 10.0, 1.0, now()))
+    broker._save()
+    oms.process_events()
+    with stack["sessions"]() as s:
+        assert s.query(AuditEntry).filter_by(action="oms.anomaly").count() == 2

@@ -43,8 +43,9 @@ def broker(tmp_path, quotes=None, **kw):
 def drain(b):
     """Read and acknowledge broker events (the OMS does the same after committing)."""
     events = b.events()
-    b.acknowledge(len(events))
-    return events
+    if events:
+        b.acknowledge(events[-1].seq)
+    return [e.event for e in events]
 
 
 def order(oid, side=Side.BUY, qty=10, kind=OrderType.MARKET, **kw):
@@ -154,10 +155,82 @@ def test_events_survive_a_crash_until_acknowledged(tmp_path):
     assert len(b.events()) == 2  # not acknowledged: e.g. the OMS crashed before committing
     restarted = broker(tmp_path)
     replay = restarted.events()
-    assert [type(e) for e in replay] == [OrderAccepted, ExecutionReport]
-    assert replay[1].price_state == "SIMULATED"  # fills keep the state of the quote they used
-    restarted.acknowledge(len(replay))
+    assert [type(e.event) for e in replay] == [OrderAccepted, ExecutionReport]
+    assert replay[1].event.price_state == "SIMULATED"  # fills keep the state of the quote they used
+    restarted.acknowledge(replay[-1].seq)
     assert broker(tmp_path).events() == []
+
+
+def test_acknowledge_by_sequence_never_drops_an_unseen_event(tmp_path):
+    """Third review M2: two readers of the same batch must not acknowledge events neither has seen."""
+    quotes = Quotes()
+    a, b = broker(tmp_path, quotes), broker(tmp_path, quotes)
+    a.submit(order("o1", kind=OrderType.LIMIT, limit_price=90.0))
+    first_a = a.events()  # [accepted o1]
+    a.submit(order("o2", kind=OrderType.LIMIT, limit_price=90.0))
+    first_b = b.events()  # [accepted o1, accepted o2]
+    a.acknowledge(first_a[-1].seq)
+    a.submit(order("o3", kind=OrderType.LIMIT, limit_price=90.0))  # emitted after both reads
+    b.acknowledge(first_b[-1].seq)  # by count this would have dropped o3's event, which nobody has seen
+    left = broker(tmp_path, quotes).events()
+    assert [(type(e.event), e.event.order_id) for e in left] == [(OrderAccepted, "o3")]
+    assert [e.seq for e in left] == [3]
+
+
+def test_state_files_without_event_numbers_are_upgraded(tmp_path):
+    import json
+
+    b = broker(tmp_path)
+    b.submit(order("o1", kind=OrderType.LIMIT, limit_price=90.0))
+    path = tmp_path / "paper.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    for e in state["pending_events"]:
+        del e["event_seq"]
+    state.pop("event_seq")
+    path.write_bytes(json.dumps(state).encode())
+    events = broker(tmp_path).events()
+    assert [e.seq for e in events] == [1] and isinstance(events[0].event, OrderAccepted)
+
+
+def test_lock_is_held_by_the_os_and_never_broken_by_age(tmp_path, monkeypatch):
+    """Third review M1: a held lock is never taken over, however old the lock file is (flock / msvcrt)."""
+    import os
+
+    import quantlab.brokers.paper as paper
+
+    b = broker(tmp_path)
+    lock = tmp_path / "paper.lock"
+    os.utime(lock, (0, 0))  # ancient mtime: the old age-based breaker would have deleted it
+    monkeypatch.setattr(paper, "LOCK_TIMEOUT_S", 0.2)
+    with lock.open("a+b") as other:  # a second handle stands in for another process holding the lock
+        paper._acquire(other, lock)
+        with pytest.raises(BrokerUnavailable, match="locked by another process"):
+            b.submit(order("o1"))
+        paper._release(other)
+    assert lock.exists() and b.positions() == []
+    b.submit(order("o1"))  # released: works again
+    assert b.positions()[0].quantity == 10
+
+
+def test_quotes_are_fetched_outside_the_lock(tmp_path, monkeypatch):
+    """A slow quote source cannot hold the state lock: the lock is free while quotes are fetched."""
+    import quantlab.brokers.paper as paper
+
+    monkeypatch.setattr(paper, "LOCK_TIMEOUT_S", 0.2)
+    lock = tmp_path / "paper.lock"
+    seen = []
+    inner = Quotes()
+
+    def probing(symbol):
+        with lock.open("a+b") as fh:  # raises BrokerUnavailable if the broker held the lock right now
+            paper._acquire(fh, lock)
+            paper._release(fh)
+        seen.append(symbol)
+        return inner(symbol)
+
+    b = broker(tmp_path, probing)
+    b.submit(order("o1"))
+    assert seen == ["SPY"] and b.positions()[0].quantity == 10
 
 
 def test_exec_ids_are_unique_across_account_resets(tmp_path):
@@ -178,12 +251,12 @@ def test_two_processes_do_not_overwrite_each_other(tmp_path):
     assert broker(tmp_path).cash() == pytest.approx(100_000 - 2 * (1001.0 + 1.0))
 
 
-def test_lock_held_by_another_process_makes_the_broker_unavailable(tmp_path, monkeypatch):
+def test_quotes_gone_stale_while_waiting_for_the_lock_do_not_fill(tmp_path, monkeypatch):
     import quantlab.brokers.paper as paper
 
     b = broker(tmp_path)
-    (tmp_path / "paper.lock").write_text("held")
-    monkeypatch.setattr(paper, "LOCK_TIMEOUT_S", 0.05)
-    with pytest.raises(BrokerUnavailable, match="locked"):
-        b.submit(order("x"))
-    assert "x" not in broker(tmp_path).open_order_ids()
+    monkeypatch.setattr(paper, "PREFETCH_MAX_AGE_S", -1.0)  # every prefetch counts as stale
+    b.submit(order("o1"))
+    assert b.open_order_ids() == {"o1"} and b.positions() == []
+    monkeypatch.setattr(paper, "PREFETCH_MAX_AGE_S", 2.0)
+    assert ExecutionReport in {type(e) for e in drain(b)}  # the next call refetches and fills

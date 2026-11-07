@@ -220,3 +220,7 @@ never had the order); nothing is resubmitted. (6) Positions/cash only from fills
 rewrites. (7) Paper only: the OMS refuses non-paper brokers; order and kill-switch commands are CLI-only (API
 read-only). (8) Slices: 5a (this) local order path; 5b web console (UI-006), IBKR paper adapter (BRK-003/004,
 migration slice C), deployment supervisor (LIVE-001); OMS-007 (LEAN gateway brokerage, C#) needs .NET (KI-0055).
+Addendum (CHANGE-0027): broker events are acknowledged by sequence number (`acknowledge(through_seq)`), never by
+count; reconciliation reads one `BrokerSnapshot`; adapters must serialise state changes with an OS-level lock (or the
+broker's own server-side state), never an age-broken lock file; an order the broker works but the OMS does not track as
+working blocks new orders.

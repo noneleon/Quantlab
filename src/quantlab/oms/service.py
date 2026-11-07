@@ -43,7 +43,7 @@ from quantlab.brokers.base import (
     TimeInForce,
 )
 from quantlab.brokers.paper import PaperBroker, QuoteSource
-from quantlab.core.audit import AuditLog
+from quantlab.core.audit import AuditEntry, AuditLog, encode_details
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
@@ -57,6 +57,7 @@ log = get_logger(__name__)
 S = OrderState
 PAPER_ADAPTERS: tuple[type, ...] = (PaperBroker,)  # the IBKR *paper* adapter is added here in Phase 5b
 PENDING_SUBMIT_GRACE_S = 60.0  # a younger PENDING_SUBMIT may still be in flight in another process
+PENDING_CANCEL_GRACE_S = 60.0  # likewise a younger PENDING_CANCEL (its broker call may not have happened yet)
 
 
 class OMSError(RuntimeError):
@@ -266,8 +267,8 @@ class OMS:
             self._broker.cancel(order_id)
         except BrokerError as exc:
             restore = S.PARTIALLY_FILLED if current is S.PARTIALLY_FILLED else S.ACCEPTED
-            with self._sessions() as session:
-                self._event(session, order_id, restore, {"cancel_refused": str(exc)})
+            with self._sessions() as session:  # reconcile in another process may have resolved it already
+                self._try_event(session, order_id, restore, {"cancel_refused": str(exc)})
                 session.commit()
         except (
             Exception
@@ -286,29 +287,32 @@ class OMS:
         """
         events = self._broker.events()
         with self._sessions() as session:
-            for ev in events:
-                self._apply(session, ev, source="broker event")
+            for item in events:
+                self._apply(session, item.event, source="broker event")
             session.commit()
         if events:
-            self._broker.acknowledge(len(events))
+            self._broker.acknowledge(max(item.seq for item in events))
         return len(events)
 
     def reconcile(self) -> ReconciliationReport:
         """Fills from the broker, resolution of unknown submissions, positions/cash/open-order comparison."""
         report = ReconciliationReport()
         self.process_events()
+        snap = self._broker.snapshot()  # one consistent read of the broker's facts
+        open_ids = set(snap.open_order_ids)
         with self._sessions() as session:
             before = len(self.fills(session))
-            for ex in self._broker.executions():  # _apply compares every execution (detects colliding ids)
+            for ex in snap.executions:  # _apply compares every execution (detects colliding ids)
                 self._apply(session, ex, source="reconciliation")
             report.fills_added = len(self.fills(session)) - before
-            open_ids = self._broker.open_order_ids()
-            stale = self._clock.now() - timedelta(seconds=PENDING_SUBMIT_GRACE_S)
+            now = self._clock.now()
             for order, state in self.orders(session, limit=None):
                 last = queries.last_event(session, order.id)
                 since = last.created_at if last is not None else order.created_at
-                since = since if since.tzinfo else since.replace(tzinfo=UTC)
-                if state is S.PENDING_SUBMIT and since > stale:  # measured from the PENDING_SUBMIT event
+                age = (now - (since if since.tzinfo else since.replace(tzinfo=UTC))).total_seconds()
+                if (
+                    state is S.PENDING_SUBMIT and age < PENDING_SUBMIT_GRACE_S
+                ):  # from its PENDING_SUBMIT event
                     report.open_order_mismatches.append(
                         {"order_id": order.id, "state": state.value, "broker": "submission may be in flight"}
                     )
@@ -335,6 +339,11 @@ class OMS:
                     report.resolved.append({"order_id": order.id, "state": target.value})
                 elif state is S.PENDING_CANCEL:
                     filled = self._filled_quantity(session, order.id)
+                    if order.id in open_ids and age < PENDING_CANCEL_GRACE_S:
+                        report.open_order_mismatches.append(
+                            {"order_id": order.id, "state": state.value, "broker": "cancel may be in flight"}
+                        )
+                        continue
                     if order.id in open_ids:
                         target = S.PARTIALLY_FILLED if filled else S.ACCEPTED
                     else:
@@ -347,19 +356,23 @@ class OMS:
                     report.open_order_mismatches.append(
                         {"order_id": order.id, "state": state.value, "broker": "not working at broker"}
                     )
+                elif state in TERMINAL and order.id in open_ids:  # invisible to the risk gate: investigate
+                    report.open_order_mismatches.append(
+                        {"order_id": order.id, "state": state.value, "broker": "still working at broker"}
+                    )
             for oid in sorted(open_ids):
                 if session.get(Order, oid) is None:
                     report.open_order_mismatches.append(
                         {"order_id": oid, "state": None, "broker": "unknown to OMS"}
                     )
             book = self.book(session)
-            broker_pos = {p.symbol: p.quantity for p in self._broker.positions()}
+            broker_pos = {p.symbol: p.quantity for p in snap.positions}
             ours = {s: p.quantity for s, p in book.positions.items() if abs(p.quantity) > 1e-9}
             for sym in sorted(set(broker_pos) | set(ours)):
                 a, b = ours.get(sym, 0.0), broker_pos.get(sym, 0.0)
                 if abs(a - b) > 1e-9:
                     report.position_mismatches.append({"symbol": sym, "oms": a, "broker": b})
-            report.cash_difference = book.cash - self._broker.cash()
+            report.cash_difference = book.cash - snap.cash
             session.commit()
         report.anomalies = list(self.anomalies)
         return report
@@ -384,7 +397,21 @@ class OMS:
         )
         session.flush()
 
-    def _try_event(self, session: Session, order_id: str, state: OrderState, detail: dict[str, Any]) -> None:
+    def _try_event(
+        self,
+        session: Session,
+        order_id: str,
+        state: OrderState,
+        detail: dict[str, Any],
+        *,
+        from_fill: bool = False,
+    ) -> None:
+        """Apply a broker-reported state if the machine allows it; otherwise record an anomaly.
+
+        A replayed *status* event (crash before acknowledge) whose state the order already passed through is
+        ignored. A state driven by a newly recorded fill is never a replay (fills are deduplicated by exec id
+        first), so it is always applied or reported.
+        """
         current = self.state(session, order_id)
         if current == state and state is not S.PARTIALLY_FILLED:
             return
@@ -392,13 +419,25 @@ class OMS:
             self._event(session, order_id, state, detail)
             return
         seen = {e.state for e in queries.order_events(session, order_id)}
-        if state.value in seen:  # a replayed event (crash before acknowledge): already applied, nothing to do
+        if not from_fill and state.value in seen:
             return
-        self._anomaly(session, f"order {order_id}: broker reported {state} while {current} (state unchanged)")
+        ref = f" [exec {detail['exec_id']}]" if "exec_id" in detail else ""
+        self._anomaly(
+            session, f"order {order_id}: broker reported {state} while {current} (state unchanged){ref}"
+        )
 
     def _anomaly(self, session: Session, message: str) -> None:
         """Anomalies are persisted in the audit log (and returned by reconcile), never only kept in memory."""
-        self.anomalies.append(message)
+        if message not in self.anomalies:
+            self.anomalies.append(message)
+        already = session.execute(
+            select(AuditEntry.seq)
+            .where(AuditEntry.action == "oms.anomaly", AuditEntry.target == self.account)
+            .where(AuditEntry.details == encode_details({"message": message}))
+            .limit(1)
+        ).scalar_one_or_none()
+        if already is not None:  # reconcile re-applies everything: record each anomaly once
+            return
         log.warning("oms.anomaly", message=message)
         self._audit.record(
             session, actor_type="system", actor="oms", action="oms.anomaly", target=self.account,
@@ -454,7 +493,11 @@ class OMS:
             if filled > order.quantity + 1e-9:
                 self._anomaly(session, f"order {order.id}: filled {filled} > ordered {order.quantity}")
             self._try_event(
-                session, order.id, target, {"exec_id": ev.exec_id, "filled": filled, "source": source}
+                session,
+                order.id,
+                target,
+                {"exec_id": ev.exec_id, "filled": filled, "source": source},
+                from_fill=True,
             )
             return True
         if isinstance(ev, OrderAccepted):
@@ -514,6 +557,13 @@ class OMS:
         unresolved = sum(
             1 for o, st in everything if o.id != order.id and st in (S.PENDING_SUBMIT, S.SUBMIT_UNKNOWN)
         )
+        # Orders the broker still works but the OMS considers finished (or never knew) are invisible to the
+        # exposure checks: block new orders until reconcile/a person resolves them. Unknown = blocked too.
+        tracked = {o.id for o, st in everything if st in WORKING or st is S.PENDING_SUBMIT}
+        try:
+            unresolved += len(self._broker.open_order_ids() - tracked - {order.id})
+        except BrokerError:
+            unresolved += 1
         pending = [
             PendingOrder(
                 o.symbol,

@@ -107,6 +107,24 @@ class BrokerPosition:
     average_price: float
 
 
+@dataclass(frozen=True)
+class SequencedEvent:
+    """A broker event with its broker-assigned sequence number (acknowledged by number, never by count)."""
+
+    seq: int
+    event: BrokerEvent
+
+
+@dataclass(frozen=True)
+class BrokerSnapshot:
+    """Broker facts read together, at one instant (reconciliation compares against a consistent view)."""
+
+    open_order_ids: frozenset[str]
+    executions: tuple[ExecutionReport, ...]
+    positions: tuple[BrokerPosition, ...]
+    cash: float
+
+
 @runtime_checkable
 class BrokerAdapter(Protocol):
     name: str
@@ -118,12 +136,12 @@ class BrokerAdapter(Protocol):
 
     def cancel(self, order_id: str) -> None: ...
 
-    def events(self) -> list[BrokerEvent]:
-        """Unacknowledged events in broker order (returned again until ``acknowledge`` is called)."""
+    def events(self) -> list[SequencedEvent]:
+        """Unacknowledged events in broker order (returned again until ``acknowledge`` covers them)."""
         ...
 
-    def acknowledge(self, count: int) -> None:
-        """The caller durably processed the first ``count`` events returned by ``events``."""
+    def acknowledge(self, through_seq: int) -> None:
+        """The caller durably processed every event numbered up to and including ``through_seq``."""
         ...
 
     def positions(self) -> list[BrokerPosition]: ...
@@ -136,4 +154,8 @@ class BrokerAdapter(Protocol):
 
     def executions(self) -> list[ExecutionReport]:
         """All executions the broker knows for this session/account (reconciliation)."""
+        ...
+
+    def snapshot(self) -> BrokerSnapshot:
+        """Open order ids, executions, positions and cash from one consistent read (reconciliation)."""
         ...

@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0026 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0027 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -39,9 +39,12 @@
   append-only history (migration 0005), `strategy from-notebook` (outputs stripped).
 - CHANGE-0025 (Phase 5a, DEC-0027): OMS + central risk gate + kill switch + paper broker + confirmed book +
   reconciliation (migration 0006); `quantlab risk …`, `quantlab paper …` (paper only, CLI-only writes).
+- CHANGE-0026/0027: second and third trading-safety reviews fixed (market-mark equity, persisted anomalies, TTY-only
+  disengage, OS-level paper-broker lock, event ack by sequence, snapshot reconcile, fills never hidden as replays,
+  untracked broker orders block new orders). A fourth review found no BLOCKER/MAJOR; open minors are KI-0068..0071.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 508 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Python: `uv run pytest` → 521 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: unchanged (21 passed). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note

@@ -227,8 +227,11 @@ class RiskGate:
         same_side = sum(p.signed_quantity for p in same)
         after = held + same_side + signed
         plain_after = held + signed
+        # "Reduces the position" only exempts an order when no other order on the symbol is working, on either
+        # side: an opposite-side working order could flip the position first (with allow_short).
+        working_here = any(p.symbol == intent.symbol for p in ctx.pending)
         reduces = (
-            not same
+            not working_here
             and abs(plain_after) < abs(held)
             and (plain_after == 0 or (plain_after > 0) == (held > 0))
         )
