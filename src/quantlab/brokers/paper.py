@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+import os
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +46,8 @@ from quantlab.core.ids import new_id
 from quantlab.data.market_data import Quote
 
 QuoteSource = Callable[[str], Quote | None]
+LOCK_TIMEOUT_S = 10.0
+LOCK_STALE_S = 60.0
 
 
 class PaperBroker:
@@ -95,7 +100,7 @@ class PaperBroker:
         return f"{prefix}-{self._state['seq']:08d}"
 
     # ---- BrokerAdapter ------------------------------------------------------------------------------
-    def submit(self, order: BrokerOrder) -> None:
+    def _submit_unlocked(self, order: BrokerOrder) -> None:
         mode, self.fail_next = self.fail_next, None
         if mode == "unavailable":
             raise BrokerUnavailable("paper broker: simulated disconnect")
@@ -125,18 +130,18 @@ class PaperBroker:
             raise SubmitUnknown("paper broker: simulated timeout after the order was placed")
         self._match()
 
-    def cancel(self, order_id: str) -> None:
+    def _cancel_unlocked(self, order_id: str) -> None:
         if order_id not in self._state["working"]:
             raise BrokerError(f"order {order_id} is not working")
         del self._state["working"][order_id]
         self._emit(OrderCancelled(order_id, self._now()))
         self._save()
 
-    def events(self) -> list[BrokerEvent]:
+    def _events_unlocked(self) -> list[BrokerEvent]:
         self._match()
         return [_decode(e) for e in self._state.setdefault("pending_events", [])]
 
-    def acknowledge(self, count: int) -> None:
+    def _acknowledge_unlocked(self, count: int) -> None:
         pending = self._state.setdefault("pending_events", [])
         del pending[:count]
         self._save()
@@ -145,30 +150,101 @@ class PaperBroker:
         """Events are persisted with the broker state until acknowledged, so a crash never loses them."""
         self._state.setdefault("pending_events", []).append(_encode(ev))
 
-    def positions(self) -> list[BrokerPosition]:
+    def _positions_unlocked(self) -> list[BrokerPosition]:
         return [
             BrokerPosition(sym, p["quantity"], p["average_price"])
             for sym, p in sorted(self._state["positions"].items())
             if p["quantity"] != 0
         ]
 
-    def cash(self) -> float:
+    def _cash_unlocked(self) -> float:
         return float(self._state["cash"])
 
-    def open_order_ids(self) -> set[str]:
+    def _open_order_ids_unlocked(self) -> set[str]:
         return set(self._state["working"])
 
-    def executions(self) -> list[ExecutionReport]:
+    def _executions_unlocked(self) -> list[ExecutionReport]:
         return [_report(e) for e in self._state["executions"]]
 
     # ---- session ------------------------------------------------------------------------------------
-    def expire_day_orders(self) -> None:
+    def _expire_day_orders_unlocked(self) -> None:
         """End of session: DAY orders expire."""
         for order_id, w in list(self._state["working"].items()):
             if w["time_in_force"] == TimeInForce.DAY:
                 del self._state["working"][order_id]
                 self._emit(OrderExpired(order_id, self._now()))
         self._save()
+
+    # ---- process-safe public API: calls reload the state file; changes run under an exclusive lock ----
+    def submit(self, order: BrokerOrder) -> None:
+        with self._locked():
+            self._submit_unlocked(order)
+
+    def cancel(self, order_id: str) -> None:
+        with self._locked():
+            self._cancel_unlocked(order_id)
+
+    def events(self) -> list[BrokerEvent]:
+        with self._locked():
+            return self._events_unlocked()
+
+    def acknowledge(self, count: int) -> None:
+        with self._locked():
+            self._acknowledge_unlocked(count)
+
+    def expire_day_orders(self) -> None:
+        with self._locked():
+            self._expire_day_orders_unlocked()
+
+    def positions(self) -> list[BrokerPosition]:
+        self._reload()
+        return self._positions_unlocked()
+
+    def cash(self) -> float:
+        self._reload()
+        return self._cash_unlocked()
+
+    def open_order_ids(self) -> set[str]:
+        self._reload()
+        return self._open_order_ids_unlocked()
+
+    def executions(self) -> list[ExecutionReport]:
+        self._reload()
+        return self._executions_unlocked()
+
+    def _reload(self) -> None:
+        if self._file.is_file():
+            self._state = json.loads(self._file.read_text(encoding="utf-8"))
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Exclusive lock file (O_EXCL): another process can never overwrite this state with a stale copy."""
+        lock = self._file.with_suffix(".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + LOCK_TIMEOUT_S
+        while True:
+            try:
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except FileExistsError:
+                try:
+                    stale = time.time() - lock.stat().st_mtime > LOCK_STALE_S
+                except FileNotFoundError:
+                    continue
+                if stale:  # left behind by a crashed process
+                    lock.unlink(missing_ok=True)
+                    continue
+                if time.monotonic() > deadline:
+                    raise BrokerUnavailable(
+                        f"paper broker state is locked by another process ({lock})"
+                    ) from None
+                time.sleep(0.02)
+        try:
+            self._reload()
+            yield
+        finally:
+            os.close(fd)
+            lock.unlink(missing_ok=True)
 
     # ---- matching -------------------------------------------------------------------------------------
     def _match(self) -> None:

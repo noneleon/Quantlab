@@ -166,3 +166,24 @@ def test_exec_ids_are_unique_across_account_resets(tmp_path):
     b = broker(tmp_path / "b")  # a fresh state file restarts every counter
     b.submit(order("y"))
     assert {e.exec_id for e in a.executions()}.isdisjoint({e.exec_id for e in b.executions()})
+
+
+def test_two_processes_do_not_overwrite_each_other(tmp_path):
+    """Second review: a stale in-memory copy must never overwrite another process's fills."""
+    a = broker(tmp_path)
+    b = broker(tmp_path)  # built earlier, e.g. a slow `paper positions`
+    a.submit(order("from-a"))
+    b.submit(order("from-b"))
+    assert {e.order_id for e in broker(tmp_path).executions()} == {"from-a", "from-b"}
+    assert broker(tmp_path).cash() == pytest.approx(100_000 - 2 * (1001.0 + 1.0))
+
+
+def test_lock_held_by_another_process_makes_the_broker_unavailable(tmp_path, monkeypatch):
+    import quantlab.brokers.paper as paper
+
+    b = broker(tmp_path)
+    (tmp_path / "paper.lock").write_text("held")
+    monkeypatch.setattr(paper, "LOCK_TIMEOUT_S", 0.05)
+    with pytest.raises(BrokerUnavailable, match="locked"):
+        b.submit(order("x"))
+    assert "x" not in broker(tmp_path).open_order_ids()

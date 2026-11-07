@@ -152,5 +152,5 @@ allow_indirect_imports = true
 name = "broker adapters are wired only by bootstrap and driven only by the OMS"
 type = "forbidden"
 source_modules = ["quantlab.api", "quantlab.cli", "quantlab.research"]
-forbidden_modules = ["quantlab.brokers.paper"]
+forbidden_modules = ["quantlab.brokers"]  # every adapter, current and future (enums are re-exported by the OMS)
 allow_indirect_imports = true

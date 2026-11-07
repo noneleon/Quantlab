@@ -470,3 +470,27 @@ its outcome is recorded in the next ledger entry.
 Tests: Python 504 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. Paper tests use synthetic
 SIMULATED quotes only.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0026 — Phase 5a follow-up: second safety-review findings fixed
+Date: 2026-11-07 · Modules: risk, oms, brokers, cli, api · Feature IDs: RISK-001..004, OMS-003..006, BRK-002, PORT-002
+Problem: the second trading-safety review of CHANGE-0025 (no BLOCKER) found 4 MAJOR + 8 MINOR issues, one a regression
+introduced by the conservative-valuation fix.
+Fixes (each with a regression test):
+- MAJOR: equity / daily-loss check valued at market marks; only notional, position and exposure use the conservative
+  reference (a far-away limit could inflate equity and pass the loss limit).
+- MAJOR: OMS anomalies are persisted to the audit log; reconcile re-applies every broker execution so colliding exec
+  ids are always compared.
+- MAJOR: kill-switch disengage requires an interactive terminal (stdin and stdout TTYs; piped input refused); the
+  audit entry records the channel.
+- MAJOR: paper broker state is changed only under an exclusive lock file with reload-under-lock (two processes can no
+  longer overwrite each other's fills); a held lock makes the broker unavailable (nothing sent).
+- MINOR: API portfolio uses the pinned starting cash and warns on mismatch; paper results always carry a
+  simulated-execution warning; same-symbol working orders valued at max(own price, reference); working orders on
+  unheld symbols are marked from quotes; PENDING_SUBMIT grace measured from the event; a submit outcome after a
+  concurrent reconciliation becomes an anomaly, not a crash; replayed events already in an order's history are ignored
+  (no false anomalies); a cancel failing with an unexpected error stays PENDING_CANCEL and reconcile resolves it from
+  broker facts; the import contract forbids api/cli/research importing any broker module (enums re-exported by the
+  OMS).
+Tests: Python 508 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. A third review pass of these
+fixes was started at commit time; its outcome is recorded in the next entry.
+Result: PASS · Regression status: PASS

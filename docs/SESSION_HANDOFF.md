@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0025 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0026 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -41,7 +41,7 @@
   reconciliation (migration 0006); `quantlab risk …`, `quantlab paper …` (paper only, CLI-only writes).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 504 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Python: `uv run pytest` → 508 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
 Web: unchanged (21 passed). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note

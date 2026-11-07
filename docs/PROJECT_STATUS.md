@@ -2,7 +2,7 @@
 
 **Current phase:** Phase 2 — Market data & research (2a data foundation, 2b LEAN export/backtests on datasets, 2c research API + Jupyter, 2d web UI shell done; 2e corporate actions + Tiingo provider done; Phase 2 functionally complete except RES-003/005 and UI polish).
 Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
-**Last change:** CHANGE-0025 (2026-11-07)
+**Last change:** CHANGE-0026 (2026-11-07)
 **Overall health:** Core, LEAN engine adapter (never run against real LEAN), strategies, backtests, analytics, CLI, read-only API and the data catalog are implemented and tested (CI green). No trading or portfolio yet; the web UI edits strategy files only (everything else read-only).
 
 ## Phase progress
@@ -31,7 +31,7 @@ Phase 1 code complete; **M1 acceptance (real LEAN on Docker) still pending.**
 - `web/` (UI-001/002/004/008): React UI served by `quantlab serve` (token URL printed at start).
 - Packaging: `pyproject.toml` + `uv.lock`, Python 3.11 (CORE-001). CI: `.github/workflows/ci.yml` (MEM-004, green on ubuntu + windows).
 - `tools/env_check.py` environment probe.
-- Tests: 504 Python passing + 16 web (vitest) + 1 Docker-gated skip (`uv run pytest`), 92 % coverage; 3 import-linter contracts in CI.
+- Tests: 508 Python passing + 16 web (vitest) + 1 Docker-gated skip (`uv run pytest`), 92 % coverage; 3 import-linter contracts in CI.
 - PR noneleon/Quantlab#1 open from this branch (opened by owner).
 
 ## Decisions

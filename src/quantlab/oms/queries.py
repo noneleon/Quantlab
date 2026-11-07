@@ -77,8 +77,22 @@ def fill_price_states(session: Session, account: str) -> list[str]:
     return sorted({f.price_state for f in fills(session, account)})
 
 
-def simulation_warning(states: list[str]) -> str | None:
+def simulation_warning(states: list[str], *, paper: bool = True) -> str | None:
+    """Paper results are always simulated executions (no partial fills, impact or queue position); non-LIVE
+    prices make them doubly so. Real-broker fills on LIVE prices carry no warning."""
     non_live = [s for s in states if s != "LIVE"]
-    if not non_live:
-        return None
-    return f"fills based on {'/'.join(non_live)} prices: simulated paper results, not a performance claim"
+    parts = []
+    if paper:
+        parts.append(
+            "paper trading: simulated executions (no partial fills, market impact or queue position)"
+        )
+    if non_live:
+        parts.append(f"fills priced from {'/'.join(non_live)} quotes")
+    return "; ".join(parts) + " — not a performance claim" if parts else None
+
+
+def account_starting_cash(session: Session, account: str) -> float | None:
+    from quantlab.oms.models import OmsAccount
+
+    row = session.get(OmsAccount, account)
+    return row.starting_cash if row is not None else None

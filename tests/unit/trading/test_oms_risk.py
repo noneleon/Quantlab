@@ -271,15 +271,26 @@ def test_reconciliation_reports_but_never_rewrites_positions(stack):
         assert oms.book(s).quantity("SPY") == 10  # confirmed book unchanged
 
 
-def test_late_broker_event_is_an_anomaly(stack):
-    from quantlab.brokers.base import OrderAccepted
+def test_late_broker_event_is_an_anomaly_and_persisted_but_replays_are_silent(stack):
+    from quantlab.brokers.base import OrderAccepted, OrderCancelled
+    from quantlab.core.audit import AuditEntry
 
     oms = stack["oms"]
     r = oms.submit(req("k"))
-    stack["broker"]._emit(OrderAccepted(r.order.id, "late", stack["clock"].now()))
+    stack["broker"]._emit(OrderAccepted(r.order.id, "replayed", stack["clock"].now()))  # already in history
     stack["broker"]._save()
     oms.process_events()
-    assert any("broker reported ACCEPTED while FILLED" in a for a in oms.anomalies)
+    assert oms.anomalies == []
+    stack["broker"]._emit(
+        OrderCancelled(r.order.id, stack["clock"].now())
+    )  # cancel after the fill: real anomaly
+    stack["broker"]._save()
+    oms.process_events()
+    assert any("broker reported CANCELLED while FILLED" in a for a in oms.anomalies)
+    with stack["sessions"]() as s:
+        assert (
+            s.query(AuditEntry).filter_by(action="oms.anomaly").count() == 1
+        )  # persisted, not only in memory
 
 
 def test_only_paper_brokers(stack):
@@ -378,7 +389,7 @@ def test_fills_are_labelled_with_their_price_state(stack):
     with stack["sessions"]() as s:
         states = queries.fill_price_states(s, "paper")
         assert states == ["SIMULATED"] and "not a performance claim" in queries.simulation_warning(states)
-        assert queries.simulation_warning(["LIVE"]) is None
+        assert queries.simulation_warning(["LIVE"], paper=False) is None  # only real-broker LIVE fills
 
 
 def test_unresolved_submission_blocks_new_orders_until_reconciled(stack):
@@ -453,3 +464,27 @@ def test_refused_cancel_restores_partially_filled(stack, monkeypatch):
     r = oms.submit(req("lim", order_type=OrderType.LIMIT, limit_price=10.0))
     monkeypatch.setattr(stack["broker"], "cancel", lambda oid: (_ for _ in ()).throw(BrokerError("too late")))
     assert oms.cancel(r.order.id) is S.ACCEPTED
+
+
+def test_paper_always_warns_even_on_live_quotes():
+    from quantlab.oms.queries import simulation_warning
+
+    assert "simulated executions" in simulation_warning(["LIVE"])
+    assert simulation_warning(["LIVE"], paper=False) is None
+    assert "SIMULATED quotes" in simulation_warning(["SIMULATED"])
+
+
+def test_daily_loss_check_uses_market_marks_not_the_order_reference(stack):
+    """Second review, finding 1: a far-away limit must not inflate equity in the daily loss check."""
+    oms, quotes = stack["oms"], stack["quotes"]
+    stack["limits"].write_text(
+        LIMITS.replace("max_order_notional = 5000.0", "max_order_notional = 50000.0")
+        .replace("max_position_notional = 8000.0", "max_position_notional = 50000.0")
+        .replace("max_gross_exposure_fraction = 0.5", "max_gross_exposure_fraction = 5.0")
+    )
+    assert oms.submit(req("buy", qty=100)).state is S.FILLED  # 100 SPY at ~50
+    quotes.px["SPY"] = 45.5  # -450 -> 2.25 % below start of day
+    r = oms.submit(
+        req("more", qty=1, order_type=OrderType.LIMIT, limit_price=60.0)
+    )  # reference 60 would inflate
+    assert r.state is S.RISK_REJECTED and any("daily loss limit" in x for x in r.decision.reasons)

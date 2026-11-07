@@ -619,13 +619,21 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
         """Confirmed book from fills (unmarked: marking needs live quotes, see `quantlab paper positions`)."""
         with ctx.sessions() as session:
             account = ctx.settings.paper.account
-            book = oms_queries.confirmed_book(session, account, ctx.settings.paper.starting_cash)
+            pinned = oms_queries.account_starting_cash(session, account)
+            configured = ctx.settings.paper.starting_cash
+            book = oms_queries.confirmed_book(session, account, pinned if pinned is not None else configured)
             states = oms_queries.fill_price_states(session, account)
+            warnings = [w for w in [oms_queries.simulation_warning(states)] if w]
+            if pinned is not None and abs(pinned - configured) > 1e-9:
+                warnings.append(
+                    f"paper.starting_cash is {configured} but the account started with {pinned}; the "
+                    "pinned value is used and the OMS refuses orders until the configuration matches"
+                )
             return {
                 "account": account,
                 "mode": "paper",
                 "fill_price_states": states,
-                "warning": oms_queries.simulation_warning(states),
+                "warning": "; ".join(warnings) or None,
                 **book.snapshot(),
             }
 

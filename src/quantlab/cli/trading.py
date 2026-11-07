@@ -9,6 +9,7 @@ agents must not run them (CLAUDE.md §4).
 from __future__ import annotations
 
 import json
+import sys
 from typing import Annotated, Any
 
 import typer
@@ -23,6 +24,11 @@ paper_app = typer.Typer(
     no_args_is_help=True, help="Paper trading (simulated broker) through the OMS + risk gate."
 )
 ReasonOpt = Annotated[str, typer.Option(help="Why (recorded in the audit log).")]
+
+
+def _interactive() -> bool:
+    """True only when a person is at a terminal (stdin and stdout are TTYs, nothing piped in)."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 @risk_app.command("init")
@@ -81,12 +87,19 @@ def kill_disengage(reason: ReasonOpt = "", home: HomeOpt = None) -> None:
     """Allow orders again. Asks interactively for the typed confirmation phrase (no command-line option)."""
     from quantlab.risk.gate import DISENGAGE_CONFIRMATION, RiskError
 
+    if not _interactive():
+        fail(
+            "the kill switch can only be disengaged by a person at an interactive terminal "
+            "(no piped input, scripts or AI tools; CLAUDE.md §4)"
+        )
     confirm = typer.prompt(
         f'Type "{DISENGAGE_CONFIRMATION}" to allow new orders again', default="", show_default=False
     )
     with context(home) as ctx, ctx.sessions() as session:
         try:
-            ctx.kill_switch().disengage(session, actor="owner", reason=reason, confirmation=confirm)
+            ctx.kill_switch().disengage(
+                session, actor="owner", reason=reason, confirmation=confirm, channel="interactive terminal"
+            )
         except RiskError as exc:
             fail(str(exc))
         session.commit()
@@ -138,8 +151,7 @@ def paper_order(
     as_json: JsonOpt = False,
 ) -> None:
     """Submit a PAPER order (simulated broker) through the OMS and the risk gate."""
-    from quantlab.brokers.base import OrderType, Side, TimeInForce
-    from quantlab.oms.service import OrderRequest
+    from quantlab.oms.service import OrderRequest, OrderType, Side, TimeInForce
 
     try:
         request = OrderRequest(

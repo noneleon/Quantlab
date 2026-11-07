@@ -43,6 +43,7 @@ from quantlab.brokers.base import (
     TimeInForce,
 )
 from quantlab.brokers.paper import PaperBroker, QuoteSource
+from quantlab.core.audit import AuditLog
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
@@ -127,6 +128,7 @@ class OMS:
         self._starting_cash = starting_cash
         self._clock = clock or SystemClock()
         self.anomalies: list[str] = []
+        self._audit = AuditLog(self._clock)
 
     # ---- queries ---------------------------------------------------------------------------------
     def state(self, session: Session, order_id: str) -> OrderState:
@@ -245,7 +247,9 @@ class OMS:
         ) as exc:  # unexpected adapter failure: the outcome is unknown, never assume "not placed"
             outcome, detail = S.SUBMIT_UNKNOWN, {"error": repr(exc), "note": "resolve with reconcile"}
         with self._sessions() as session:
-            self._event(session, order.id, outcome, detail)
+            self._try_event(
+                session, order.id, outcome, detail
+            )  # another process may have reconciled it meanwhile
             session.commit()
         self.process_events()
         with self._sessions() as session:
@@ -264,6 +268,12 @@ class OMS:
             restore = S.PARTIALLY_FILLED if current is S.PARTIALLY_FILLED else S.ACCEPTED
             with self._sessions() as session:
                 self._event(session, order_id, restore, {"cancel_refused": str(exc)})
+                session.commit()
+        except (
+            Exception
+        ) as exc:  # outcome unknown: stays PENDING_CANCEL; reconcile resolves it from broker facts
+            with self._sessions() as session:
+                self._anomaly(session, f"order {order_id}: cancel outcome unknown ({exc!r}); run reconcile")
                 session.commit()
         self.process_events()
         with self._sessions() as session:
@@ -288,17 +298,17 @@ class OMS:
         report = ReconciliationReport()
         self.process_events()
         with self._sessions() as session:
-            known = {f.exec_id for f in self.fills(session)}
-            for ex in self._broker.executions():
-                if ex.exec_id not in known and self._apply(session, ex, source="reconciliation"):
-                    report.fills_added += 1
+            before = len(self.fills(session))
+            for ex in self._broker.executions():  # _apply compares every execution (detects colliding ids)
+                self._apply(session, ex, source="reconciliation")
+            report.fills_added = len(self.fills(session)) - before
             open_ids = self._broker.open_order_ids()
             stale = self._clock.now() - timedelta(seconds=PENDING_SUBMIT_GRACE_S)
             for order, state in self.orders(session, limit=None):
-                created = (
-                    order.created_at if order.created_at.tzinfo else order.created_at.replace(tzinfo=UTC)
-                )
-                if state is S.PENDING_SUBMIT and created > stale:
+                last = queries.last_event(session, order.id)
+                since = last.created_at if last is not None else order.created_at
+                since = since if since.tzinfo else since.replace(tzinfo=UTC)
+                if state is S.PENDING_SUBMIT and since > stale:  # measured from the PENDING_SUBMIT event
                     report.open_order_mismatches.append(
                         {"order_id": order.id, "state": state.value, "broker": "submission may be in flight"}
                     )
@@ -322,6 +332,16 @@ class OMS:
                     else:
                         target = S.NOT_PLACED
                     self._event(session, order.id, target, {"resolved_by": "reconciliation"})
+                    report.resolved.append({"order_id": order.id, "state": target.value})
+                elif state is S.PENDING_CANCEL:
+                    filled = self._filled_quantity(session, order.id)
+                    if order.id in open_ids:
+                        target = S.PARTIALLY_FILLED if filled else S.ACCEPTED
+                    else:
+                        target = S.FILLED if filled >= order.quantity - 1e-9 else S.CANCELLED
+                    self._event(
+                        session, order.id, target, {"resolved_by": "reconciliation", "was": "PENDING_CANCEL"}
+                    )
                     report.resolved.append({"order_id": order.id, "state": target.value})
                 elif state in WORKING and order.id not in open_ids:
                     report.open_order_mismatches.append(
@@ -370,10 +390,20 @@ class OMS:
             return
         if can_transition(current, state):
             self._event(session, order_id, state, detail)
-        else:
-            msg = f"order {order_id}: broker reported {state} while {current} (anomaly; state unchanged)"
-            self.anomalies.append(msg)
-            log.warning("oms.anomaly", order_id=order_id, reported=state, current=current)
+            return
+        seen = {e.state for e in queries.order_events(session, order_id)}
+        if state.value in seen:  # a replayed event (crash before acknowledge): already applied, nothing to do
+            return
+        self._anomaly(session, f"order {order_id}: broker reported {state} while {current} (state unchanged)")
+
+    def _anomaly(self, session: Session, message: str) -> None:
+        """Anomalies are persisted in the audit log (and returned by reconcile), never only kept in memory."""
+        self.anomalies.append(message)
+        log.warning("oms.anomaly", message=message)
+        self._audit.record(
+            session, actor_type="system", actor="oms", action="oms.anomaly", target=self.account,
+            details={"message": message},
+        )  # fmt: skip
 
     def _filled_quantity(self, session: Session, order_id: str) -> float:
         return queries.filled_quantity(session, order_id)
@@ -381,7 +411,7 @@ class OMS:
     def _apply(self, session: Session, ev: Any, *, source: str) -> bool:
         order = session.get(Order, ev.order_id)
         if order is None:
-            self.anomalies.append(f"{source}: event for unknown order {ev.order_id} ({type(ev).__name__})")
+            self._anomaly(session, f"{source}: event for unknown order {ev.order_id} ({type(ev).__name__})")
             return False
         if isinstance(ev, ExecutionReport):
             exists = session.execute(
@@ -394,10 +424,11 @@ class OMS:
             if exists is not None:
                 same = (exists.order_id, exists.quantity, exists.price) == (order.id, ev.quantity, ev.price)
                 if not same:  # never silently drop a different fill that reuses an id
-                    self.anomalies.append(
+                    self._anomaly(
+                        session,
                         f"{source}: exec id {ev.exec_id} already recorded for order {exists.order_id} with "
                         "different "
-                        f"values; the new report for order {order.id} was NOT recorded — investigate"
+                        f"values; the new report for order {order.id} was NOT recorded — investigate",
                     )
                 return False
             session.add(
@@ -421,7 +452,7 @@ class OMS:
             filled = self._filled_quantity(session, order.id)
             target = S.FILLED if filled >= order.quantity - 1e-9 else S.PARTIALLY_FILLED
             if filled > order.quantity + 1e-9:
-                self.anomalies.append(f"order {order.id}: filled {filled} > ordered {order.quantity}")
+                self._anomaly(session, f"order {order.id}: filled {filled} > ordered {order.quantity}")
             self._try_event(
                 session, order.id, target, {"exec_id": ev.exec_id, "filled": filled, "source": source}
             )
@@ -464,7 +495,6 @@ class OMS:
     def _context(self, session: Session, order: Order) -> RiskContext:
         book = self.book(session)
         held = [s for s, p in book.positions.items() if abs(p.quantity) > 1e-9]
-        marks = self.marks(held)
         now = self._clock.now()
         recent = list(
             session.execute(
@@ -476,6 +506,8 @@ class OMS:
             ).scalars()
         )
         everything = self.orders(session, limit=None)
+        working_symbols = {o.symbol for o, st in everything if o.id != order.id and st in WORKING}
+        marks = self.marks(sorted(set(held) | working_symbols))  # price working orders on unheld symbols too
         open_count = sum(
             1 for o, st in everything if o.id != order.id and (st in WORKING or st is S.PENDING_SUBMIT)
         )
@@ -518,4 +550,14 @@ class OMS:
         return equity
 
 
-__all__ = ["OMS", "TERMINAL", "OMSError", "OrderRequest", "ReconciliationReport", "SubmitResult"]
+__all__ = [
+    "OMS",
+    "TERMINAL",
+    "OMSError",
+    "OrderRequest",
+    "OrderType",  # re-exported so transport layers never import broker modules
+    "ReconciliationReport",
+    "Side",
+    "SubmitResult",
+    "TimeInForce",
+]

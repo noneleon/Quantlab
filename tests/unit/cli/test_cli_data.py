@@ -279,6 +279,9 @@ def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
     assert ql("risk", "kill-switch", "engage", "--reason", "test").exit_code == 0
     r = ql("paper", "order", "SPY", "buy", "1", "--key", "k2")
     assert r.exit_code == 1 and "kill switch" in r.output
+    piped = ql_input("DISENGAGE KILL SWITCH\n", "risk", "kill-switch", "disengage", "--reason", "ok")
+    assert piped.exit_code == 1 and "interactive terminal" in piped.output  # piped input is refused
+    monkeypatch.setattr("quantlab.cli.trading._interactive", lambda: True)  # a person at a terminal
     assert ql_input("yes\n", "risk", "kill-switch", "disengage", "--reason", "ok").exit_code == 1
     ok = ql_input("DISENGAGE KILL SWITCH\n", "risk", "kill-switch", "disengage", "--reason", "ok")
     assert ok.exit_code == 0, ok.output

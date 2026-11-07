@@ -109,12 +109,16 @@ class KillSwitch:
     def engage(self, session: Session, *, actor: str, reason: str) -> KillSwitchEvent:
         return self._record(session, True, actor, reason)
 
-    def disengage(self, session: Session, *, actor: str, reason: str, confirmation: str) -> KillSwitchEvent:
+    def disengage(
+        self, session: Session, *, actor: str, reason: str, confirmation: str, channel: str = "unspecified"
+    ) -> KillSwitchEvent:
         if confirmation != DISENGAGE_CONFIRMATION:
             raise RiskError(f"to disengage the kill switch type exactly: {DISENGAGE_CONFIRMATION}")
-        return self._record(session, False, actor, reason)
+        return self._record(session, False, actor, reason, channel)
 
-    def _record(self, session: Session, engaged: bool, actor: str, reason: str) -> KillSwitchEvent:
+    def _record(
+        self, session: Session, engaged: bool, actor: str, reason: str, channel: str = "unspecified"
+    ) -> KillSwitchEvent:
         if not reason.strip():
             raise RiskError("a reason is required")
         last = self.state(session)
@@ -133,7 +137,7 @@ class KillSwitch:
             actor_type="user",
             actor=actor,
             action="risk.kill_switch." + ("engage" if engaged else "disengage"),
-            details={"reason": reason.strip()},
+            details={"reason": reason.strip(), "channel": channel},
         )
         return entry
 
@@ -215,20 +219,22 @@ class RiskGate:
 
         signed = intent.quantity if intent.side is Side.BUY else -intent.quantity
         held = ctx.book.quantity(intent.symbol)
-        # Worst case: every working order in the same direction on this symbol fills as well.
-        same_side = sum(
-            p.signed_quantity
-            for p in ctx.pending
-            if p.symbol == intent.symbol and (p.signed_quantity > 0) == (signed > 0)
-        )
+        # Worst case: every same-direction working order on this symbol fills too, each valued at the
+        # higher of its own limit/stop price and this order's reference price.
+        same = [
+            p for p in ctx.pending if p.symbol == intent.symbol and (p.signed_quantity > 0) == (signed > 0)
+        ]
+        same_side = sum(p.signed_quantity for p in same)
         after = held + same_side + signed
         plain_after = held + signed
         reduces = (
-            same_side == 0
+            not same
             and abs(plain_after) < abs(held)
             and (plain_after == 0 or (plain_after > 0) == (held > 0))
         )
-        pos_value = abs(after) * reference
+        pos_value = abs(plain_after) * reference + sum(
+            abs(p.signed_quantity) * max(p.price or 0.0, reference) for p in same
+        )
         d.check(
             "position notional",
             pos_value <= lim.max_position_notional or reduces,
@@ -236,7 +242,11 @@ class RiskGate:
         )
         d.check("short selling", after >= -1e-9 or lim.allow_short, f"position after the order {after}")
 
-        marks = {**ctx.marks, intent.symbol: reference}
+        # Equity (and so the daily loss check) is valued at *market* marks only — never at the order's
+        # conservative reference price, which would inflate equity for a held position.
+        assert q is not None
+        market: float = q.mid or q.last or reference
+        marks = {**ctx.marks, intent.symbol: market}
         snap = ctx.book.snapshot(marks)
         equity = snap["equity"]
         if equity is None or equity <= 0:
@@ -246,16 +256,12 @@ class RiskGate:
             for p in ctx.pending:
                 if p.symbol == intent.symbol:
                     continue
-                price = max(x for x in (p.price, marks.get(p.symbol), 0.0) if x is not None)
+                price = max(x for x in (p.price, ctx.marks.get(p.symbol), 0.0) if x is not None)
                 if price <= 0:
                     d.check("working orders", False, f"cannot value working order on {p.symbol}")
                 pending_other += abs(p.signed_quantity) * price
-            gross_after = (
-                (snap["gross_exposure"] or 0.0)
-                - abs(held) * reference
-                + abs(after) * reference
-                + pending_other
-            )
+            held_value = abs(held) * market
+            gross_after = (snap["gross_exposure"] or 0.0) - held_value + pos_value + pending_other
             frac = gross_after / equity
             d.check(
                 "gross exposure",
