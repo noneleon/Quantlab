@@ -8,6 +8,9 @@
 - Paper and live credentials live in separate namespaces (`quantlab/ibkr/paper/*`, `quantlab/ibkr/live/*`).
 - Logs pass through a redaction filter (keys matching `*password*|*secret*|*token*|*key*|account numbers`); tested in `tests/security/`.
 
+- CLI: `quantlab secret set <name>` (hidden prompt) / `status` / `delete` — values are never printed; set/delete audited.
+  Provider keys: Tiingo `secret://quantlab/tiingo/api-key` (env fallback `QUANTLAB_SECRET__TIINGO__API_KEY`).
+
 ## Network exposure
 - API binds to `127.0.0.1` by default (IMPLEMENTED). `quantlab init` generates a random token (`secrets.token_urlsafe(32)`)
   stored in the OS keyring as `secret://quantlab/api/token`; if no keyring is usable it is shown once and must be set as

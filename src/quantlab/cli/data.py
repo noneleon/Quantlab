@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -121,6 +122,74 @@ def data_import(
     )
     for warning in summary["warnings"]:
         typer.secho(f"  warning {warning}", fg=typer.colors.YELLOW)
+    for note in summary["notes"]:
+        typer.echo(f"  note    {note}")
+
+
+@data_app.command("fetch")
+def data_fetch(
+    name: str,
+    symbol: Annotated[list[str], typer.Option("--symbol", "-s", help="Ticker(s) to fetch.")],
+    provider: Annotated[str, typer.Option(help="Data provider (tiingo).")] = "tiingo",
+    start: Annotated[str | None, typer.Option(help="First date YYYY-MM-DD (default: full history).")] = None,
+    end: Annotated[str | None, typer.Option(help="Last date YYYY-MM-DD (default: today).")] = None,
+    on_conflict: Annotated[
+        str, typer.Option(help="reject | replace values that differ from the latest version.")
+    ] = "reject",
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Download daily bars + corporate actions from a provider into a dataset (new validated version)."""
+    if provider != "tiingo":
+        fail("only --provider tiingo is supported so far")
+    if on_conflict not in ("reject", "replace"):
+        fail("--on-conflict must be 'reject' or 'replace'")
+    policy: Literal["reject", "replace"] = "replace" if on_conflict == "replace" else "reject"
+    from quantlab.core.secret_store import SecretNotFoundError
+    from quantlab.data.providers.tiingo import API_KEY_REF, TiingoProvider
+
+    def day(value: str | None) -> datetime | None:
+        return None if value is None else datetime.fromisoformat(value).replace(tzinfo=UTC)
+
+    with context(home) as ctx, ctx.sessions() as session:
+        try:
+            key = ctx.secrets.get(API_KEY_REF)
+        except SecretNotFoundError:
+            fail("Tiingo API key not configured; run `quantlab secret set tiingo/api-key`")
+        dataset = ctx.data.get(session, name)
+        source = TiingoProvider(key, calendar=dataset.calendar)
+        try:
+            result = ctx.data.fetch(
+                session,
+                name,
+                source,
+                BarRequest(tuple(symbol), Resolution.DAILY, day(start), day(end)),
+                on_conflict=policy,
+            )
+        except DataValidationError as exc:
+            session.rollback()
+            fail(f"{exc} (report: {exc.quarantine_dir / 'report.json'})")
+        finally:
+            source.close()
+        session.commit()
+        version = result.version
+        summary: dict[str, Any] = {
+            "dataset": name,
+            "created": result.created,
+            "version": version.content_hash[:20] if version else None,
+            "rows": version.row_count if version else 0,
+            "notes": result.notes,
+            "warnings": [f"{i.check}: {i.count} ({i.symbol or '*'})" for i in result.report.warnings],
+        }
+    if as_json:
+        emit_json(summary)
+        return
+    typer.echo(
+        ("new version " if result.created else "unchanged: ")
+        + f"{summary['version']} ({summary['rows']} rows)"
+    )
+    for w in summary["warnings"]:
+        typer.secho(f"  warning {w}", fg=typer.colors.YELLOW)
     for note in summary["notes"]:
         typer.echo(f"  note    {note}")
 

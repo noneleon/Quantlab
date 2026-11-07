@@ -131,3 +131,46 @@ def test_import_with_actions_and_adjusted_head(home, tmp_path):
     adjusted = ql("data", "head", "spy", "-n", "1", "--adjust", "split").stdout
     assert "101.0" in raw and "50.5" in adjusted and "(split prices)" in adjusted
     assert ql("data", "head", "spy", "--adjust", "total").exit_code == 1
+
+
+def test_secret_commands_never_print_values(home):
+    r = runner.invoke(app, ["secret", "set", "tiingo/api-key"], input="super-secret-value\n")
+    assert r.exit_code == 0 and "super-secret-value" not in r.output and "OS keyring" in r.output
+    assert "configured" in ql("secret", "status", "tiingo/api-key").output
+    assert ql("secret", "delete", "tiingo/api-key").exit_code == 0
+    assert "not configured" in ql("secret", "status", "tiingo/api-key").output
+    assert ql("secret", "delete", "tiingo/api-key").exit_code == 1
+    assert ql("secret", "set", "Bad Name").exit_code == 1
+
+
+def test_data_fetch_tiingo_via_cli(home, monkeypatch):
+    import httpx
+
+    from tests.unit.data.test_tiingo import PAYLOAD
+
+    assert "secret set tiingo/api-key" in ql("data", "fetch", "spy", "-s", "SPY").output  # dataset/key checks
+    ql(*CREATE)
+    r = ql("data", "fetch", "spy", "-s", "SPY")
+    assert r.exit_code == 1 and "secret set tiingo/api-key" in r.output
+    runner.invoke(app, ["secret", "set", "tiingo/api-key"], input="k\n")
+
+    import quantlab.data.providers.tiingo as tiingo
+
+    real_init = tiingo.TiingoProvider.__init__
+
+    def mocked_init(self, api_key, **kw):
+        real_init(
+            self,
+            api_key,
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json=PAYLOAD)),
+            min_interval_s=0,
+            **kw,
+        )
+
+    monkeypatch.setattr(tiingo.TiingoProvider, "__init__", mocked_init)
+    r = ql("data", "fetch", "spy", "-s", "SPY", "--start", "2024-07-01", "--end", "2024-07-09", "--json")
+    assert r.exit_code == 0, r.output
+    summary = json.loads(r.stdout)
+    assert summary["created"] and summary["rows"] == 5
+    assert len(json.loads(ql("data", "actions", "spy", "--json").stdout)) == 2
+    assert ql("data", "fetch", "spy", "-s", "SPY", "--provider", "yahoo").exit_code == 1

@@ -39,3 +39,6 @@
 | KI-0035 | Low | web | `web/dist` is not committed; users need Node.js 22 to build the UI once (`cd web && npm ci && npm run build`). | OPEN — consider shipping built assets in releases |
 | KI-0036 | Medium | data | Corporate actions cover splits and cash dividends only; symbol changes, delistings and spin-offs are not modelled (map files contain only first/last date). | OPEN — DATA-014 |
 | KI-0037 | Low | data | Adjusted reads back-adjust to the version's latest event (like LEAN's ADJUSTED mode); not point-in-time — use raw reads or LEAN backtests for point-in-time correctness. | DOCUMENTED |
+| KI-0038 | Medium | data | Direction of Tiingo `splitFactor` unconfirmed. | RESOLVED (CHANGE-0014: 4.0 on AAPL 2020-08-31 = new shares per old) |
+| KI-0039 | Low | data | Validation still flags `price_jump` on days explained by a recorded split (e.g. AAPL 2020-08-31). | OPEN — suppress jumps matched by corporate actions |
+| KI-0040 | Low | data | Tiingo `splitFactor` may also encode "distributions" (per Tiingo docs); such events are recorded as splits. | OPEN — review on first occurrence |

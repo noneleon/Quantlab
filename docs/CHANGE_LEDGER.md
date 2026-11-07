@@ -233,3 +233,24 @@ correct for intraday bars on 24/7 calendars).
 Tests: Python 301 passed, 1 skipped; web 16 passed + build; ruff, mypy --strict, lint-imports clean. Golden: recomputed
 factor rows reproduce LEAN's AAPL factor file (40 rows, rel. tol 2e-6).
 Result: PASS · Regression status: PASS (no existing test changed; datasets without actions keep identical hashes)
+
+### CHANGE-0014 — Phase 2e (part 2): Tiingo EOD provider, `data fetch`, `quantlab secret`
+Date: 2026-11-07 · Modules: data, cli · Feature IDs: DATA-011, DATA-008 (verification), SEC-001
+Research: Tiingo's docs are a JS app; endpoint, auth, field semantics, rate limits and permitted-use text were read from
+its documentation bundle (2026-11-07). Environment: personal cloud environment "Quantlab" created (hosts api/www/apimedia
+.tiingo.com, owner-approved); Tiingo key saved by the owner as an environment network secret (never seen by the agent).
+Files added: `src/quantlab/data/providers/tiingo.py`, `src/quantlab/cli/secret_commands.py`, `tests/unit/data/test_tiingo.py`
+Files modified: `src/quantlab/data/catalog.py` (`fetch`: resolution + licence checks, then normal import),
+`src/quantlab/cli/{data,main}.py` (`data fetch`, `secret` group), `pyproject.toml`/`uv.lock` (httpx promoted to a runtime
+dependency), `tests/unit/cli/test_cli_data.py`, docs. Decision: DEC-0020.
+The repo-hygiene guard (CHANGE-0004) caught a new `cli/secrets.py` matched by `.gitignore` `secrets*`; renamed to
+`cli/secret_commands.py` before commit.
+Bug found by tests: a persistent HTTP 429 on the last retry fell through to the generic error branch → fixed.
+Real verification (scratch home only; data not committed — Tiingo forbids redistribution):
+- AAPL 2020-08: raw close 499.23 on 08-28 (= LEAN reference price), splitFactor 4.0 on 08-31 (new shares per old),
+  divCash 0.82 on 08-07 → KI-0038 resolved.
+- AAPL 1998–2021 from Tiingo through `factor_file_rows` reproduces LEAN's AAPL factor file: 41/41 row dates, max relative
+  difference 2.6e-6 (two independent sources agree).
+- CLI: `data create` → `data fetch` (566 rows, 10 actions) → `data lean-export`: factor rows equal LEAN's to its precision.
+Tests: Python 316 passed, 1 skipped; web unchanged (16); ruff, mypy --strict, lint-imports clean.
+Result: PASS · Regression status: PASS

@@ -8,7 +8,7 @@ Approach: **L** LEAN provides it (open source, local) · **LI** LEAN + QuantLab 
 **C** custom QuantLab development · **X** requires external licensed data/service (QuantLab provides adapter) ·
 **N/A** depends on proprietary QuantConnect Cloud infrastructure; not reproducible as-is.
 
-Last reviewed: 2026-11-06
+Last reviewed: 2026-11-07
 
 ## 1. Engine & algorithm API
 | QuantConnect capability | Appr. | QuantLab feature IDs | Notes / limitations |
@@ -31,6 +31,7 @@ Last reviewed: 2026-11-06
 | Corporate actions (map/factor files) | LI / X | DATA-008 | QuantLab builds factor files from vendor split/dividend data; accuracy = vendor accuracy. |
 | Survivorship-bias-free universes, delisted symbols | X | DATA-014 | Generally requires paid data (e.g. Norgate, CRSP, QC library). Free sources are survivorship-biased — reports must say so. |
 | Fundamentals (Morningstar) | X / N/A | — (not yet registered) | Licensed; adapter only if user has a source. |
+| Historical data download | X | DATA-011 | Tiingo EOD adapter (daily equities, raw + dividends/splits); personal-use licence. |
 | Live data feeds | X | DATA-013 | IBKR (subscription) first; crypto exchange public feeds possible. |
 | Data quality / validation tooling | C | DATA-005, DATA-006 | QuantLab addition. |
 | Dataset versioning | C | DATA-004 | QuantLab addition (QC has no user-visible data versioning). |

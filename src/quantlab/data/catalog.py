@@ -35,7 +35,7 @@ from quantlab.data.corporate_actions import (
     validate_actions,
 )
 from quantlab.data.lean_export import export_version, verify_export
-from quantlab.data.providers.base import DataProvider, LicenseInfo, RawBars
+from quantlab.data.providers.base import BarRequest, DataProvider, LicenseInfo, RawBars
 from quantlab.data.schema import (
     BAR_COLUMNS,
     AssetClass,
@@ -342,6 +342,31 @@ class DataCatalog:
             },
         )
         return ImportResult(dataset.name, version, True, report, notes)
+
+    def fetch(
+        self,
+        session: Session,
+        dataset_name: str,
+        provider: DataProvider,
+        request: BarRequest,
+        *,
+        on_conflict: ConflictPolicy = "reject",
+        actor: str = "owner",
+    ) -> ImportResult:
+        """Fetch from a provider and import (same validation/quarantine/versioning as file imports)."""
+        dataset = self.get(session, dataset_name)
+        if Resolution(dataset.resolution) is not request.resolution:
+            raise DataError(
+                f"dataset {dataset_name!r} is {dataset.resolution}, request is {request.resolution}"
+            )
+        if dataset.redistribution_allowed and not provider.license.redistribution_allowed:
+            raise DataError(
+                f"dataset {dataset_name!r} is marked redistributable but {provider.name} data may not be "
+                f"redistributed ({provider.license.terms}); "
+                "use a dataset created without --redistribution-allowed"
+            )
+        raw = provider.fetch_bars(request)
+        return self.import_bars(session, dataset_name, provider, raw, on_conflict=on_conflict, actor=actor)
 
     def _merge(
         self,

@@ -41,6 +41,11 @@ uv run quantlab data create spy-daily --asset-class equity --market usa --resolu
 uv run quantlab data import spy-daily ./SPY.csv --symbol SPY
 uv run quantlab data show spy-daily
 ```
+Or download daily history from Tiingo (free personal-use account; key stored in the OS keyring):
+```
+uv run quantlab secret set tiingo/api-key
+uv run quantlab data fetch spy-daily -s SPY --start 2000-01-01
+```
 Imports are validated (bad batches are quarantined, never partially imported) and every import creates an immutable,
 content-hashed version. Backtest on a pinned dataset version:
 ```

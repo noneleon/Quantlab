@@ -25,6 +25,7 @@ from quantlab.backtest.models import BacktestRun
 from quantlab.bootstrap import AppContext, initialize
 from quantlab.cli.common import EXPECTED, HomeOpt, JsonOpt, context, emit_json, fail
 from quantlab.cli.data import data_app
+from quantlab.cli.secret_commands import secret_app
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuantLab — self-hosted quant platform.")
 strategy_app = typer.Typer(no_args_is_help=True, help="Register and inspect strategies.")
@@ -36,6 +37,7 @@ app.add_typer(backtest_app, name="backtest")
 app.add_typer(data_app, name="data")
 app.add_typer(engine_app, name="engine")
 app.add_typer(api_app, name="api")
+app.add_typer(secret_app, name="secret")
 
 
 def _fmt_pct(value: float | None) -> str:

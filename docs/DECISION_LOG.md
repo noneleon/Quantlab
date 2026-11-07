@@ -121,3 +121,11 @@ be applied twice); (3) `factor_file_rows` implements LEAN's factor semantics and
 read-time adjustment (`raw`/`split`/`split_dividend`, back-adjusted to the version's latest event; research use — LEAN
 applies factor files point-in-time in backtests); (4) adding actions changes the version hash, datasets without actions
 keep their previous hashes.
+
+### DEC-0020 — Tiingo EOD as the first network data provider
+State: ACCEPTED (owner chose Tiingo, 2026-11-07)
+Decision: `TiingoProvider` behind the DataProvider protocol: raw OHLCV + `divCash`/`splitFactor` as corporate actions;
+`Authorization: Token` header (keys never in URLs/logs); API key from `secret://quantlab/tiingo/api-key` (OS keyring via
+`quantlab secret set`, env fallback); polite pacing + 429 retry; Tiingo's personal-use licence enforced (datasets marked
+redistributable are refused); no real Tiingo data in the repository. Cloud development uses a personal environment
+"Quantlab" that allows the Tiingo hosts, with the key held by the environment proxy.

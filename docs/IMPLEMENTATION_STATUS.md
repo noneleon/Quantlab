@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0013)
+Last updated: 2026-11-07 (CHANGE-0014)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -63,10 +63,10 @@ Last updated: 2026-11-07 (CHANGE-0013)
 | DATA-005 | Validation: duplicates, gaps vs calendar, OHLC sanity, outliers, staleness | data | C | 2 | `src/quantlab/data/validation.py` | DATA-003, DATA-007 | `tests/unit/data/test_validation.py` | TESTED | Gap detection daily-only (intraday gaps not checked, KI-0025) |
 | DATA-006 | Provenance labels (real/live/synthetic/sample) + completeness report | data | C | 2 | `data/schema.py`, `data/catalog.py`, `backtest/service.py` (DataBinding) | DATA-004 | `test_catalog.py`, `test_cli_data.py`, `tests/unit/backtest/test_service.py` | TESTED | Provenance required at dataset creation and propagated into backtest rows/manifests/metrics.json and CLI output |
 | DATA-007 | Trading calendars & sessions | data | C | 2 | `src/quantlab/data/calendars.py` | — | `tests/unit/data/test_calendars.py` | TESTED | exchange_calendars from 1970 (CHANGE-0013 fix) + `24/7`/`weekdays`/`none`; `session_dates` shared by validation, actions and LEAN export; forex `weekdays` approximate; not reconciled with LEAN MHDB (KI-0026) |
-| DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | `src/quantlab/data/corporate_actions.py`, catalog/storage/lean_export integration, `quantlab data import --actions`, `data actions` | DATA-003 | `tests/unit/data/test_corporate_actions.py` (golden vs LEAN's real AAPL factor file), `test_actions_integration.py` | TESTED | Splits + cash dividends only (no symbol changes/delistings/spin-offs; map files still first/last only); raw-price datasets only; not yet read by a real LEAN run (KI-0028) |
+| DATA-008 | Corporate actions: split/dividend factor files, map files | data | LI | 2 | `src/quantlab/data/corporate_actions.py`, catalog/storage/lean_export integration, `quantlab data import --actions`, `data actions` | DATA-003 | `tests/unit/data/test_corporate_actions.py` (golden vs LEAN's AAPL factor file), `test_actions_integration.py` | VERIFIED | Factor computation verified: real Tiingo AAPL history 1998–2021 → same 41 rows as LEAN's factor file (max rel. diff 2.6e-6). Splits + cash dividends only; LEAN reading the files still unverified (KI-0028) |
 | DATA-009 | LEAN-format exporter (zipped CSV per version) | data | LI | 2 | `src/quantlab/data/lean_export.py`, `DataCatalog.lean_export`, `quantlab data lean-export` | DATA-004 | `tests/unit/data/test_lean_export.py` (golden round-trip vs LEAN sample bytes) | TESTED | Equities only (daily/hour/minute/second trade bars); neutral map/factor files; **not yet read by a real LEAN run** (KI-0028) |
 | DATA-010 | User-defined custom datasets | data | C | 2 | — | DATA-001 | — | PLANNED | |
-| DATA-011 | Free/low-cost provider adapters (e.g. Stooq/Tiingo/Alpha Vantage/Binance public) | data | X | 2 | — | DATA-001 | — | PLANNED | ToS & rate limits per provider |
+| DATA-011 | Free/low-cost provider adapters (e.g. Stooq/Tiingo/Alpha Vantage/Binance public) | data | X | 2 | `src/quantlab/data/providers/tiingo.py`, `DataCatalog.fetch`, `quantlab data fetch` | DATA-001, DATA-008, SEC-001 | `tests/unit/data/test_tiingo.py` (mock transport, synthetic Tiingo-format payloads), `test_cli_data.py` | VERIFIED | **Tiingo EOD only** (daily equities): verified 2026-11-07 against the real API (raw closes, divCash, splitFactor = new shares per old). Other providers not implemented. Personal-use licence, no redistribution |
 | DATA-012 | IBKR historical data adapter | data | X | 5 | — | BRK-002 | — | PLANNED | Needs IBKR market data subscriptions; pacing limits |
 | DATA-013 | Real-time streaming + recording | data | X | 5 | — | DATA-012 | — | PLANNED | |
 | DATA-014 | Point-in-time universes, delisted symbols | data | X | 7 | — | DATA-008 | — | PLANNED | Survivorship-free data usually paid (Norgate/CRSP/QC library) |
