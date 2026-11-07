@@ -42,6 +42,11 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `lifecycle.min_oos_windows` | `3` | walk-forward OOS windows required for `validated` |
 | `lifecycle.min_oos_sharpe` / `max_oos_drawdown` | `0.5` / `0.30` | stitched OOS limits for `validated` |
 | `lifecycle.require_overfitting_checks` | `true` | `validated` also needs a sweep with `min_dsr_probability` (0.90) and `max_pbo` (0.50) |
+| `paper.account` | `paper` | paper account name (state file `{home}/paper/<account>.json`) |
+| `paper.starting_cash` | `100000` | simulated cash |
+| `paper.commission_per_share` / `min_commission` | `0.005` / `1.0` | simulated commissions |
+| `paper.slippage_bps` | `1.0` | market/stop fills worse than the touch by this |
+| `paper.allow_short` | `false` | cash account (no shorting) |
 | `risk.limits_file` | `{home}/risk_limits.toml` | changes require UI confirmation + audit |
 | `ai.provider` | `none` | `anthropic`, `openai`, `ollama`, `none` |
 | `ai.api_key_ref` | unset | must start with `secret://` |

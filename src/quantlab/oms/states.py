@@ -1,0 +1,46 @@
+"""Order state machine (OMS-002, ARCHITECTURE §5.5). Any transition not listed here is refused."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class OrderState(StrEnum):
+    NEW = "NEW"
+    RISK_REJECTED = "RISK_REJECTED"
+    PENDING_SUBMIT = "PENDING_SUBMIT"
+    SUBMITTED = "SUBMITTED"
+    SUBMIT_UNKNOWN = "SUBMIT_UNKNOWN"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    FILLED = "FILLED"
+    PENDING_CANCEL = "PENDING_CANCEL"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+    NOT_PLACED = "NOT_PLACED"  # SUBMIT_UNKNOWN resolved by reconciliation: the broker never had it
+
+
+S = OrderState
+TERMINAL = frozenset({S.RISK_REJECTED, S.REJECTED, S.FILLED, S.CANCELLED, S.EXPIRED, S.NOT_PLACED})
+WORKING = frozenset({S.SUBMITTED, S.ACCEPTED, S.PARTIALLY_FILLED, S.PENDING_CANCEL, S.SUBMIT_UNKNOWN})
+
+TRANSITIONS: dict[OrderState, frozenset[OrderState]] = {
+    S.NEW: frozenset({S.RISK_REJECTED, S.PENDING_SUBMIT}),
+    S.PENDING_SUBMIT: frozenset({S.SUBMITTED, S.SUBMIT_UNKNOWN, S.REJECTED}),
+    S.SUBMITTED: frozenset(
+        {S.ACCEPTED, S.REJECTED, S.PARTIALLY_FILLED, S.FILLED, S.PENDING_CANCEL, S.CANCELLED, S.EXPIRED}
+    ),
+    S.SUBMIT_UNKNOWN: frozenset(
+        {S.ACCEPTED, S.PARTIALLY_FILLED, S.FILLED, S.CANCELLED, S.EXPIRED, S.REJECTED, S.NOT_PLACED}
+    ),
+    S.ACCEPTED: frozenset(
+        {S.PARTIALLY_FILLED, S.FILLED, S.PENDING_CANCEL, S.CANCELLED, S.EXPIRED, S.REJECTED}
+    ),
+    S.PARTIALLY_FILLED: frozenset({S.PARTIALLY_FILLED, S.FILLED, S.PENDING_CANCEL, S.CANCELLED, S.EXPIRED}),
+    S.PENDING_CANCEL: frozenset({S.CANCELLED, S.PARTIALLY_FILLED, S.FILLED, S.EXPIRED, S.ACCEPTED}),
+}
+
+
+def can_transition(current: OrderState, target: OrderState) -> bool:
+    return target in TRANSITIONS.get(current, frozenset())

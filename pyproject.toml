@@ -110,7 +110,10 @@ layers = [
     "quantlab.migrations",
     "quantlab.lifecycle",
     "quantlab.optimize",
-    "quantlab.backtest",
+    "quantlab.backtest | quantlab.oms",
+    "quantlab.risk",
+    "quantlab.portfolio",
+    "quantlab.brokers",
     "quantlab.strategies | quantlab.analytics | quantlab.engine | quantlab.data",
     "quantlab.core",
 ]
@@ -126,3 +129,28 @@ name = "backtest uses the engine abstraction, not LEAN internals"
 type = "forbidden"
 source_modules = ["quantlab.backtest"]
 forbidden_modules = ["quantlab.engine.lean"]
+
+[[tool.importlinter.contracts]]
+name = "no back door to brokers: only the OMS (and transport/bootstrap) may touch oms/brokers/risk"
+type = "forbidden"
+source_modules = [
+    "quantlab.backtest",
+    "quantlab.optimize",
+    "quantlab.lifecycle",
+    "quantlab.research",
+    "quantlab.strategies",
+    "quantlab.analytics",
+    "quantlab.engine",
+    "quantlab.data",
+]
+forbidden_modules = ["quantlab.oms", "quantlab.brokers", "quantlab.risk", "quantlab.portfolio"]
+# research reaches the composition root (bootstrap), which wires the OMS for the CLI; notebooks run user code in the
+# same Python anyway, so only *direct* imports are policed here. Lower layers cannot reach bootstrap at all.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "broker adapters are wired only by bootstrap and driven only by the OMS"
+type = "forbidden"
+source_modules = ["quantlab.api", "quantlab.cli", "quantlab.research"]
+forbidden_modules = ["quantlab.brokers.paper"]
+allow_indirect_imports = true

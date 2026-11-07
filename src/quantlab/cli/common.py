@@ -20,6 +20,7 @@ from quantlab.data.market_data import MarketDataError
 from quantlab.data.providers.base import ProviderError
 from quantlab.data.storage import StorageError
 from quantlab.engine import EngineError
+from quantlab.oms.service import OMSError
 from quantlab.optimize.service import OptimizationError
 from quantlab.strategies.registry import StrategyError
 from quantlab.strategies.snapshot import SnapshotError
@@ -44,6 +45,7 @@ EXPECTED: tuple[type[Exception], ...] = (
     LeanExportError,
     MarketDataError,
     OptimizationError,
+    OMSError,
 )
 
 

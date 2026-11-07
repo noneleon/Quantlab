@@ -23,6 +23,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 
@@ -31,7 +32,10 @@ from quantlab.backtest.models import BacktestRun
 from quantlab.backtest.service import BacktestError
 from quantlab.bootstrap import AppContext
 from quantlab.data.catalog import DataError
+from quantlab.oms import queries as oms_queries
 from quantlab.optimize.service import OptimizationError
+from quantlab.risk.limits import RiskConfigError, load_limits
+from quantlab.risk.models import RiskDecision
 from quantlab.strategies.lifecycle import LifecycleLog
 from quantlab.strategies.registry import StrategyError, load_manifest
 from quantlab.strategies.snapshot import SnapshotError
@@ -549,6 +553,115 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             return ctx.read_only_backtests().robustness(run_id, samples=samples, seed=seed)
         except BacktestError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    # ---- paper trading + risk (read-only; orders and the kill switch are CLI-only, CLAUDE.md §4) -----------
+    @app.get("/api/paper/orders", dependencies=auth)
+    def paper_orders(limit: Annotated[int, Query(ge=1, le=1000)] = 200) -> list[dict[str, Any]]:
+        with ctx.sessions() as session:
+            return [
+                {
+                    "id": o.id,
+                    "client_order_key": o.client_order_key,
+                    "symbol": o.symbol,
+                    "side": o.side,
+                    "quantity": o.quantity,
+                    "order_type": o.order_type,
+                    "limit_price": o.limit_price,
+                    "stop_price": o.stop_price,
+                    "time_in_force": o.time_in_force,
+                    "mode": o.mode,
+                    "source": o.source,
+                    "state": state.value,
+                    "created_at": o.created_at,
+                }
+                for o, state in oms_queries.orders_with_state(session, ctx.settings.paper.account, limit)
+            ]
+
+    @app.get("/api/paper/orders/{order_id}", dependencies=auth)
+    def paper_order(order_id: str) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            events = oms_queries.order_events(session, order_id)
+            if not events:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown order {order_id}")
+            decisions = session.execute(
+                select(RiskDecision).where(RiskDecision.order_id == order_id)
+            ).scalars()
+            return {
+                "order_id": order_id,
+                "events": [
+                    {"seq": e.seq, "state": e.state, "detail": e.json(), "at": e.created_at} for e in events
+                ],
+                "risk_decisions": [
+                    {
+                        "approved": d.approved,
+                        "checks": d.json("checks"),
+                        "limits_sha256": d.limits_sha256,
+                        "at": d.created_at,
+                    }
+                    for d in decisions
+                ],
+                "fills": [
+                    {
+                        "exec_id": f.exec_id,
+                        "quantity": f.quantity,
+                        "price": f.price,
+                        "commission": f.commission,
+                        "at": f.executed_at,
+                        "price_state": f.price_state,
+                    }
+                    for f in oms_queries.fills(session, ctx.settings.paper.account)
+                    if f.order_id == order_id
+                ],
+            }
+
+    @app.get("/api/paper/portfolio", dependencies=auth)
+    def paper_portfolio() -> dict[str, Any]:
+        """Confirmed book from fills (unmarked: marking needs live quotes, see `quantlab paper positions`)."""
+        with ctx.sessions() as session:
+            account = ctx.settings.paper.account
+            book = oms_queries.confirmed_book(session, account, ctx.settings.paper.starting_cash)
+            states = oms_queries.fill_price_states(session, account)
+            return {
+                "account": account,
+                "mode": "paper",
+                "fill_price_states": states,
+                "warning": oms_queries.simulation_warning(states),
+                **book.snapshot(),
+            }
+
+    @app.get("/api/risk", dependencies=auth)
+    def risk_status(limit: Annotated[int, Query(ge=1, le=500)] = 50) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            last = ctx.kill_switch().state(session)
+            try:
+                loaded = load_limits(ctx.settings.risk_limits_file)
+                limits: dict[str, Any] = {
+                    "valid": True,
+                    "sha256": loaded.sha256,
+                    "values": loaded.limits.model_dump(),
+                }
+            except RiskConfigError as exc:
+                limits = {"valid": False, "error": str(exc)}
+            decisions = session.execute(
+                select(RiskDecision).order_by(RiskDecision.created_at.desc()).limit(limit)
+            ).scalars()
+            return {
+                "kill_switch": {
+                    "engaged": bool(last and last.engaged),
+                    "reason": last.reason if last else None,
+                    "at": last.created_at if last else None,
+                },
+                "limits": limits,
+                "decisions": [
+                    {
+                        "order_id": d.order_id,
+                        "approved": d.approved,
+                        "failed": [c for c in d.json("checks") if not c["ok"]],
+                        "at": d.created_at,
+                    }
+                    for d in decisions
+                ],
+            }
 
     # ---- web UI (same origin) ---------------------------------------------------------------------
     if ui_dir is not None and (ui_dir / "index.html").is_file():

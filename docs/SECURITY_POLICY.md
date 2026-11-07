@@ -7,6 +7,8 @@
   Values returned as `SecretStr`; set/delete are audited without the value.
 - Paper and live credentials live in separate namespaces (`quantlab/ibkr/paper/*`, `quantlab/ibkr/live/*`).
 - The IBKR market-data connection is opened **read-only** (`readonly=True`, own client id `brokers.ibkr.market_data_client_id`): it cannot place, modify or cancel orders (DATA-019).
+- Orders: only `OMS.submit` calls a broker; every order has a stored risk decision first; the gate fails closed; paper
+  only; order and kill-switch commands are CLI-only (DEC-0027). AI agents must not run them (CLAUDE.md §4).
 - Logs pass through a redaction filter (keys matching `*password*|*secret*|*token*|*key*|account numbers`); tested in `tests/security/`.
 
 - CLI: `quantlab secret set <name>` (hidden prompt) / `status` / `delete` — values are never printed; set/delete audited.

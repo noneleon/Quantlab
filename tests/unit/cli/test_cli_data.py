@@ -15,6 +15,10 @@ def ql(*args):
     return runner.invoke(app, [str(a) for a in args], catch_exceptions=False)
 
 
+def ql_input(stdin, *args):
+    return runner.invoke(app, [str(a) for a in args], input=stdin, catch_exceptions=False)
+
+
 CREATE = [
     "data",
     "create",
@@ -238,3 +242,51 @@ def test_since_last_fetch(home, monkeypatch):
     assert r.exit_code == 0 and "unchanged" in r.stdout  # same synthetic payload -> no new version
     assert seen[-1]["startDate"] == "2024-07-08"  # restarts at the last stored day
     assert ql("data", "fetch", "spy", "-s", "SPY", "--start", "2024-07-01", "--since-last").exit_code == 1
+
+
+def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
+    """Paper orders via the CLI: risk gate, kill switch, idempotency, reconcile (synthetic quotes)."""
+    from quantlab.core.config import load_settings
+
+    ql(*CREATE)
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    ql("data", "import", "spy", csv, "--symbol", "SPY")
+    monkeypatch.setenv("QUANTLAB_MARKET_DATA__MOCK_DATASET", "spy")
+
+    r = ql("paper", "order", "SPY", "buy", "1", "--key", "no-limits")
+    assert r.exit_code == 1 and "no risk limits file" in r.output  # nothing trades without limits
+    assert ql("risk", "init").exit_code == 0
+    assert ql("risk", "init").exit_code == 1  # never overwritten
+    limits = load_settings().risk_limits_file
+    text = limits.read_text().replace('trading_calendar = "XNYS"', 'trading_calendar = "none"')
+    limits.write_text(
+        text.replace("max_quote_age_s = 15.0", "max_quote_age_s = 1e10")
+    )  # mock replays old bars
+    assert "kill switch: not engaged" in ql("risk", "show").stdout
+
+    r = ql("paper", "order", "SPY", "buy", "5", "--key", "k1", "--json")
+    out = json.loads(r.stdout)
+    assert r.exit_code == 0 and out["state"] == "FILLED" and not out["duplicate"]
+    again = json.loads(ql("paper", "order", "SPY", "buy", "5", "--key", "k1", "--json").stdout)
+    assert again["duplicate"] and again["order_id"] == out["order_id"]
+    positions = json.loads(ql("paper", "positions", "--json").stdout)
+    assert positions["positions"][0]["quantity"] == 5
+    assert "FILLED" in ql("paper", "orders").stdout
+    assert ql("paper", "reconcile").exit_code == 0
+
+    assert ql("risk", "kill-switch", "engage").exit_code == 1  # reason required
+    assert ql("risk", "kill-switch", "engage", "--reason", "test").exit_code == 0
+    r = ql("paper", "order", "SPY", "buy", "1", "--key", "k2")
+    assert r.exit_code == 1 and "kill switch" in r.output
+    assert ql_input("yes\n", "risk", "kill-switch", "disengage", "--reason", "ok").exit_code == 1
+    ok = ql_input("DISENGAGE KILL SWITCH\n", "risk", "kill-switch", "disengage", "--reason", "ok")
+    assert ok.exit_code == 0, ok.output
+    decisions = json.loads(ql("risk", "decisions", "--json").stdout)
+    assert [d["approved"] for d in decisions] == [
+        False,
+        True,
+        False,
+    ]  # kill switch, k1, no limits (newest first)
+    assert any(c["check"] == "kill switch" for c in decisions[0]["failed"])
+    assert ql("paper", "order", "SPY", "hold", "1", "--key", "bad").exit_code == 1

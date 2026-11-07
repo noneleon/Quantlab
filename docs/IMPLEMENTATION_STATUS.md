@@ -12,7 +12,7 @@ Approach codes: **L** = provided by LEAN (configure/integrate only) · **LI** = 
 
 Phase = roadmap phase in [ROADMAP.md](ROADMAP.md). Location/tests are filled when work starts.
 
-Last updated: 2026-11-07 (CHANGE-0024)
+Last updated: 2026-11-07 (CHANGE-0025)
 
 ## MEM — Project memory & dev tooling
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
@@ -132,8 +132,8 @@ Last updated: 2026-11-07 (CHANGE-0024)
 ## PORT — Portfolio management
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| PORT-001 | Accounts & books (theoretical vs broker-confirmed) | portfolio | C | 5 | — | OMS-003 | — | PLANNED | |
-| PORT-002 | Positions, cash, realized/unrealized P&L from fills | portfolio | C | 5 | — | PORT-001 | — | PLANNED | |
+| PORT-001 | Accounts & books (theoretical vs broker-confirmed) | portfolio | C | 5 | `src/quantlab/portfolio/book.py`, `oms/queries.confirmed_book` | OMS-003 | `tests/unit/trading/` | TESTED | Confirmed book from fills only (DEC-0008); one paper account. Theoretical (strategy) book arrives with OMS-007 |
+| PORT-002 | Positions, cash, realized/unrealized P&L from fills | portfolio | C | 5 | `portfolio/book.py` (average cost), `quantlab paper positions`, `GET /api/paper/portfolio` | PORT-001 | `test_paper_broker_book.py` | TESTED | Marks from configured real-time quotes; API snapshot is unmarked |
 | PORT-003 | Exposure: asset, sector, risk contribution | portfolio | C | 5 | — | PORT-002 | — | PLANNED | Sector data source needed |
 | PORT-004 | Position sizing models (fixed qty/$, %equity, vol, ATR, risk budget, capped Kelly) | portfolio | C | 5 | — | PORT-002 | — | PLANNED | |
 | PORT-005 | Multi-strategy capital allocation & rebalancing | portfolio | C | 7 | — | PORT-004 | — | PLANNED | |
@@ -141,31 +141,31 @@ Last updated: 2026-11-07 (CHANGE-0024)
 ## OMS — Order management
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| OMS-001 | Order model (market/limit/stop/stop-limit/trailing/bracket/OCO, TIF) | oms | C | 5 | — | CORE-004 | — | PLANNED | Bracket/OCO depend on broker |
-| OMS-002 | Formal order state machine | oms | C | 5 | — | OMS-001 | — | PLANNED | |
-| OMS-003 | Event-sourced order/fill store | oms | C | 5 | — | OMS-002 | — | PLANNED | |
-| OMS-004 | Idempotency keys & duplicate prevention | oms | C | 5 | — | OMS-003 | — | PLANNED | |
-| OMS-005 | Timeouts, expiry auto-cancel, SUBMIT_UNKNOWN resolution | oms | C | 5 | — | OMS-002 | — | PLANNED | |
-| OMS-006 | Modify/cancel, reserved buying power | oms | C | 5 | — | OMS-002, RISK-001 | — | PLANNED | |
+| OMS-001 | Order model (market/limit/stop/stop-limit/trailing/bracket/OCO, TIF) | oms | C | 5 | `oms/models.py`, `brokers/base.py` | CORE-004 | `tests/unit/trading/` | IN_PROGRESS | Market, limit, stop, stop-limit; DAY/GTC. Trailing, bracket, OCO not yet |
+| OMS-002 | Formal order state machine | oms | C | 5 | `oms/states.py` (+ NOT_PLACED for unknowns resolved by reconciliation) | OMS-001 | `test_oms_risk.py` | TESTED | Illegal transitions refused; unexpected broker events recorded as anomalies |
+| OMS-003 | Event-sourced order/fill store | oms | C | 5 | `orders`, `order_events`, `fills` (migration 0006, append-only triggers) | OMS-002 | `test_oms_risk.py` | TESTED | Current state = latest event |
+| OMS-004 | Idempotency keys & duplicate prevention | oms | C | 5 | `orders.client_order_key` unique; `(broker, exec_id)` unique for fills | OMS-003 | `test_oms_risk.py`, CLI test | TESTED | A repeated key returns the existing order and sends nothing |
+| OMS-005 | Timeouts, expiry auto-cancel, SUBMIT_UNKNOWN resolution | oms | C | 5 | `OMS.submit` (SubmitUnknown / unexpected adapter errors → SUBMIT_UNKNOWN), `OMS.reconcile`, paper DAY expiry | OMS-002 | `test_oms_risk.py` (incl. crash after PENDING_SUBMIT) | TESTED | Never resubmits; resolution only from broker facts. No timer-based expiry daemon yet |
+| OMS-006 | Modify/cancel, reserved buying power | oms | C | 5 | `OMS.cancel` | OMS-002, RISK-001 | `test_oms_risk.py` | IN_PROGRESS | Cancel done; modify and reserved buying power not yet (risk uses filled positions + open-order count) |
 | OMS-007 | LEAN ↔ OMS gateway brokerage plugin | oms | LI | 5 | — | DEC-0007 approval | — | BLOCKED | Awaiting decision DEC-0007 |
 
 ## BRK — Brokerage
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| BRK-001 | BrokerAdapter protocol + contract test suite | brokers | C | 5 | — | OMS-001 | — | PLANNED | |
-| BRK-002 | Simulated paper broker (local) | brokers | C | 5 | — | BRK-001 | — | PLANNED | |
+| BRK-001 | BrokerAdapter protocol + contract test suite | brokers | C | 5 | `brokers/base.py` | OMS-001 | `test_paper_broker_book.py` | IN_PROGRESS | Protocol + events done; reusable contract suite to run against IBKR comes with BRK-003 |
+| BRK-002 | Simulated paper broker (local) | brokers | C | 5 | `brokers/paper.py`, `[paper]` config, `quantlab paper …` | BRK-001 | `test_paper_broker_book.py`, `test_oms_risk.py`, CLI test | TESTED | Fills from quotes (no partial fills/impact, KI-0061); persisted state; failure injection |
 | BRK-003 | IBKR adapter (TWS/IB Gateway): account, positions, funds, orders, executions, commissions | brokers | X | 5 | — | BRK-001 | — | PLANNED | Requires IBKR account; TWS/Gateway running; daily restarts |
 | BRK-004 | Connection monitoring & automatic reconnection | brokers | C | 5 | — | BRK-003 | — | PLANNED | |
-| BRK-005 | Broker reconciliation (positions, open orders, cash) | brokers | C | 5 | — | BRK-003, PORT-002 | — | PLANNED | |
+| BRK-005 | Broker reconciliation (positions, open orders, cash) | brokers/oms | C | 5 | `OMS.reconcile`, `quantlab paper reconcile` | BRK-003, PORT-002 | `test_oms_risk.py` | TESTED | Paper broker only; reports differences, never rewrites positions |
 | BRK-006 | Additional broker/exchange adapters | brokers | X | 7 | — | BRK-001 | — | PLANNED | |
 
 ## RISK — Risk management
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| RISK-001 | Central pre-trade risk gate (non-bypassable) | risk | C | 5 | — | OMS-002 | — | PLANNED | |
-| RISK-002 | Rule set: daily loss, drawdown, position/order size, exposure, leverage, #positions, sector, frequency, volatility, liquidity, spread, session, cooldown | risk | C | 5 | — | RISK-001 | — | PLANNED | |
-| RISK-003 | Risk decision log (reason, timestamp) | risk | C | 5 | — | RISK-001 | — | PLANNED | |
-| RISK-004 | Kill switch (block new orders; configurable cancel/flatten) | risk | C | 5 | — | RISK-001 | — | PLANNED | |
+| RISK-001 | Central pre-trade risk gate (non-bypassable) | risk | C | 5 | `risk/gate.py`; OMS is the only caller of `BrokerAdapter.submit`; import contract forbids other modules importing oms/brokers/risk | OMS-002 | `test_oms_risk.py` | TESTED | Fails closed (no/invalid limits, no quote, unknown equity) |
+| RISK-002 | Rule set: daily loss, drawdown, position/order size, exposure, leverage, #positions, sector, frequency, volatility, liquidity, spread, session, cooldown | risk | C | 5 | `risk/limits.py` (required keys, no defaults), `quantlab risk init|show` | RISK-001 | `test_oms_risk.py` | IN_PROGRESS | Done: order qty/notional, position notional, gross exposure, open orders, rate, daily loss (reduce-only), quote state/age, spread, shorting, symbol allow-list, session. Not yet: drawdown, sector, volatility, liquidity, cooldown |
+| RISK-003 | Risk decision log (reason, timestamp) | risk | C | 5 | `risk_decisions` (append-only, every check + limits sha256), `quantlab risk decisions`, `GET /api/risk` | RISK-001 | `test_oms_risk.py`, API test | TESTED | |
+| RISK-004 | Kill switch (block new orders; configurable cancel/flatten) | risk | C | 5 | `KillSwitch` (append-only events, audit), `quantlab risk kill-switch engage|disengage` | RISK-001 | `test_oms_risk.py`, CLI test | TESTED | Blocks all new orders; disengage needs the typed phrase. Cancel/flatten on engage not yet |
 | RISK-005 | Stop-loss / trailing-stop policy rules | risk | C | 5 | — | RISK-002 | — | PLANNED | |
 | RISK-006 | Settlement policy (T+1, cash account free-riding guard) | risk | C | 5 | — | PORT-002 | — | PLANNED | |
 | RISK-007 | Advanced risk analytics (VaR/ES, stress tests) | risk | C | 7 | — | PORT-003 | — | PLANNED | |
@@ -174,7 +174,7 @@ Last updated: 2026-11-07 (CHANGE-0024)
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
 | LIVE-001 | Deployment supervisor (start/pause/stop/monitor) | live | LI | 5 | — | ENG-002, OMS-* | — | PLANNED | |
-| LIVE-002 | Paper mode default | live | C | 5 | — | LIVE-001 | — | PLANNED | |
+| LIVE-002 | Paper mode default | live | C | 5 | `trading.mode` rejects live; OMS refuses non-paper brokers; every CLI line `[PAPER]` | LIVE-001 | `test_oms_risk.py` | TESTED | |
 | LIVE-003 | Live activation safety gates (separate creds, limits set, broker verified, typed confirmation, status banner) | live | C | 6 | — | RISK-*, BRK-005 | — | PLANNED | Disabled until owner approves |
 | LIVE-004 | Crash/restart recovery with reconciliation-before-trading | live | C | 6 | — | BRK-005 | — | PLANNED | |
 

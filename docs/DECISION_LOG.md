@@ -205,3 +205,18 @@ live_candidate requires paper-trading records and is therefore refused until Pha
 trading (LIVE-003 + human activation, CLAUDE.md §4). (5) Synthetic/sample data never satisfies a gate unless the owner
 explicitly sets `lifecycle.require_real_data = false` (used only in tests). (6) Notebook promotion attaches the
 notebook with outputs stripped (vendor data must not land in a possibly-committed strategy folder).
+
+### DEC-0027 — Phase 5 order path: OMS is the only broker caller; risk gate fails closed; paper only
+State: ACCEPTED (owner approved Phase 5, 2026-11-07; implements DEC-0007/0008/0010)
+Decisions: (1) `OMS.submit` is the only code that calls `BrokerAdapter.submit`; an import-linter contract forbids
+platform modules (backtest, optimize, lifecycle, research, strategies, analytics, engine, data) from importing
+oms/brokers/risk/portfolio. (2) Every order gets a stored risk decision (each check + limits-file sha256) before
+anything is sent; `PENDING_SUBMIT` is committed before the broker call. (3) The gate fails closed: no/invalid limits
+file, no quote, unknown equity or start-of-day equity → rejected; limits have no implicit defaults. (4) Kill switch =
+append-only events; engaging needs a reason, disengaging the typed phrase "DISENGAGE KILL SWITCH"; both audited.
+(5) Unknown submission outcomes (timeouts, unexpected adapter errors, crashes after PENDING_SUBMIT) become
+SUBMIT_UNKNOWN and are resolved only from broker facts by reconciliation (new terminal state NOT_PLACED when the broker
+never had the order); nothing is resubmitted. (6) Positions/cash only from fills; reconciliation reports, never
+rewrites. (7) Paper only: the OMS refuses non-paper brokers; order and kill-switch commands are CLI-only (API
+read-only). (8) Slices: 5a (this) local order path; 5b web console (UI-006), IBKR paper adapter (BRK-003/004,
+migration slice C), deployment supervisor (LIVE-001); OMS-007 (LEAN gateway brokerage, C#) needs .NET (KI-0055).

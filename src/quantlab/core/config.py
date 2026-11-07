@@ -200,6 +200,17 @@ class ExecutionModelSettings(_Section):
         return self
 
 
+class PaperSettings(_Section):
+    """Simulated paper account (BRK-002)."""
+
+    account: str = "paper"
+    starting_cash: float = Field(default=100_000.0, gt=0)
+    commission_per_share: float = Field(default=0.005, ge=0)
+    min_commission: float = Field(default=1.0, ge=0)
+    slippage_bps: float = Field(default=1.0, ge=0)
+    allow_short: bool = False
+
+
 class LifecycleSettings(_Section):
     """Promotion gates (STR-004, DEC-0026). Changing them is an owner decision; each event records them."""
 
@@ -281,6 +292,7 @@ class Settings(BaseSettings):
     market_data: MarketDataSettings = MarketDataSettings()
     backtest: BacktestSettings = BacktestSettings()
     lifecycle: LifecycleSettings = LifecycleSettings()
+    paper: PaperSettings = PaperSettings()
     ai: AiSettings = AiSettings()
     logging: LoggingSettings = LoggingSettings()
 

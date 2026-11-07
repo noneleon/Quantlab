@@ -17,14 +17,18 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from quantlab.backtest.service import BacktestService
+from quantlab.brokers.paper import PaperBroker
 from quantlab.core.config import Settings, load_settings
 from quantlab.core.db import create_db_engine, current_revision, head_revision, migrate, session_factory
 from quantlab.core.logging import configure_from_settings
 from quantlab.core.secret_store import SecretError, SecretNotFoundError, SecretStore
 from quantlab.data.catalog import DataCatalog
+from quantlab.data.market_data import MarketDataError, Quote
 from quantlab.engine import EngineAdapter, create_engine_adapter
 from quantlab.lifecycle.service import LifecycleService
+from quantlab.oms.service import OMS
 from quantlab.optimize.service import OptimizationService
+from quantlab.risk.gate import KillSwitch, RiskGate
 from quantlab.strategies.registry import StrategyRegistry
 from quantlab.strategies.workspace import StrategyWorkspace
 
@@ -123,6 +127,37 @@ class AppContext:
             self.sessions,
             backtests,
             OptimizationService(self.sessions, backtests, self.registry),
+        )
+
+    def kill_switch(self) -> KillSwitch:
+        return KillSwitch()
+
+    def paper_oms(self, session: Session) -> OMS:
+        """Paper account OMS: paper broker + central risk gate + configured real-time quotes (DEC-0007)."""
+        from quantlab.data.factory import realtime_provider
+
+        paper = self.settings.paper
+        provider = realtime_provider(self.settings, self.data, session)
+
+        def quote(symbol: str) -> Quote | None:
+            try:
+                quotes = provider.snapshot([symbol])
+            except MarketDataError:
+                return None
+            return quotes[0] if quotes else None
+
+        broker = PaperBroker(
+            self.settings.home / "paper" / f"{paper.account}.json",
+            quote,
+            starting_cash=paper.starting_cash,
+            commission_per_share=paper.commission_per_share,
+            min_commission=paper.min_commission,
+            slippage_bps=paper.slippage_bps,
+            allow_short=paper.allow_short,
+        )
+        gate = RiskGate(self.settings.risk_limits_file, self.kill_switch())
+        return OMS(
+            self.sessions, broker, gate, quote, account=paper.account, starting_cash=paper.starting_cash
         )
 
     def backtests(self) -> BacktestService:

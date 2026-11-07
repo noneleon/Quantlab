@@ -29,6 +29,7 @@ from quantlab.cli.lifecycle import register as register_lifecycle
 from quantlab.cli.market import md_app
 from quantlab.cli.optimize import optimize_app
 from quantlab.cli.secret_commands import secret_app
+from quantlab.cli.trading import paper_app, risk_app
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuantLab — self-hosted quant platform.")
 strategy_app = typer.Typer(no_args_is_help=True, help="Register and inspect strategies.")
@@ -49,6 +50,8 @@ app.add_typer(api_app, name="api")
 app.add_typer(secret_app, name="secret")
 app.add_typer(md_app, name="md")
 app.add_typer(optimize_app, name="optimize")
+app.add_typer(risk_app, name="risk")
+app.add_typer(paper_app, name="paper")
 
 
 def _fmt_pct(value: float | None) -> str:

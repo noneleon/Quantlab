@@ -343,3 +343,60 @@ def test_lifecycle_endpoint_is_read_only(ctx, client):
     assert client.get("/api/strategies/nope/lifecycle", headers=h).status_code == 404
     for method in ("post", "put", "patch", "delete"):
         assert getattr(client, method)("/api/strategies/sma/lifecycle", headers=h).status_code == 405
+
+
+def test_paper_and_risk_endpoints_are_read_only(ctx, client, tmp_path):
+    from datetime import UTC, datetime
+
+    from quantlab.brokers.base import Side
+    from quantlab.brokers.paper import PaperBroker
+    from quantlab.data.market_data import DataState, Quote
+    from quantlab.oms.service import OMS, OrderRequest
+    from quantlab.risk.gate import RiskGate
+
+    h = auth(ctx)
+    risk = client.get("/api/risk", headers=h).json()
+    assert risk["kill_switch"]["engaged"] is False and risk["limits"]["valid"] is False  # no limits file yet
+
+    limits = ctx.settings.risk_limits_file
+    limits.write_text(
+        "[limits]\nmax_order_quantity = 10\nmax_order_notional = 1000.0\nmax_position_notional = 1000.0\n"
+        "max_gross_exposure_fraction = 1.0\nmax_open_orders = 5\nmax_orders_per_minute = 5\n"
+        "daily_loss_limit_fraction = 0.05\nmax_quote_age_s = 60.0\nmax_spread_bps = 100.0\n"
+        "allow_short = false\n"
+        'require_live_quotes = false\ntrading_calendar = "none"\n'
+    )
+
+    def quote(symbol):  # synthetic SIMULATED quote
+        now = datetime.now(UTC)
+        return Quote(symbol, DataState.SIMULATED, "test", now, now, bid=9.99, ask=10.01, last=10.0)
+
+    broker = PaperBroker(tmp_path / "p.json", quote, starting_cash=ctx.settings.paper.starting_cash)
+    oms = OMS(
+        ctx.sessions,
+        broker,
+        RiskGate(limits),
+        quote,
+        account="paper",
+        starting_cash=ctx.settings.paper.starting_cash,
+    )
+    filled = oms.submit(OrderRequest("a1", "SPY", Side.BUY, 5))
+    rejected = oms.submit(OrderRequest("a2", "SPY", Side.BUY, 50))
+
+    orders = client.get("/api/paper/orders", headers=h).json()
+    assert {o["state"] for o in orders} == {"FILLED", "RISK_REJECTED"} and all(
+        o["mode"] == "paper" for o in orders
+    )
+    detail = client.get(f"/api/paper/orders/{filled.order.id}", headers=h).json()
+    assert [e["state"] for e in detail["events"]][-1] == "FILLED" and len(detail["fills"]) == 1
+    assert detail["risk_decisions"][0]["approved"] is True
+    bad = client.get(f"/api/paper/orders/{rejected.order.id}", headers=h).json()
+    assert bad["risk_decisions"][0]["approved"] is False
+    assert client.get("/api/paper/orders/nope", headers=h).status_code == 404
+    portfolio = client.get("/api/paper/portfolio", headers=h).json()
+    assert portfolio["mode"] == "paper" and portfolio["positions"][0]["quantity"] == 5
+    risk = client.get("/api/risk", headers=h).json()
+    assert risk["limits"]["valid"] and len(risk["decisions"]) == 2
+    for path in ("/api/paper/orders", "/api/risk", "/api/paper/portfolio"):
+        for method in ("post", "put", "delete", "patch"):
+            assert getattr(client, method)(path, headers=h).status_code == 405

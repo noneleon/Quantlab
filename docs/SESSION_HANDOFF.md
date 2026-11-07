@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0024 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0025 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -37,10 +37,12 @@
   (`/compare`), robustness panel.
 - CHANGE-0024 (Phase 4c, DEC-0026): lifecycle stages with evidence gates (`strategy status|promote|demote|retire`),
   append-only history (migration 0005), `strategy from-notebook` (outputs stripped).
+- CHANGE-0025 (Phase 5a, DEC-0027): OMS + central risk gate + kill switch + paper broker + confirmed book +
+  reconciliation (migration 0006); `quantlab risk …`, `quantlab paper …` (paper only, CLI-only writes).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 461 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
-Web: 21 passed, typecheck + build OK; browser check of the library stage column.
+Python: `uv run pytest` → 504 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports clean.
+Web: unchanged (21 passed). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
 No real LEAN run has happened yet — neither M1 nor a dataset run. KI-0002/0014/0028 list what is unverified.
@@ -68,9 +70,7 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 4 is complete for everything that can run without LEAN. Next per ROADMAP: **Phase 5 — portfolio & paper
-trading** (PORT-*, OMS-*, BRK-* incl. the IBKR broker adapter = migration slice C, RISK-*, LIVE-001/002): OMS state
-machine and event store, central risk gate + kill switch, paper broker, IBKR paper adapter, reconciliation. All
-order paths must go through the risk gate (DEC-0007); paper is the default and live stays disabled (LIVE-003).
-Owner actions still open: first real LEAN run (KI-0002), golden cases (KI-0053), IBKR paper check (KI-0043/0044),
-review `[lifecycle]` thresholds (KI-0059).
+Phase 5b (DEC-0027): portfolio/orders/risk console + kill-switch display (UI-006; writes stay CLI-only or need typed
+confirmation), IBKR paper broker adapter behind the same protocol (BRK-003/004, read-only market data connection stays
+separate), remaining risk rules (KI-0062), deployment supervisor (LIVE-001). OMS-007 (LEAN gateway) needs .NET.
+Owner actions: `quantlab risk init` + review limits; first real LEAN run (KI-0002); IBKR paper check (KI-0043/0044).

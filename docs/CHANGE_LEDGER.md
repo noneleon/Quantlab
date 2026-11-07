@@ -440,3 +440,33 @@ database), zero console/CSP errors. Gates exercised on the fake engine (sample d
 with `require_real_data=false` only in tests).
 Tests: Python 461 passed, 1 skipped; web 21 passed, typecheck + build OK; ruff, mypy --strict, lint-imports clean.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0025 — Phase 5a: OMS, central risk gate, kill switch, paper broker, confirmed book, reconciliation
+Date: 2026-11-07 · Modules: brokers, portfolio, risk, oms (all new), core (config), bootstrap, cli, api, migrations ·
+Feature IDs: OMS-001..006, RISK-001..004, BRK-001/002/005, PORT-001/002, LIVE-002 · Decision: DEC-0027
+Files added: `src/quantlab/brokers/{__init__,base,paper}.py`, `src/quantlab/portfolio/{__init__,book}.py`,
+`src/quantlab/risk/{__init__,limits,models,gate}.py`, `src/quantlab/oms/{__init__,models,states,queries,service}.py`,
+`src/quantlab/migrations/versions/0006_oms_risk.py`, `src/quantlab/cli/trading.py`,
+`tests/unit/trading/{__init__,test_paper_broker_book,test_oms_risk}.py`
+Files modified: `core/config.py` (`[paper]`), `bootstrap.py` (`paper_oms`, `kill_switch`), `cli/{main,common}.py`
+(`risk init|show|decisions|kill-switch`, `paper order|cancel|orders|positions|reconcile`), `api/app.py` (read-only
+`/api/paper/orders[/{id}]`, `/api/paper/portfolio`, `/api/risk`), `migrations/env.py`, `pyproject.toml` (layers +
+"no back door to brokers" contract), tests (migration head 0005 → 0006), docs.
+Bugs found during the change: paper broker forgot rejected order ids (an id could be reused); a triggered stop was
+not persisted until filled; OMS refreshed an order in a foreign session; `research` reached the OMS through
+`bootstrap` (contract scoped to direct imports, rationale in pyproject).
+Safety review (trading-safety-reviewer, before commit): no BLOCKER; all structural guarantees held (OMS is the only
+broker caller; every order has a stored decision before any send; reconcile never rewrites/resubmits; kill switch on
+every order; limits fail closed; no API writes). 5 MAJOR + 8 MINOR findings, fixed before commit, each with a
+regression test: working orders counted at worst case in position/exposure limits; orders valued at max(touch, limit,
+stop); fill dedup key (broker, account, exec_id) + anomaly on colliding ids + globally unique paper exec ids; fills
+carry `price_state` and the CLI/API label simulated P&L; contract forbids api/cli/research importing the paper adapter
+and the OMS accepts only known paper adapter classes; kill-switch disengage phrase is an interactive prompt; kill-switch
+order by sequence (not wall clock); missing bid/ask and future-dated quotes fail; `weekdays` calendar enforced;
+account starting cash pinned (`oms_accounts`); new orders blocked while submissions are unresolved; reconcile skips
+PENDING_SUBMIT younger than 60 s and scans all orders; broker events persisted until acknowledged after the OMS
+commit; refused cancel restores the prior state. A second review pass of the fixes was started before the push;
+its outcome is recorded in the next ledger entry.
+Tests: Python 504 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. Paper tests use synthetic
+SIMULATED quotes only.
+Result: PASS · Regression status: PASS
