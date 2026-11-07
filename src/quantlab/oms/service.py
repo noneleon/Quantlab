@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -57,6 +57,19 @@ log = get_logger(__name__)
 S = OrderState
 PAPER_ADAPTERS: tuple[type, ...] = (PaperBroker,)  # the IBKR *paper* adapter is added here in Phase 5b
 PENDING_SUBMIT_GRACE_S = 60.0  # a younger PENDING_SUBMIT may still be in flight in another process
+
+
+@dataclass(frozen=True)
+class CancelAllResult:
+    results: dict[str, str]  # order id -> state after the cancel attempt (or why it was not cancelled)
+    still_working: dict[str, str]  # order id -> state, for everything that may still be working
+
+    @property
+    def complete(self) -> bool:
+        return not self.still_working
+
+
+CANCELLABLE = frozenset({S.SUBMITTED, S.ACCEPTED, S.PARTIALLY_FILLED})
 PENDING_CANCEL_GRACE_S = 60.0  # likewise a younger PENDING_CANCEL (its broker call may not have happened yet)
 
 
@@ -259,7 +272,7 @@ class OMS:
     def cancel(self, order_id: str) -> OrderState:
         with self._sessions() as session:
             current = self.state(session, order_id)
-            if current not in (S.SUBMITTED, S.ACCEPTED, S.PARTIALLY_FILLED):
+            if current not in CANCELLABLE:
                 raise OMSError(f"order {order_id} is {current}; it cannot be cancelled now")
             self._event(session, order_id, S.PENDING_CANCEL, {})
             session.commit()
@@ -279,6 +292,41 @@ class OMS:
         self.process_events()
         with self._sessions() as session:
             return self.state(session, order_id)
+
+    def cancel_all(self, *, reason: str) -> CancelAllResult:
+        """Cancel every working order of the account (kill switch, RISK-004). Never sends new orders.
+
+        One failing cancel does not stop the others. Afterwards every order that may still be working (refused
+        cancels, in-flight submissions, unknown outcomes, orders only the broker knows) is listed in
+        ``still_working`` — the caller must not report success while it is non-empty.
+        """
+        with self._sessions() as session:
+            ids = [o.id for o, st in self.orders(session, limit=None) if st in CANCELLABLE]
+            self._audit.record(
+                session, actor_type="system", actor="oms", action="oms.cancel_all", target=self.account,
+                details={"reason": reason, "orders": ids},
+            )  # fmt: skip
+            session.commit()
+        out: dict[str, str] = {}
+        for oid in ids:
+            try:
+                out[oid] = self.cancel(oid).value
+            except OMSError as exc:  # e.g. it filled meanwhile
+                out[oid] = f"not cancelled: {exc}"
+        with self._sessions() as session:
+            open_states = [(o.id, st) for o, st in self.orders(session, limit=None) if st not in TERMINAL]
+            still = {oid: st.value for oid, st in open_states}
+            try:
+                for oid in self._broker.open_order_ids():
+                    still.setdefault(oid, "working at broker")
+            except BrokerError as exc:
+                still["(broker)"] = f"open orders unknown: {exc}"
+            self._audit.record(
+                session, actor_type="system", actor="oms", action="oms.cancel_all.result",
+                target=self.account, details={"results": out, "still_working": still},
+            )  # fmt: skip
+            session.commit()
+        return CancelAllResult(out, still)
 
     def process_events(self) -> int:
         """Apply broker events, commit, then acknowledge them.
@@ -574,6 +622,17 @@ class OMS:
             if o.id != order.id and st in WORKING
         ]
         equity = book.snapshot(marks)["equity"]
+        hour_ago = now - timedelta(hours=1)
+        rejections = sum(
+            1
+            for o, st in everything
+            if o.id != order.id
+            and st in (S.RISK_REJECTED, S.REJECTED)
+            and (o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=UTC)) >= hour_ago
+        )
+        peak = session.execute(
+            select(func.max(DailyEquity.equity)).where(DailyEquity.account == self.account)
+        ).scalar_one_or_none()
         return RiskContext(
             broker_mode=self._broker.mode,
             book=book,
@@ -584,6 +643,8 @@ class OMS:
             start_of_day_equity=self._start_of_day(session, now, equity),
             pending=pending,
             unresolved_orders=unresolved,
+            peak_equity=peak,
+            recent_rejections=rejections,
         )
 
     def _start_of_day(self, session: Session, now: datetime, equity: float | None) -> float | None:

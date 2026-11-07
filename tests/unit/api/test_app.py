@@ -362,7 +362,8 @@ def test_paper_and_risk_endpoints_are_read_only(ctx, client, tmp_path):
     limits.write_text(
         "[limits]\nmax_order_quantity = 10\nmax_order_notional = 1000.0\nmax_position_notional = 1000.0\n"
         "max_gross_exposure_fraction = 1.0\nmax_open_orders = 5\nmax_orders_per_minute = 5\n"
-        "daily_loss_limit_fraction = 0.05\nmax_quote_age_s = 60.0\nmax_spread_bps = 100.0\n"
+        "daily_loss_limit_fraction = 0.05\nmax_drawdown_fraction = 0.10\nmax_rejections_per_hour = 50\n"
+        "allow_margin = false\nmax_quote_age_s = 60.0\nmax_spread_bps = 100.0\n"
         "allow_short = false\n"
         'require_live_quotes = false\ntrading_calendar = "none"\n'
     )

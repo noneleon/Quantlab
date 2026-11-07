@@ -76,15 +76,51 @@ def risk_show(home: HomeOpt = None, as_json: JsonOpt = False) -> None:
         typer.echo(f"  {k:<28} {v}")
 
 
+@risk_app.command("template")
+def risk_template() -> None:
+    """Print the current limits template (to add limits introduced by newer versions to your file)."""
+    from quantlab.risk.limits import TEMPLATE
+
+    typer.echo(TEMPLATE, nl=False)
+
+
 @kill_app.command("engage")
-def kill_engage(reason: ReasonOpt = "", home: HomeOpt = None) -> None:
-    """Block every new order immediately."""
+def kill_engage(
+    reason: ReasonOpt = "",
+    cancel_orders: Annotated[
+        bool,
+        typer.Option(
+            "--cancel-orders/--keep-orders",
+            help="Also cancel every working paper order (default). Positions are never flattened.",
+        ),
+    ] = True,
+    home: HomeOpt = None,
+) -> None:
+    """Block every new order immediately (and cancel working paper orders unless --keep-orders)."""
     if not reason.strip():
         fail("--reason is required")
-    with context(home) as ctx, ctx.sessions() as session:
-        ctx.kill_switch().engage(session, actor="owner", reason=reason)
-        session.commit()
-    typer.secho("kill switch ENGAGED: no new orders will pass the risk gate", fg=typer.colors.RED)
+    with context(home) as ctx:
+        with ctx.sessions() as session:  # engaged and committed first: nothing below can delay it
+            ctx.kill_switch().engage(session, actor="owner", reason=reason)
+            session.commit()
+        typer.secho("kill switch ENGAGED: no new orders will pass the risk gate", fg=typer.colors.RED)
+        if not cancel_orders:
+            return
+        try:
+            with ctx.sessions() as session:
+                results = ctx.paper_oms(session).cancel_all(reason=f"kill switch: {reason.strip()}")
+        except Exception as exc:  # the switch stays engaged; tell the owner to cancel by hand
+            fail(f"kill switch is engaged, but cancelling working orders failed: {exc}")
+        for oid, outcome in results.results.items():
+            typer.echo(f"  {oid}: {outcome}")
+        if not results.complete:
+            for oid, state in results.still_working.items():
+                typer.secho(f"  STILL WORKING {oid}: {state}", fg=typer.colors.RED)
+            fail(
+                "kill switch engaged, but some orders may still be working: run `quantlab paper reconcile` "
+                "and cancel them by hand"
+            )
+        typer.echo(f"{len(results.results)} working order(s) cancelled; nothing left working")
 
 
 @kill_app.command("disengage")

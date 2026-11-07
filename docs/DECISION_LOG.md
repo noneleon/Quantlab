@@ -224,3 +224,6 @@ Addendum (CHANGE-0027): broker events are acknowledged by sequence number (`ackn
 count; reconciliation reads one `BrokerSnapshot`; adapters must serialise state changes with an OS-level lock (or the
 broker's own server-side state), never an age-broken lock file; an order the broker works but the OMS does not track as
 working blocks new orders.
+Addendum (CHANGE-0028): new limits are added as required keys (old files fail closed; `quantlab risk template`
+shows the current set); the kill switch cancels working orders by default but never flattens positions; cooldowns
+and loss limits always let position-reducing orders through.

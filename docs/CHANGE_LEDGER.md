@@ -521,3 +521,26 @@ Review of these fixes (trading-safety-reviewer, before commit): no BLOCKER/MAJOR
 recorded as KI-0069..0071.
 Tests: see the session handoff for the gate results of this commit. Paper tests use synthetic SIMULATED quotes only.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0028 — Phase 5b-1: drawdown limit, buying power, rejection cooldown, cancel-all on kill switch
+Date: 2026-11-07 · Modules: risk, oms, cli · Feature IDs: RISK-002, RISK-004, OMS-006
+Problem: KI-0062 / KI-0065 — no drawdown limit, cooldown or reserved buying power; engaging the kill switch left
+working orders working.
+Change:
+- Limits file: new **required** keys `max_drawdown_fraction`, `max_rejections_per_hour`, `allow_margin` (no implicit
+  defaults: an older file now rejects every order, with a hint to the new `quantlab risk template` command);
+  `allow_short = true` with `allow_margin = false` is invalid (a cash account cannot short).
+- Gate: drawdown vs the high-water mark of recorded equity (daily granularity) → reduce-only; cash-account buying
+  power (order + every working buy at max(own price, mark) ≤ cash; an unpriceable working buy fails); rejection
+  cooldown (≥ N rejected orders created in the last hour → only position-reducing orders; unknown count → reject).
+- `OMS.cancel_all(reason)` cancels every SUBMITTED/ACCEPTED/PARTIALLY_FILLED order, never sends orders, audits intent
+  and per-order results, and lists everything that may still be working (refused cancels, in-flight/unknown
+  submissions, broker-only orders). `quantlab risk kill-switch engage` commits the switch first, then cancels working
+  paper orders by default (`--keep-orders` to skip) and exits non-zero if anything may still be working. Positions are
+  never flattened automatically (a human decision).
+Safety review (trading-safety-reviewer, before commit): no BLOCKER; 2 MAJOR fixed with regression tests (cooldown
+blocked reducing orders and sustained itself; cancel-all could report success with orders still working); minors fixed:
+unpriceable working buy fails buying power, short+cash-account combination invalid, cancel-all results audited.
+Remaining minors recorded as KI-0072/0073.
+Tests: Python 529 passed, 1 skipped; ruff, mypy --strict, lint-imports (5 contracts) clean. Synthetic SIMULATED quotes.
+Result: PASS · Regression status: PASS

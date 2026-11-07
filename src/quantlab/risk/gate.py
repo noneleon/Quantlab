@@ -8,8 +8,9 @@ Checks, in order (all are evaluated so the decision shows every reason): kill sw
 broker mode is paper (live is not available, DEC-0010) · symbol allowed · quantity · price reference (limit
 price or a fresh quote) · quote state (LIVE required when configured) · quote age · spread · order notional ·
 position notional after the order · gross exposure after the order · shorting · open orders · order rate ·
-daily loss limit (then only position-reducing orders) · trading session. Missing information is a rejection,
-never a pass.
+daily loss limit and drawdown limit (then only position-reducing orders) · buying power (cash account:
+the order plus working buys must be covered by cash) · rejection cooldown · trading session. Missing
+information is a rejection, never a pass.
 """
 
 from __future__ import annotations
@@ -71,6 +72,8 @@ class RiskContext:
     start_of_day_equity: float | None
     pending: Sequence[PendingOrder] = ()
     unresolved_orders: int = 0  # PENDING_SUBMIT / SUBMIT_UNKNOWN: reconcile before trading on
+    peak_equity: float | None = None  # high-water mark of recorded equity (drawdown limit)
+    recent_rejections: int | None = None  # rejected orders in the last hour (cooldown); None = unknown
 
 
 @dataclass
@@ -283,6 +286,43 @@ class RiskGate:
                 )
             else:
                 d.check("daily loss limit", False, "start-of-day equity unknown")
+            peak = max(x for x in (ctx.peak_equity, ctx.start_of_day_equity, equity) if x is not None)
+            dd = 1 - equity / peak
+            dd_breached = dd >= lim.max_drawdown_fraction
+            d.check(
+                "drawdown limit",
+                not dd_breached or reduces,
+                f"{dd:.4f} below the high-water mark {peak:.2f} (limit {lim.max_drawdown_fraction})"
+                + ("; only position-reducing orders allowed" if dd_breached else ""),
+            )
+        if not lim.allow_margin and intent.side is Side.BUY:
+            # Cash account: this order and every working buy (at the higher of its price and its market
+            # mark) must be covered by cash. Sells never need buying power.
+            reserved = 0.0
+            for p in ctx.pending:
+                if p.signed_quantity <= 0:
+                    continue
+                mark = reference if p.symbol == intent.symbol else ctx.marks.get(p.symbol)
+                price = max(x for x in (p.price, mark, 0.0) if x is not None)
+                if price <= 0:
+                    d.check("buying power", False, f"cannot value working buy on {p.symbol}")
+                reserved += p.signed_quantity * price
+            need = notional + reserved
+            d.check(
+                "buying power",
+                need <= ctx.book.cash + 1e-9,
+                f"{need:.2f} needed incl. {reserved:.2f} reserved by working buys; cash {ctx.book.cash:.2f}",
+            )
+        if ctx.recent_rejections is None:
+            d.check("rejection cooldown", False, "recent rejections unknown")
+        else:
+            cooling = ctx.recent_rejections >= lim.max_rejections_per_hour
+            d.check(  # reducing a position never adds risk: the owner can always get out during a cooldown
+                "rejection cooldown",
+                not cooling or reduces,
+                f"{ctx.recent_rejections} rejected in the last hour (max {lim.max_rejections_per_hour})"
+                + ("; only position-reducing orders allowed" if cooling else ""),
+            )
         d.check(
             "open orders",
             ctx.open_orders < lim.max_open_orders,

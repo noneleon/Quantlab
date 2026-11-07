@@ -275,8 +275,12 @@ def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
     assert "FILLED" in ql("paper", "orders").stdout
     assert ql("paper", "reconcile").exit_code == 0
 
+    rest = ql("paper", "order", "SPY", "buy", "1", "--key", "rest", "--type", "limit", "--limit-price", "0.5")
+    assert rest.exit_code == 0 and "ACCEPTED" in rest.output, rest.output  # works far below the market
     assert ql("risk", "kill-switch", "engage").exit_code == 1  # reason required
-    assert ql("risk", "kill-switch", "engage", "--reason", "test").exit_code == 0
+    engaged = ql("risk", "kill-switch", "engage", "--reason", "test")
+    assert engaged.exit_code == 0 and ": CANCELLED" in engaged.output  # working orders cancelled on engage
+    assert "max_drawdown_fraction" in ql("risk", "template").stdout
     r = ql("paper", "order", "SPY", "buy", "1", "--key", "k2")
     assert r.exit_code == 1 and "kill switch" in r.output
     piped = ql_input("DISENGAGE KILL SWITCH\n", "risk", "kill-switch", "disengage", "--reason", "ok")
@@ -286,10 +290,7 @@ def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
     ok = ql_input("DISENGAGE KILL SWITCH\n", "risk", "kill-switch", "disengage", "--reason", "ok")
     assert ok.exit_code == 0, ok.output
     decisions = json.loads(ql("risk", "decisions", "--json").stdout)
-    assert [d["approved"] for d in decisions] == [
-        False,
-        True,
-        False,
-    ]  # kill switch, k1, no limits (newest first)
+    # newest first: kill switch, rest, k1, no limits
+    assert [d["approved"] for d in decisions] == [False, True, True, False]
     assert any(c["check"] == "kill switch" for c in decisions[0]["failed"])
     assert ql("paper", "order", "SPY", "hold", "1", "--key", "bad").exit_code == 1

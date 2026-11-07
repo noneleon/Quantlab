@@ -28,6 +28,9 @@ max_gross_exposure_fraction = 0.5
 max_open_orders = 3
 max_orders_per_minute = 50
 daily_loss_limit_fraction = 0.02
+max_drawdown_fraction = 0.10
+max_rejections_per_hour = 50
+allow_margin = false
 max_quote_age_s = 15.0
 max_spread_bps = 50.0
 allow_short = false
@@ -354,7 +357,11 @@ def test_working_orders_count_towards_position_and_exposure_limits(stack):
 def test_far_away_limit_or_stop_cannot_shrink_the_checked_notional(stack):
     """Review finding 2: orders were valued at a price far from where they fill."""
     oms = stack["oms"]
-    stack["limits"].write_text(LIMITS.replace("allow_short = false", "allow_short = true"))
+    stack["limits"].write_text(
+        LIMITS.replace("allow_short = false", "allow_short = true").replace(
+            "allow_margin = false", "allow_margin = true"
+        )
+    )
     low = oms.submit(req("s1", qty=99, side=Side.SELL, order_type=OrderType.LIMIT, limit_price=0.01))
     notional = next(c for c in low.decision.checks if c["check"] == "order notional")
     assert notional["detail"].startswith("4949.01")  # valued at the 49.99 bid, not at the 0.01 limit (0.99)
@@ -642,3 +649,121 @@ def test_distinct_late_fills_are_each_audited(stack):
     oms.process_events()
     with stack["sessions"]() as s:
         assert s.query(AuditEntry).filter_by(action="oms.anomaly").count() == 2
+
+
+# ---- Phase 5b-1: drawdown, buying power, rejection cooldown, cancel-all ---------------------------------
+
+WIDE = (
+    LIMITS.replace("max_order_quantity = 100", "max_order_quantity = 1000")
+    .replace("max_order_notional = 5000.0", "max_order_notional = 50000.0")
+    .replace("max_position_notional = 8000.0", "max_position_notional = 50000.0")
+    .replace("max_gross_exposure_fraction = 0.5", "max_gross_exposure_fraction = 5.0")
+    .replace("max_open_orders = 3", "max_open_orders = 10")
+)
+
+
+def test_drawdown_from_high_water_mark_allows_only_reducing_orders(stack):
+    from quantlab.core.ids import new_id
+    from quantlab.oms.models import DailyEquity
+
+    oms = stack["oms"]
+    assert oms.submit(req("buy", qty=20)).state is S.FILLED  # today's start-of-day equity ~20 000
+    with stack["sessions"]() as s:  # an earlier day at 25 000: today is 20 % below the high-water mark
+        s.add(DailyEquity(id=new_id(), account="paper", day="2026-11-02", equity=25_000.0, created_at=T0))
+        s.commit()
+    blocked = oms.submit(req("more", qty=1))
+    assert blocked.state is S.RISK_REJECTED
+    assert any(r.startswith("drawdown limit: 0.2") for r in blocked.decision.reasons)
+    assert oms.submit(req("reduce", qty=10, side=Side.SELL)).state is S.FILLED
+
+
+def test_cash_account_reserves_buying_power_for_working_buys(stack):
+    oms = stack["oms"]
+    stack["limits"].write_text(WIDE)
+    rest = oms.submit(req("rest", qty=300, order_type=OrderType.LIMIT, limit_price=49.0))
+    assert rest.state is S.ACCEPTED  # 300 x 50.01 reference = 15 003 of 20 000 cash
+    big = oms.submit(req("big", qty=200))  # 200 x 50.01 + reserved 300 x 50.01 > 20 000
+    assert big.state is S.RISK_REJECTED
+    assert any(r.startswith("buying power:") and "reserved" in r for r in big.decision.reasons)
+    assert oms.submit(req("small", qty=50)).state is S.FILLED  # 2 500 + 15 003 fits
+    assert oms.submit(req("sell", qty=10, side=Side.SELL)).state is S.FILLED  # sells need no buying power
+    stack["limits"].write_text(WIDE.replace("allow_margin = false", "allow_margin = true"))
+    margin = oms.submit(req("big2", qty=200))
+    assert not any(c["check"] == "buying power" for c in margin.decision.checks)
+
+
+def test_rejection_cooldown_blocks_new_orders_for_an_hour(stack):
+    oms, clock = stack["oms"], stack["clock"]
+    stack["limits"].write_text(LIMITS.replace("max_rejections_per_hour = 50", "max_rejections_per_hour = 2"))
+    for i in range(2):
+        assert oms.submit(req(f"bad{i}", qty=1000)).state is S.RISK_REJECTED  # over max_order_quantity
+    cooled = oms.submit(req("good"))
+    assert cooled.state is S.RISK_REJECTED
+    assert any(r.startswith("rejection cooldown: 2 rejected") for r in cooled.decision.reasons)
+    clock.advance(timedelta(minutes=61))  # the window only counts the last hour
+    assert oms.submit(req("good2")).state is S.FILLED
+
+
+def test_limits_files_from_older_versions_fail_closed_with_a_hint(stack):
+    old = "\n".join(
+        line
+        for line in LIMITS.splitlines()
+        if not line.startswith(("max_drawdown_fraction", "max_rejections_per_hour", "allow_margin"))
+    )
+    stack["limits"].write_text(old + "\n")
+    r = stack["oms"].submit(req("k"))
+    assert r.state is S.RISK_REJECTED
+    assert any("quantlab risk template" in x for x in r.decision.reasons)
+
+
+def test_cancel_all_cancels_every_working_order_and_is_audited(stack):
+    from quantlab.core.audit import AuditEntry
+
+    oms = stack["oms"]
+    filled = oms.submit(req("mkt"))
+    a = oms.submit(req("a", order_type=OrderType.LIMIT, limit_price=10.0))
+    b = oms.submit(req("b", qty=5, side=Side.SELL, order_type=OrderType.LIMIT, limit_price=99.0))
+    out = oms.cancel_all(reason="kill switch: test")
+    assert out.results == {a.order.id: "CANCELLED", b.order.id: "CANCELLED"} and out.complete
+    with stack["sessions"]() as s:
+        assert oms.state(s, filled.order.id) is S.FILLED  # finished orders untouched
+        assert s.query(AuditEntry).filter_by(action="oms.cancel_all").count() == 1
+        assert s.query(AuditEntry).filter_by(action="oms.cancel_all.result").count() == 1
+    assert stack["broker"].open_order_ids() == set()
+    again = oms.cancel_all(reason="again")
+    assert again.results == {} and again.complete
+
+
+def test_cancel_all_reports_orders_it_could_not_cancel(stack, monkeypatch):
+    """5b-1 review M2: refused cancels and in-flight submissions are never reported as done."""
+    from quantlab.brokers.base import BrokerError
+
+    oms = stack["oms"]
+    a = oms.submit(req("a", order_type=OrderType.LIMIT, limit_price=10.0))
+    inflight = oms.submit(req("b", order_type=OrderType.LIMIT, limit_price=11.0))
+    with stack["sessions"]() as s:  # simulate another process's in-flight order (not cancellable yet)
+        oms._event(s, inflight.order.id, S.PENDING_CANCEL, {})
+        s.commit()
+    monkeypatch.setattr(stack["broker"], "cancel", lambda oid: (_ for _ in ()).throw(BrokerError("refused")))
+    out = oms.cancel_all(reason="kill switch: test")
+    assert out.results[a.order.id] == "ACCEPTED" and not out.complete
+    assert out.still_working[a.order.id] == "ACCEPTED"
+    assert out.still_working[inflight.order.id] == "PENDING_CANCEL" and inflight.order.id not in out.results
+
+
+def test_cooldown_still_allows_reducing_orders(stack):
+    """5b-1 review M1: a cooldown must never stop the owner from getting out of a position."""
+    oms = stack["oms"]
+    assert oms.submit(req("buy", qty=20)).state is S.FILLED
+    stack["limits"].write_text(LIMITS.replace("max_rejections_per_hour = 50", "max_rejections_per_hour = 2"))
+    for i in range(3):
+        assert oms.submit(req(f"bad{i}", qty=1000)).state is S.RISK_REJECTED
+    assert oms.submit(req("more", qty=1)).state is S.RISK_REJECTED
+    assert oms.submit(req("out", qty=20, side=Side.SELL)).state is S.FILLED
+
+
+def test_cash_account_cannot_allow_shorting(tmp_path):
+    p = tmp_path / "l.toml"
+    p.write_text(LIMITS.replace("allow_short = false", "allow_short = true"))
+    with pytest.raises(RiskConfigError, match="cash account cannot sell short"):
+        load_limits(p)

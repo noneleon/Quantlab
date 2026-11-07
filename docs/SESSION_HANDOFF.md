@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0027 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0028 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -42,9 +42,11 @@
 - CHANGE-0026/0027: second and third trading-safety reviews fixed (market-mark equity, persisted anomalies, TTY-only
   disengage, OS-level paper-broker lock, event ack by sequence, snapshot reconcile, fills never hidden as replays,
   untracked broker orders block new orders). A fourth review found no BLOCKER/MAJOR; open minors are KI-0068..0071.
+- CHANGE-0028 (5b-1): drawdown limit, cash-account buying power, rejection cooldown (new required limit keys —
+  **existing limits files must add them**, see `quantlab risk template`); kill-switch engage cancels working orders.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 521 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 529 passed, 1 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: unchanged (21 passed). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
@@ -73,7 +75,7 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 5b (DEC-0027): portfolio/orders/risk console + kill-switch display (UI-006; writes stay CLI-only or need typed
-confirmation), IBKR paper broker adapter behind the same protocol (BRK-003/004, read-only market data connection stays
-separate), remaining risk rules (KI-0062), deployment supervisor (LIVE-001). OMS-007 (LEAN gateway) needs .NET.
+Phase 5b continues (DEC-0027): 5b-2 portfolio/orders/risk console + kill-switch display (UI-006; writes stay
+CLI-only or need typed confirmation), 5b-3 IBKR paper broker adapter behind the same protocol (BRK-003/004, read-only
+market data connection stays separate), 5b-4 deployment supervisor (LIVE-001). OMS-007 (LEAN gateway) needs .NET.
 Owner actions: `quantlab risk init` + review limits; first real LEAN run (KI-0002); IBKR paper check (KI-0043/0044).
