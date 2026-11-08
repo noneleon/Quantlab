@@ -9,8 +9,8 @@ broker mode is paper (live is not available, DEC-0010) · symbol allowed · quan
 price or a fresh quote) · quote state (LIVE required when configured) · quote age · spread · order notional ·
 position notional after the order · gross exposure after the order · shorting · open orders · order rate ·
 daily loss limit and drawdown limit (then only position-reducing orders) · buying power (cash account:
-the order plus working buys must be covered by cash) · rejection cooldown · trading session. Missing
-information is a rejection, never a pass.
+the order plus working buys must be covered by *settled* cash, RISK-006) · rejection cooldown · trading
+session. Missing information is a rejection, never a pass.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from quantlab.data.market_data import NO_TRADE_FLAGS, DataState, Quote
 from quantlab.portfolio.book import Book
 from quantlab.risk.limits import RiskConfigError, load_limits
 from quantlab.risk.models import KillSwitchEvent, RiskDecision
+from quantlab.risk.settlement import unsettled_proceeds
 
 DISENGAGE_CONFIRMATION = "DISENGAGE KILL SWITCH"
 ENGAGE_CONFIRMATION = "ENGAGE KILL SWITCH"  # web console only: guards against an accidental click
@@ -76,6 +77,7 @@ class RiskContext:
     peak_equity: float | None = None  # high-water mark of recorded equity (drawdown limit)
     recent_rejections: int | None = None  # rejected orders in the last hour (cooldown); None = unknown
     broker_error: str | None = None  # the broker's open orders could not be read: no new orders
+    recent_sales: Sequence[tuple[datetime, float]] | None = ()  # (executed_at, net proceeds); None = unknown
 
 
 @dataclass
@@ -315,10 +317,22 @@ class RiskGate:
                     d.check("buying power", False, f"cannot value working buy on {p.symbol}")
                 reserved += p.signed_quantity * price
             need = notional + reserved
+            # RISK-006: only settled cash buys (no good-faith violations / free-riding in a cash account)
+            unsettled = 0.0
+            if lim.settlement_days > 0:
+                if ctx.recent_sales is None:
+                    d.check("settled cash", False, "recent sales unknown: cannot tell settled cash")
+                else:
+                    unsettled = unsettled_proceeds(
+                        ctx.recent_sales, now, lim.settlement_days, lim.trading_calendar
+                    )
+            settled = ctx.book.cash - unsettled
             d.check(
                 "buying power",
-                need <= ctx.book.cash + 1e-9,
-                f"{need:.2f} needed incl. {reserved:.2f} reserved by working buys; cash {ctx.book.cash:.2f}",
+                need <= settled + 1e-9,
+                f"{need:.2f} needed incl. {reserved:.2f} reserved by working buys; "
+                f"settled cash {settled:.2f} (cash {ctx.book.cash:.2f}, unsettled sales {unsettled:.2f}, "
+                f"T+{lim.settlement_days})",
             )
         if ctx.recent_rejections is None:
             d.check("rejection cooldown", False, "recent rejections unknown")

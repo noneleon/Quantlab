@@ -43,6 +43,9 @@ class RiskLimits(BaseModel):
     require_live_quotes: bool  # True: SIMULATED / DELAYED / FROZEN quotes are refused (always True for live)
     trading_calendar: str  # e.g. "XNYS"; "none" disables the session check
     allowed_symbols: list[str] | None = None  # None: any symbol
+    # Cash account (RISK-006): sale proceeds are spendable after this many trading days (US equities: T+1).
+    # Optional: older files get the safe default; 0 treats proceeds as settled at once.
+    settlement_days: int = Field(default=1, ge=0, le=3)
 
     @model_validator(mode="after")
     def _cash_accounts_cannot_short(self) -> RiskLimits:
@@ -100,6 +103,7 @@ max_spread_bps = 50.0
 allow_short = false
 require_live_quotes = false         # paper with simulated quotes; live trading always requires LIVE quotes
 trading_calendar = "XNYS"           # orders only during the regular session ("none" disables the check)
+settlement_days = 1                 # cash account: buys only with settled cash; sale proceeds settle T+1
 # allowed_symbols = ["SPY", "QQQ"]
 """
 

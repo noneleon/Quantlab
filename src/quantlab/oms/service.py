@@ -723,6 +723,18 @@ class OMS:
             ),
         ]
         recorded = [x for x in (r.scalar_one_or_none() for r in peaks) if x is not None]
+        # RISK-006: proceeds of recent sales (unsettled ones are not buying power in a cash account)
+        sales = [
+            (f.executed_at if f.executed_at.tzinfo else f.executed_at.replace(tzinfo=UTC),
+             f.quantity * f.price - f.commission)
+            for f in session.execute(
+                select(FillRecord).where(
+                    FillRecord.account == self.account,
+                    FillRecord.side == Side.SELL.value,
+                    FillRecord.executed_at >= now - timedelta(days=14),
+                )
+            ).scalars()
+        ]  # fmt: skip
         peak = max(recorded) if recorded else None
         return RiskContext(
             broker_mode=self._broker.mode,
@@ -737,6 +749,7 @@ class OMS:
             peak_equity=peak,
             recent_rejections=rejections,
             broker_error=broker_error,
+            recent_sales=sales,
         )
 
     def _start_of_day(self, session: Session, now: datetime, equity: float | None) -> float | None:

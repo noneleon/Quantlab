@@ -944,3 +944,16 @@ Verified: CLI end to end on a fresh home (fail without limits → exit 1 and FAI
 receiver.
 Tests: Python 652 passed, 7 skipped; web 30 passed.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0050 — Settlement guard for cash accounts (RISK-006)
+Date: 2026-11-08 · Modules: risk (settlement, limits, gate), oms (service) · Feature IDs: RISK-006
+Change: `risk/settlement.py` computes when sale proceeds settle (T+1 on the trading calendar of the risk limits, by the
+US/Eastern trade date; weekdays when no exchange calendar is set). The OMS passes the last 14 days of sale fills (net
+proceeds) to the gate; with `allow_margin = false` the "buying power" check now compares the order plus working buys
+with *settled* cash and shows cash, unsettled sales and T+N. Unknown sales = rejected. New optional limit
+`settlement_days` (default 1, 0 = previous behaviour; in the template). A tightening: a cash account can no longer
+buy again the same day with the proceeds of a sale.
+Tests: settlement dates (weekend, Thanksgiving, Eastern date boundary, no calendar), unsettled amounts, template /
+older files, OMS end to end (same-day re-buy refused, next day filled), `settlement_days = 0`. Python 661 passed,
+7 skipped; real-LEAN integration 6 passed.
+Result: PASS · Regression status: PASS
