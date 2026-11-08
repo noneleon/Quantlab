@@ -81,11 +81,14 @@ class GatewayInfo:
     host: str
     port: int
     token: str = field(repr=False)  # never in logs or tracebacks
+    unix: str | None = None  # Unix socket path instead of TCP (isolated deployments, DEC-0035)
 
     def as_json(self) -> str:
-        return json.dumps(
-            {"deployment": self.deployment, "host": self.host, "port": self.port, "token": self.token}
-        )
+        data: dict[str, Any] = {"deployment": self.deployment, "host": self.host, "port": self.port,
+                                "token": self.token}  # fmt: skip
+        if self.unix is not None:
+            data["unix"] = self.unix
+        return json.dumps(data)
 
 
 def write_run_file(path: Path, info: GatewayInfo) -> None:
@@ -116,6 +119,7 @@ class Gateway:
         port: int = 0,
         poll_s: float = 0.5,
         token: str | None = None,
+        unix_path: Path | None = None,
     ) -> None:
         if not NAME_RE.match(deployment):
             raise GatewayError("deployment names are 1-32 characters: lowercase letters, digits and '-'")
@@ -130,10 +134,19 @@ class Gateway:
         self.deployment = deployment
         self._poll = poll_s
         self._token = token or secrets.token_urlsafe(32)
-        family = socket.AF_INET6 if ":" in host else socket.AF_INET
-        self._server = socket.create_server((host, port), family=family)
+        self._unix_path = unix_path
+        if unix_path is not None:  # an isolated LEAN has no network; it reaches the gateway through this file
+            unix_path.unlink(missing_ok=True)
+            self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # type: ignore[attr-defined,unused-ignore]
+            self._server.bind(str(unix_path))
+            unix_path.chmod(0o600)
+            self._server.listen(1)
+            self.info = GatewayInfo(deployment, "unix", 0, self._token, unix=str(unix_path))
+        else:
+            family = socket.AF_INET6 if ":" in host else socket.AF_INET
+            self._server = socket.create_server((host, port), family=family)
+            self.info = GatewayInfo(deployment, host, self._server.getsockname()[1], self._token)
         self._server.settimeout(0.2)
-        self.info = GatewayInfo(deployment, host, self._server.getsockname()[1], self._token)
         self._stop = threading.Event()
         self._run: str | None = None
         self._subscribed: dict[str, tuple[Any, ...]] = {}
@@ -172,6 +185,8 @@ class Gateway:
                         log.warning("gateway.connection_ended", deployment=self.deployment, error=repr(exc))
         finally:
             self._server.close()
+            if self._unix_path is not None:
+                self._unix_path.unlink(missing_ok=True)
 
     # ---- one plugin connection -----------------------------------------------------------------------
     def _session(self, conn: socket.socket) -> None:

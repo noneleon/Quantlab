@@ -489,6 +489,7 @@ def paper_deploy(
                     install_dir=ctx.settings.lean_native_dir,
                     home=ctx.settings.home,
                     max_minutes=max_minutes,
+                    isolation=ctx.settings.paper.deployment_isolation,
                     on_started=lambda work: typer.echo(f"  LEAN started; log: {work / 'engine.log'}"),
                 )
             except (DeploymentError, GatewayError) as exc:

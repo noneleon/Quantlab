@@ -529,6 +529,8 @@ export interface DeploymentRow {
   stopped_by?: string;
   exit_code?: number | null;
   data_states?: string[];
+  isolated?: boolean; // DEC-0035: strategy process without network (Linux / WSL2)
+  isolation?: string;
   paused?: boolean; // DEC-0034: new orders refused (`quantlab paper pause` / `resume`)
   pause_reason?: string | null;
 }

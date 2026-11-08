@@ -6,6 +6,15 @@ from AlgorithmImports import *  # noqa: F403
 
 class DeployProbe(QCAlgorithm):  # noqa: F405
     def initialize(self):
+        import os
+        import socket
+
+        port = os.environ.get("QUANTLAB_TEST_HOST_PORT")  # isolation test (KI-0082): try to reach the host
+        if port:
+            probe = socket.socket()
+            probe.settimeout(2)
+            reached = probe.connect_ex(("127.0.0.1", int(port))) == 0
+            self.log(f"DEPLOY host network {'REACHABLE' if reached else 'unreachable'}")
         self.set_cash(100000)
         self._spy = self.add_equity("SPY", Resolution.SECOND).symbol  # noqa: F405
         self._sent = False

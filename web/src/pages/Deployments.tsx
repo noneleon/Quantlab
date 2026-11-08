@@ -10,11 +10,14 @@ import { useApi } from "../hooks";
 function StateBadge({ row }: { row: DeploymentRow }) {
   const cls = row.running ? "badge-ok" : row.state === "lost" ? "badge-bad" : "badge-muted";
   const badge = <span className={`badge ${cls}`}>{row.running ? "running" : row.state}</span>;
-  if (!row.paused) return badge;
+  const iso = row.isolated === undefined ? null : row.isolated
+    ? <span className="badge badge-ok" title={row.isolation ?? ""}>isolated</span>
+    : <span className="badge badge-warn" title={row.isolation ?? ""}>not isolated · could reach brokers directly</span>;
   return (
     <>
-      {badge}{" "}
-      <span className="badge badge-warn" title={row.pause_reason ?? ""}>paused · new orders refused</span>
+      {badge}{iso ? " " : ""}{iso}
+      {row.paused ? " " : ""}
+      {row.paused ? <span className="badge badge-warn" title={row.pause_reason ?? ""}>paused · new orders refused</span> : null}
     </>
   );
 }

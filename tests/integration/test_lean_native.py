@@ -141,7 +141,9 @@ def test_real_lean_paper_order_goes_through_the_gateway_and_risk_gate(tmp_path):
 @pytest.mark.parametrize(
     ("probe", "entry"), [("lean_deploy_probe", "DeployProbe.cs"), ("lean_deploy_probe_py", "main.py")]
 )
-def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_path, probe, entry):
+def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(
+    tmp_path, probe, entry, monkeypatch
+):
     """5c-4: `deploy` — LEAN live mode, prices from QuantLab via QuantLabDataQueue (no seeded price), order
     through the gateway, OMS and risk gate, fill back, audited start/stop. Synthetic quotes; exchange forced
     open (test only)."""
@@ -154,8 +156,15 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
 
     repo = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repo / "tests" / "fixtures"))
+    import socket as _socket
+
     from gateway_harness import build_stack
 
+    from quantlab.core.isolation import probe as isolation_probe
+
+    isolated = isolation_probe().supported  # Linux / WSL2: deployments run without network (DEC-0035)
+    listener = _socket.create_server(("127.0.0.1", 0))  # a host service the strategy must not reach
+    monkeypatch.setenv("QUANTLAB_TEST_HOST_PORT", str(listener.getsockname()[1]))
     oms, sessions, _kill = build_stack(tmp_path / "stack")
     result = deploy(
         oms,
@@ -175,6 +184,12 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
     assert "DEPLOY first price 50" in log  # QuantLab's quote (synthetic), not a seeded value
     assert "SPY prices are SIMULATED, not clean LIVE data" in log  # the data state reached the algorithm
     assert "DEPLOY order event 1 Filled qty 1 @ 50.01" in log
+    listener.close()
+    status = json.loads((result.work_dir / "status.json").read_text())
+    assert status["isolated"] is isolated
+    if entry == "main.py":  # the Python probe tries to connect to the host
+        expected = "unreachable" if isolated else "REACHABLE"
+        assert f"DEPLOY host network {expected}" in log, log[-3000:]
     with sessions() as s:
         ((order, state),) = queries.orders_with_state(s, "paper", None)
         assert state.value == "FILLED" and order.source == "lean:deploy-probe"

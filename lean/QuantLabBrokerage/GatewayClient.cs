@@ -20,7 +20,9 @@ using System.Threading.Tasks;
 namespace QuantLab.Brokerages
 {
     /// <summary>Connection details from QUANTLAB_HOME/run/gateway-&lt;deployment&gt;.json (owner-only file).</summary>
-    public sealed record GatewayEndpoint(string Deployment, string Host, int Port, string Token)
+    /// <remarks>With <c>unix</c> set the gateway listens on that Unix socket file instead of TCP: an isolated
+    /// deployment has no network at all (KI-0082, DEC-0035).</remarks>
+    public sealed record GatewayEndpoint(string Deployment, string Host, int Port, string Token, string? Unix = null)
     {
         public static GatewayEndpoint FromRunFile(string path)
         {
@@ -30,10 +32,12 @@ namespace QuantLab.Brokerages
                 r.GetProperty("deployment").GetString() ?? throw new InvalidDataException("deployment missing"),
                 r.GetProperty("host").GetString() ?? "127.0.0.1",
                 r.GetProperty("port").GetInt32(),
-                r.GetProperty("token").GetString() ?? throw new InvalidDataException("token missing"));
+                r.GetProperty("token").GetString() ?? throw new InvalidDataException("token missing"),
+                r.TryGetProperty("unix", out var unix) && unix.ValueKind == JsonValueKind.String ? unix.GetString() : null);
         }
 
-        public override string ToString() => $"{Deployment}@{Host}:{Port}"; // never the token
+        public override string ToString() =>
+            Unix != null ? $"{Deployment}@unix:{Unix}" : $"{Deployment}@{Host}:{Port}"; // never the token
     }
 
     public sealed class GatewayException : Exception
@@ -47,7 +51,7 @@ namespace QuantLab.Brokerages
         private readonly TimeSpan _timeout;
         private readonly object _sync = new();
         private readonly List<(Func<JsonElement, bool> Match, TaskCompletionSource<JsonElement> Reply)> _waiters = new();
-        private TcpClient? _tcp;
+        private Socket? _socket;
         private NetworkStream? _stream;
         private Thread? _reader;
         private volatile bool _connected;
@@ -99,25 +103,31 @@ namespace QuantLab.Brokerages
             lock (_sync)
             {
                 CloseSocket();
-                var tcp = new TcpClient { NoDelay = true };
+                var unix = _endpoint.Unix != null;
+                var sock = unix
+                    ? new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
+                    : new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
                 bool connected;
                 try
                 {
-                    connected = tcp.ConnectAsync(_endpoint.Host, _endpoint.Port).Wait(_timeout);
+                    var connecting = unix
+                        ? sock.ConnectAsync(new UnixDomainSocketEndPoint(_endpoint.Unix!))
+                        : sock.ConnectAsync(_endpoint.Host, _endpoint.Port);
+                    connected = connecting.Wait(_timeout);
                 }
                 catch (AggregateException exc) // refused / unreachable: surfaced as GatewayException like any failure
                 {
-                    tcp.Dispose();
+                    sock.Dispose();
                     var reason = exc.InnerException?.Message ?? exc.Message;
                     throw new GatewayException($"QuantLab gateway {_endpoint} not reachable: {reason}");
                 }
                 if (!connected)
                 {
-                    tcp.Dispose();
+                    sock.Dispose();
                     throw new GatewayException($"QuantLab gateway {_endpoint} did not accept the connection");
                 }
-                _tcp = tcp;
-                _stream = tcp.GetStream();
+                _socket = sock;
+                _stream = new NetworkStream(sock, ownsSocket: false);
                 _stream.ReadTimeout = (int)_timeout.TotalMilliseconds;
                 var hello = new Dictionary<string, object?>
                 {
@@ -201,7 +211,7 @@ namespace QuantLab.Brokerages
         /// <summary>Tests only: drop the socket as a network failure would.</summary>
         internal void DropConnection()
         {
-            lock (_sync) _tcp?.Client.Shutdown(SocketShutdown.Both);
+            lock (_sync) _socket?.Shutdown(SocketShutdown.Both);
         }
 
         private void WriteLine(object message)
@@ -273,9 +283,9 @@ namespace QuantLab.Brokerages
             _connected = false;
             _generation++; // an intentional close: the old reader ends silently (no Disconnected event)
             try { _stream?.Dispose(); } catch (IOException) { }
-            try { _tcp?.Dispose(); } catch (SocketException) { }
+            try { _socket?.Dispose(); } catch (SocketException) { }
             _stream = null;
-            _tcp = null;
+            _socket = null;
         }
 
         public void Dispose()

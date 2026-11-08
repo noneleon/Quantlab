@@ -47,6 +47,7 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `paper.commission_per_share` / `min_commission` | `0.005` / `1.0` | simulated commissions |
 | `paper.slippage_bps` | `1.0` | market/stop fills worse than the touch by this |
 | `paper.allow_short` | `false` | cash account (no shorting) |
+| `paper.deployment_isolation` | `"auto"` | `paper deploy` strategy process without network (DEC-0035): `auto` = required on Linux/WSL2, warning elsewhere; `required`; `off` |
 | `risk.limits_file` | `{home}/risk_limits.toml` | changes require UI confirmation + audit |
 | `ai.provider` | `none` | `anthropic`, `openai`, `ollama`, `none` |
 | `ai.api_key_ref` | unset | must start with `secret://` |

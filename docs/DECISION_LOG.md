@@ -317,3 +317,16 @@ switch, CLAUDE.md §4). (3) The state is the latest `paper.deploy.pause` / `pape
 append-only audit log (no new table or migration): it survives restarts and is checked on every order. (4) The web
 console shows the paused state only; it gets no pause or resume control (DEC-0028 unchanged). (5) The kill switch
 still blocks every order of every deployment and wins over a resumed deployment.
+
+### DEC-0035 — Paper deployments run without network (strategy isolation)
+State: ACCEPTED (owner chose "Linux/WSL2 kernel isolation (recommended)", 2026-11-08; addresses KI-0082)
+Decisions: (1) On Linux / WSL2 the LEAN process of `quantlab paper deploy` runs in its own network namespace
+(`unshare --user --map-root-user --net`): no network, the host's loopback unreachable, so strategy code cannot reach
+IB Gateway, the internet or host services. (2) The gateway then listens on an owner-only Unix socket in a private
+temporary folder (TCP otherwise); the C# plugin reads `unix` from the run file. (3) Before every deployment
+`core.isolation.probe` starts a process the same way and checks that a host loopback listener is unreachable.
+(4) `[paper] deployment_isolation`: `auto` (default) — required on Linux (a failed probe refuses the deployment),
+on Windows / macOS the deployment runs unisolated with a warning; `required` — refuses without isolation; `off` —
+the owner's explicit choice. The result is recorded in the start audit entry, `status.json`, `provenance.json` and
+shown in the console. (5) Not covered: file access (the strategy runs as the owner and can read the owner's files)
+and Windows/macOS network isolation (needs administrator rights or containers).

@@ -911,3 +911,19 @@ Verified on real LEAN: a paused Python deployment received QuantLab's price, its
 reason and nothing reached the OMS.
 Tests: Python 640 passed, 6 skipped; web 29 passed; real-LEAN integration 6 passed.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0048 — Strategy isolation: paper deployments without network (DEC-0035, KI-0082)
+Date: 2026-11-08 · Modules: core (isolation, config), oms (gateway, deployment), lean (QuantLabBrokerage), cli, web
+· Feature IDs: LIVE-001, OMS-007
+Change: `core/isolation.py` (`probe`: starts a process in a user + network namespace and verifies a host loopback
+listener is unreachable). `Gateway(unix_path=…)` listens on an owner-only Unix socket (removed on stop); the run file
+carries `unix`; the C# `GatewayClient` connects over Unix or TCP (`Socket` instead of `TcpClient`). `deploy(isolation=)`
+/ `[paper] deployment_isolation` (auto | required | off): on Linux LEAN starts under `unshare --user --map-root-user
+--net`; a failed probe refuses the deployment unless "off"; elsewhere "auto" warns and records "not isolated". The
+isolation result is in the start audit entry, `status.json`, `provenance.json` and the console (badge).
+Verified on real LEAN (fresh `native-install` with the changed plugin): C# and Python deployments ran isolated,
+traded through the Unix-socket gateway and risk gate, and the Python probe could not reach a host listener
+("DEPLOY host network unreachable"); without isolation the same probe reaches it (asserted by the test's branch).
+Tests: Python 643 passed, 7 skipped; C# 17 passed; web 29 passed; real-LEAN integration 6 passed.
+Not covered: Windows/macOS network isolation, filesystem sandboxing (KI-0082).
+Result: PASS · Regression status: PASS

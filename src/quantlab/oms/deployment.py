@@ -18,6 +18,8 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -30,6 +32,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from quantlab.core.audit import AuditLog
 from quantlab.core.filelock import LockHeld, exclusive
+from quantlab.core.isolation import IsolationProbe, probe
 from quantlab.core.logging import get_logger
 from quantlab.engine.base import EngineError
 from quantlab.engine.lean.native import (
@@ -80,6 +83,7 @@ def deploy(
     dotnet: str = "dotnet",
     force_exchange_open: bool = False,
     on_started: Callable[[Path], None] | None = None,
+    isolation: str = "auto",
 ) -> DeploymentResult:
     """Run the strategy until LEAN exits, ``stop`` is set or ``max_minutes`` elapse; always cleans up.
 
@@ -101,6 +105,7 @@ def deploy(
         env = {**os.environ, **python_runtime()} if python else None
     except EngineError as exc:
         raise DeploymentError(str(exc)) from exc
+    isolated = _isolation(isolation)
     stop = stop or threading.Event()
     run_file = home / "run" / f"gateway-{deployment}.json"
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -111,9 +116,13 @@ def deploy(
             cleanup.enter_context(exclusive(run_file.with_name(run_file.name + ".lock")))
         except LockHeld:
             raise DeploymentError(f"deployment {deployment!r} (or its gateway) is already running") from None
-        state = _Running()
+        state = _Running(isolation=isolated.detail)
         cleanup.callback(_finish, state, run_file, sessions, audit, deployment, work)  # runs on every exit
-        state.gateway = Gateway(oms, sessions, deployment)  # validates the name, binds to loopback
+        unix_path = None
+        if isolated.supported:  # short owner-only folder: Unix socket paths are limited to ~100 bytes
+            state.socket_dir = Path(tempfile.mkdtemp(prefix="quantlab-gw-"))
+            unix_path = state.socket_dir / "gateway.sock"
+        state.gateway = Gateway(oms, sessions, deployment, unix_path=unix_path)  # validates the name
         work.mkdir(parents=True)
         shutil.copytree(strategy_dir, work / "strategy")  # the deployed code is fixed for this run
         snapshot_hash = hash_tree(work / "strategy").tree_hash
@@ -151,7 +160,8 @@ def deploy(
             audit.record(
                 session, actor_type="user", actor=actor, action="paper.deploy.start", target=deployment,
                 details={"strategy": strategy, "tree_hash": snapshot_hash, "entry_file": entry_file,
-                         "work_dir": str(work), "account": oms.account},
+                         "work_dir": str(work), "account": oms.account, "isolated": isolated.supported,
+                         "isolation": isolated.detail},
             )  # fmt: skip
             session.commit()
         state.started, state.actor = True, actor
@@ -161,6 +171,8 @@ def deploy(
             "tree_hash": snapshot_hash,
             "account": oms.account,
             "mode": "paper",
+            "isolated": isolated.supported,
+            "isolation": isolated.detail,
             "state": "running",
             "started_at": datetime.now(UTC).isoformat(),
         }
@@ -170,7 +182,8 @@ def deploy(
         log_path = work / "engine.log"
         with log_path.open("wb") as log_file:
             state.proc = subprocess.Popen(
-                [dotnet, LAUNCHER, "--config", str(config)],  # fixed command line: no extra LEAN arguments
+                # fixed command line: no extra LEAN arguments; isolated: in its own network namespace
+                [*isolated.prefix, dotnet, LAUNCHER, "--config", str(config)],
                 cwd=install_dir / "bin",
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
@@ -219,6 +232,8 @@ class _Running:
     started: bool = False
     actor: str = "owner"
     status: dict[str, object] | None = None
+    isolation: str = ""
+    socket_dir: Path | None = None
 
 
 def _finish(
@@ -235,6 +250,10 @@ def _finish(
         ("stop gateway", lambda: state.gateway.stop() if state.gateway is not None else None),
         ("join gateway", lambda: state.thread.join(timeout=10) if state.thread is not None else None),
         ("remove token", lambda: run_file.unlink(missing_ok=True)),  # valid only while the deployment runs
+        (
+            "remove socket",
+            lambda: shutil.rmtree(state.socket_dir, ignore_errors=True) if state.socket_dir else None,
+        ),
         ("record provenance", lambda: _write_provenance(state, work)),
         ("audit stop", lambda: _audit_stop(state, sessions, audit, deployment, work)),
         ("final status", lambda: _write_status(state, work, final=True)),
@@ -244,6 +263,24 @@ def _finish(
             step()
         except BaseException as exc:  # including KeyboardInterrupt: the remaining steps still run
             log.warning("deploy.cleanup_failed", step=name, error=repr(exc))
+
+
+def _isolation(mode: str) -> IsolationProbe:
+    """DEC-0035: where the OS can isolate the strategy process, it must (unless the owner chose "off")."""
+    if mode == "off":
+        return IsolationProbe(False, "off (owner setting paper.deployment_isolation)")
+    if mode not in ("auto", "required"):
+        raise DeploymentError(f"unknown deployment isolation {mode!r} (auto, required, off)")
+    result = probe()
+    if result.supported:
+        return result
+    if mode == "required" or sys.platform.startswith("linux"):
+        raise DeploymentError(
+            f'strategy isolation failed: {result.detail}. Fix it, or set paper.deployment_isolation = "off" '
+            "to deploy without isolation (the strategy could then reach IB Gateway directly, KI-0082)"
+        )
+    log.warning("deploy.not_isolated", detail=result.detail)
+    return IsolationProbe(False, f"none: {result.detail}")
 
 
 def _write_status(state: _Running, work: Path, *, final: bool = False) -> None:
@@ -313,6 +350,7 @@ def _write_provenance(state: _Running, work: Path) -> None:
             {
                 "data_states": states,
                 "synthetic": any(s != "LIVE" for s in states),  # SIMULATED / DELAYED / flagged quotes
+                "isolation": state.isolation,
                 "note": "paper deployment: simulated executions, prices as labelled; not a performance claim",
             },
             indent=2,

@@ -90,3 +90,33 @@ def test_a_heartbeat_slightly_in_the_future_still_counts_as_running(tmp_path):
     )
     (row,) = read_deployments(tmp_path, now)
     assert row["running"] is True and row["state"] == "running"
+
+
+def test_isolation_modes(monkeypatch):
+    """DEC-0035: where isolation is possible it is required (unless "off"); elsewhere "auto" warns."""
+    import quantlab.oms.deployment as dep
+    from quantlab.core.isolation import IsolationProbe
+
+    monkeypatch.setattr(dep, "probe", lambda: IsolationProbe(False, "userns disabled"))
+    monkeypatch.setattr(dep.sys, "platform", "linux")
+    with pytest.raises(DeploymentError, match="isolation failed: userns disabled"):
+        dep._isolation("auto")
+    monkeypatch.setattr(dep.sys, "platform", "win32")
+    assert dep._isolation("auto").detail == "none: userns disabled"  # no OS support: recorded, not hidden
+    with pytest.raises(DeploymentError, match="isolation failed"):
+        dep._isolation("required")
+    assert not dep._isolation("off").supported
+    with pytest.raises(DeploymentError, match="unknown deployment isolation"):
+        dep._isolation("sometimes")
+
+
+def test_the_isolation_probe_really_checks_the_network():
+    import sys
+
+    from quantlab.core.isolation import probe
+
+    result = probe()
+    if not sys.platform.startswith("linux"):
+        assert not result.supported
+    elif result.supported:  # the probe process could not reach a host loopback listener
+        assert "unreachable" in result.detail and result.prefix[0].endswith("unshare")

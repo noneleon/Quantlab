@@ -210,6 +210,9 @@ class PaperSettings(_Section):
     min_commission: float = Field(default=1.0, ge=0)
     slippage_bps: float = Field(default=1.0, ge=0)
     allow_short: bool = False
+    # Strategy processes of `paper deploy` (DEC-0035): "auto" isolates on Linux/WSL2 (refuses if that
+    # fails) and warns elsewhere; "required" refuses without isolation; "off" never isolates (owner's choice).
+    deployment_isolation: Literal["auto", "required", "off"] = "auto"
     ibkr_account: str | None = None  # the IBKR paper account id (DU...), required with broker = "ibkr"
     ibkr_starting_cash: float | None = Field(
         default=None, gt=0

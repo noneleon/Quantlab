@@ -495,3 +495,29 @@ def test_a_paused_deployment_cannot_place_but_can_cancel_and_resume(stack, gw): 
     c.send(type="place", id=3, symbol="SPY", quantity=5)
     c.until(lambda m: m["type"] == "order" and m["id"] == 3 and m["state"] == "FILLED")
     c.close()
+
+
+@pytest.mark.skipif(not hasattr(__import__("socket"), "AF_UNIX"), reason="no Unix sockets")
+def test_the_gateway_can_listen_on_an_owner_only_unix_socket(stack, tmp_path):  # noqa: F811
+    """DEC-0035: an isolated deployment has no network; it reaches the gateway through a socket file."""
+    import json as _json
+    import socket as _socket
+    import stat
+
+    path = tmp_path / "gw.sock"
+    g = Gateway(stack["oms"], stack["sessions"], "momentum-1", poll_s=0.05, unix_path=path)
+    assert _json.loads(g.info.as_json())["unix"] == str(path)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    t = threading.Thread(target=g.serve, daemon=True)
+    t.start()
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    s.settimeout(5)
+    s.connect(str(path))
+    s.sendall(
+        (_json.dumps({"type": "hello", "token": g.info.token, "deployment": "momentum-1"}) + "\n").encode()
+    )
+    assert _json.loads(s.makefile().readline())["type"] == "welcome"
+    s.close()
+    g.stop()
+    t.join(timeout=5)
+    assert not path.exists()  # removed when the gateway stops
