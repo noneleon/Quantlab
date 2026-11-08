@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -380,3 +381,52 @@ def paper_gateway(
             gw.serve()
         except KeyboardInterrupt:
             typer.echo("gateway stopped")
+
+
+@paper_app.command("deploy")
+def paper_deploy(
+    strategy: Annotated[str, typer.Argument(help="Registered C# strategy, promoted to the 'paper' stage.")],
+    deployment: Annotated[str, typer.Option(help="Deployment name (lowercase letters, digits, '-').")],
+    max_minutes: Annotated[
+        float | None,
+        typer.Option(help="Stop after this many minutes (default: until the algorithm exits or Ctrl+C)."),
+    ] = None,
+    home: HomeOpt = None,
+) -> None:
+    """Run a strategy on native LEAN with every order through the QuantLab OMS and risk gate (paper)."""
+    from quantlab.oms.deployment import DeploymentError, deploy
+    from quantlab.oms.gateway import GatewayError
+
+    with context(home) as ctx:
+        status = ctx.lifecycle().status(strategy)
+        if status["stage"] not in ("paper", "live_candidate"):
+            fail(
+                f"{strategy} is at stage {status['stage']!r}: promote it to 'paper' first "
+                "(`quantlab strategy promote`), which records the evidence and your approval"
+            )
+        if status["stale"]:
+            fail(f"{status['stale_note']}; re-promote before deploying")
+        with ctx.sessions() as session:
+            registered = ctx.registry.get(session, strategy)
+            directory, entry, language = registered.directory, registered.entry_file, registered.language
+            if language != "csharp":
+                fail("paper deployments run C# strategies on the native LEAN engine (Python: KI-0078)")
+            typer.echo(f"[PAPER] deploying {strategy} as {deployment} (Ctrl+C to stop) …")
+            try:
+                result = deploy(
+                    ctx.paper_oms(session),
+                    ctx.sessions,
+                    deployment=deployment,
+                    strategy_dir=Path(directory),
+                    entry_file=entry,
+                    install_dir=ctx.settings.lean_native_dir,
+                    home=ctx.settings.home,
+                    max_minutes=max_minutes,
+                    on_started=lambda work: typer.echo(f"  LEAN started; log: {work / 'engine.log'}"),
+                )
+            except (DeploymentError, GatewayError) as exc:
+                fail(str(exc))
+    typer.echo(
+        f"[PAPER] {deployment} stopped ({result.stopped_by}); LEAN exit code {result.exit_code}; "
+        f"files in {result.work_dir}"
+    )

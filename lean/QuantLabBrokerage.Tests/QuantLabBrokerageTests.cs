@@ -258,5 +258,39 @@ namespace QuantLab.Brokerages.Tests
             var exc = Assert.Throws<GatewayException>(b.Connect);
             Assert.Contains("not reachable", exc.Message);
         }
+    
+
+        // ---- live prices for the algorithm (5c-4) ---------------------------------------------------------
+
+        private sealed class RecordingAggregator : QuantConnect.Data.IDataAggregator
+        {
+            public readonly ConcurrentQueue<QuantConnect.Data.BaseData> Updates = new();
+            public void Initialize(QuantConnect.Data.DataAggregatorInitializeParameters parameters) { }
+            public System.Collections.Generic.IEnumerator<QuantConnect.Data.BaseData> Add(QuantConnect.Data.SubscriptionDataConfig config, EventHandler handler) =>
+                Enumerable.Empty<QuantConnect.Data.BaseData>().GetEnumerator();
+            public bool Remove(QuantConnect.Data.SubscriptionDataConfig config) => true;
+            public void Update(QuantConnect.Data.BaseData input) => Updates.Enqueue(input);
+            public void Dispose() { }
+        }
+
+        [Fact]
+        public void DataQueueDeliversQuantLabsQuotesOverTheSharedConnection()
+        {
+            var aggregator = new RecordingAggregator();
+            using var queue = new QuantLabDataQueue(aggregator, _brokerage.Client);
+            var config = new QuantConnect.Data.SubscriptionDataConfig(typeof(QuantConnect.Data.Market.TradeBar), Spy,
+                Resolution.Second, TimeZones.NewYork, TimeZones.NewYork, true, true, false);
+            Assert.NotNull(queue.Subscribe(config, (_, _) => { }));
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline && aggregator.Updates.Count < 2) Thread.Sleep(20);
+            var ticks = aggregator.Updates.OfType<QuantConnect.Data.Market.Tick>().ToList();
+            var quote = Assert.Single(ticks, t => t.TickType == TickType.Quote && t.Symbol == Spy);
+            Assert.Equal((49.99m, 50.01m), (quote.BidPrice, quote.AskPrice)); // the harness's (risk gate's) quotes
+            var newYorkNow = DateTime.UtcNow.ConvertFromUtc(TimeZones.NewYork);
+            Assert.True(Math.Abs((quote.Time - newYorkNow).TotalMinutes) < 2, $"tick time {quote.Time} is not exchange-local"); // LEAN data times are exchange-local
+            Assert.Contains(ticks, t => t.TickType == TickType.Trade && t.Value == 50m);
+            Assert.True(queue.IsConnected); // the brokerage's connection, not a second one
+            Assert.True(_brokerage.PlaceOrder(Market(1))); // orders still work on the same connection
+        }
     }
 }

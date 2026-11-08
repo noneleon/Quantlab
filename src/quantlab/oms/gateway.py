@@ -61,6 +61,8 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 RUN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,39}$")
 MAX_LINE = 64 * 1024
 HELLO_TIMEOUT_S = 10.0
+MAX_SUBSCRIPTIONS = 100
+QUOTE_REFRESH_S = 1.0
 REJECTED_STATES = {OrderState.RISK_REJECTED.value, OrderState.REJECTED.value, OrderState.NOT_PLACED.value}
 
 
@@ -133,6 +135,7 @@ class Gateway:
         self.info = GatewayInfo(deployment, host, self._server.getsockname()[1], self._token)
         self._stop = threading.Event()
         self._run: str | None = None
+        self._subscribed: dict[str, tuple[Any, ...]] = {}
         self._issued: set[str] = set()  # run ids this gateway handed out
         self._refused: dict[tuple[str, int], str] = {}  # (run, LEAN id) -> why: a replay stays refused
         self._audit = AuditLog()
@@ -190,6 +193,7 @@ class Gateway:
         )
         log.info("gateway.connected", deployment=self.deployment, run=self._run)
         sent_states: dict[str, str] = {}
+        self._subscribed = {}  # symbol -> last quote sent (reset per connection)
         sent_fills: set[str] = set()
         self._guarded(send, lambda: self._push(send, sent_states, sent_fills))  # replay after (re)connect
         while not self._stop.is_set():
@@ -206,6 +210,7 @@ class Gateway:
                 self._guarded(replies.append, functools.partial(self._handle, msg, replies.append), msg)
             self._guarded(send, self._oms.process_events, report=False)
             self._guarded(send, lambda: self._push(send, sent_states, sent_fills), report=False)
+            self._guarded(send, lambda: self._push_quotes(send), report=False)
             for reply in replies:
                 send(reply)
 
@@ -274,6 +279,8 @@ class Gateway:
             self._cancel(msg, send)
         elif kind == "snapshot":
             send(self._snapshot())
+        elif kind == "subscribe":
+            self._subscribe(msg, send)
         elif kind == "cancel_orphans":
             self._cancel_orphans(send)
         else:
@@ -344,6 +351,44 @@ class Gateway:
             ) from exc
         reasons = result.decision.reasons if result.decision is not None else []
         send(_order_message(lean_id, result.order.id, result.state.value, "; ".join(reasons), reply="place"))
+
+    def _subscribe(self, msg: dict[str, Any], send: Callable[[dict[str, Any]], None]) -> None:
+        """The algorithm's quotes come from QuantLab's quote source: the prices the risk gate checks."""
+        symbols = msg.get("symbols")
+        if not isinstance(symbols, list) or len(symbols) > MAX_SUBSCRIPTIONS:
+            raise GatewayError(f"symbols must be a list of at most {MAX_SUBSCRIPTIONS} symbols")
+        wanted = {_symbol(s) for s in symbols}
+        unsubscribe = msg.get("unsubscribe") is True
+        for sym in wanted:
+            if unsubscribe:
+                self._subscribed.pop(sym, None)
+            else:
+                self._subscribed.setdefault(sym, ())
+        send({"type": "subscribed", "symbols": sorted(self._subscribed), "reply": "subscribe"})
+
+    def _push_quotes(self, send: Callable[[dict[str, Any]], None]) -> None:
+        now = time.monotonic()
+        for sym, last in list(self._subscribed.items()):
+            q = self._oms.quote(sym)
+            if q is None:
+                continue
+            key = (q.bid, q.ask, q.last, q.state.value)
+            if last and last[0] == key and now - last[1] < QUOTE_REFRESH_S:
+                continue  # unchanged: refreshed at most once per QUOTE_REFRESH_S
+            self._subscribed[sym] = (key, now)
+            send(
+                {
+                    "type": "quote",
+                    "symbol": sym,
+                    "bid": q.bid,
+                    "ask": q.ask,
+                    "last": q.last,
+                    "bid_size": q.bid_size,
+                    "ask_size": q.ask_size,
+                    "ts": (q.exchange_ts or q.received_ts).isoformat(),
+                    "state": q.state.value,  # LIVE / DELAYED / SIMULATED: the algorithm knows what it gets
+                }
+            )
 
     def _check_own_position(self, session: Session, req: OrderRequest) -> None:
         """A deployment sells only what it holds: the smaller of its own net position and the account's,

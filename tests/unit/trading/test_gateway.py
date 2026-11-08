@@ -405,3 +405,26 @@ def test_a_failure_after_the_oms_took_the_order_is_never_reported_as_not_placed(
     err, _ = c.until(lambda m: m["type"] == "error" and m.get("reply") == "place")
     assert err["outcome"] == "unknown" and "outcome unknown" in err["message"]
     c.close()
+
+
+# ---- quotes for the algorithm (5c-4) ----------------------------------------------------------------------
+
+
+def test_subscribed_quotes_are_the_risk_gates_quotes_with_their_data_state(stack, gw):  # noqa: F811
+    c = connect(gw)
+    c.recv()
+    c.send(type="subscribe", symbols=["spy"])
+    sub, _ = c.until(lambda m: m["type"] == "subscribed")
+    assert sub["symbols"] == ["SPY"]
+    q, _ = c.until(lambda m: m["type"] == "quote")
+    assert (q["symbol"], q["bid"], q["ask"], q["state"]) == ("SPY", 49.99, 50.01, "SIMULATED")
+    stack["quotes"].px["SPY"] = 60.0  # the quote source moves: the algorithm sees it
+    moved, _ = c.until(lambda m: m["type"] == "quote" and m["last"] == 60.0)
+    assert moved["ask"] == 60.01
+    c.send(type="subscribe", symbols=["SPY"], unsubscribe=True)
+    c.until(lambda m: m["type"] == "subscribed" and m["symbols"] == [])
+    for bad in ({"type": "subscribe", "symbols": "SPY"}, {"type": "subscribe", "symbols": ["SPY;X"]},
+                {"type": "subscribe", "symbols": ["S"] * 101}):  # fmt: skip
+        c.send(**bad)
+        c.until(lambda m: m["type"] == "error")
+    c.close()

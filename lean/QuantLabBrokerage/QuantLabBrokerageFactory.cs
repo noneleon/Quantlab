@@ -38,7 +38,8 @@ namespace QuantLab.Brokerages
             Symbol Resolve(string ticker) =>
                 algorithm.Securities.Keys.FirstOrDefault(s => s.SecurityType == SecurityType.Equity && s.Value == ticker)
                 ?? Symbol.Create(ticker, SecurityType.Equity, Market.USA);
-            var brokerage = new QuantLabBrokerage(GatewayEndpoint.FromRunFile(path), Resolve, algorithm.AccountCurrency);
+            // The connection is shared with QuantLabDataQueue (one gateway connection per run).
+            var brokerage = new QuantLabBrokerage(GatewayClient.Shared(path, TimeSpan.FromSeconds(10)), Resolve, algorithm.AccountCurrency);
             return brokerage;
         }
 

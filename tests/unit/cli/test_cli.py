@@ -274,3 +274,16 @@ def test_lifecycle_cli(home, tmp_path, monkeypatch):
     r = ql("strategy", "from-notebook", str(nb), "idea-strat", "--template", "pairs_zscore")
     assert r.exit_code == 0 and "research/" in r.stdout
     assert ql("strategy", "from-notebook", str(nb), "other", "--template", "nope").exit_code == 1
+
+
+def test_paper_deploy_requires_the_paper_stage(home):
+    """5c-4: deploying is behind the owner's lifecycle approval (and C# + the native engine)."""
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parents[3] / "strategies" / "examples" / "buy_and_hold_cs"
+    assert ql("strategy", "add", "bah-cs", example).exit_code == 0
+    r = ql("paper", "deploy", "bah-cs", "--deployment", "d1")
+    assert r.exit_code == 1 and "promote it to 'paper' first" in r.output
+    assert ql("strategy", "add", "sma", EXAMPLE_STRATEGY).exit_code == 0
+    r = ql("paper", "deploy", "sma", "--deployment", "d2")
+    assert r.exit_code == 1 and "promote it to 'paper' first" in r.output  # the stage is checked first

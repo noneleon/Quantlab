@@ -293,3 +293,15 @@ on total return, CAGR and max drawdown are computed on the full-resolution equit
 elapsed time, all points); volatility, Sharpe, Sortino and best/worst day stay on daily returns (with the starting
 equity as the base of the first day). Earlier runs keep their recorded metrics; recomputed metrics can differ
 (more conservative drawdowns).
+
+### DEC-0033 — Paper deployments of LEAN strategies: QuantLab prices in, QuantLab orders out
+State: ACCEPTED (owner: "go ahead with the next slice", 2026-11-08; builds on DEC-0007/0030/0031/0032)
+Decisions: (1) `quantlab paper deploy <strategy> --deployment <name>` runs a C# strategy on the native LEAN engine in
+LEAN's real-time mode; it is allowed only for strategies promoted to `paper` (or `live_candidate`) whose files have not
+changed since (the lifecycle approval is the owner's go-ahead). (2) Orders go LEAN → QuantLabBrokerage → gateway →
+OMS → risk gate → paper broker; prices come from QuantLab's own quote source through the same gateway
+(`QuantLabDataQueue`), so the strategy and the risk gate see the same quotes and their data state (non-LIVE data is
+reported to the algorithm). (3) The strategy is snapshotted and compiled per deployment; one deployment per name (OS
+lock); fixed LEAN command line and existing config file; start/stop audited; LEAN, gateway and token file are always
+cleaned up. (4) `force-exchange-always-open` exists for synthetic tests only and is not reachable from the CLI.
+(5) No live trading: everything stays behind the paper-only OMS (DEC-0010).

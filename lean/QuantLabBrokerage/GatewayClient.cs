@@ -73,6 +73,27 @@ namespace QuantLab.Brokerages
 
         public event Action<string>? Disconnected;
 
+        /// <summary>Raised after every successful (re)connect, e.g. so the data queue can re-subscribe.</summary>
+        public event Action? Connected;
+
+        private static readonly Dictionary<string, GatewayClient> SharedClients = new();
+
+        /// <summary>One connection per gateway run file and process: the brokerage and the data queue share it
+        /// (the gateway serves a single connection, and both must belong to the same run).</summary>
+        public static GatewayClient Shared(string runFile, TimeSpan timeout)
+        {
+            var key = Path.GetFullPath(runFile);
+            lock (SharedClients)
+            {
+                if (!SharedClients.TryGetValue(key, out var client))
+                {
+                    client = new GatewayClient(GatewayEndpoint.FromRunFile(key), timeout);
+                    SharedClients[key] = client;
+                }
+                return client;
+            }
+        }
+
         public void Connect()
         {
             lock (_sync)
@@ -141,6 +162,7 @@ namespace QuantLab.Brokerages
                 _reader = new Thread(() => ReadLoop(stream, generation)) { IsBackground = true, Name = "QuantLabGatewayReader" };
                 _reader.Start();
             }
+            Connected?.Invoke();
         }
 
         /// <summary>Send a message and wait for the first reply accepted by <paramref name="isReply"/>.</summary>

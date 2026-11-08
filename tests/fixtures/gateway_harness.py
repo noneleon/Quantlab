@@ -16,6 +16,8 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy.orm import Session, sessionmaker
+
 from quantlab.brokers.paper import PaperBroker
 from quantlab.core.db import create_db_engine, migrate, session_factory
 from quantlab.data.market_data import DataState, Quote
@@ -49,7 +51,8 @@ def quote(symbol: str) -> Quote | None:
     return Quote(symbol, DataState.SIMULATED, "harness", now, now, bid=49.99, ask=50.01, last=50.0)
 
 
-def main(workdir: Path) -> None:
+def build_stack(workdir: Path) -> tuple[OMS, sessionmaker[Session], KillSwitch]:
+    """A real paper OMS + risk gate on synthetic quotes, in ``workdir`` (also used in-process by tests)."""
     workdir.mkdir(parents=True, exist_ok=True)
     engine = create_db_engine(f"sqlite:///{workdir / 'quantlab.db'}")
     migrate(engine)
@@ -59,6 +62,11 @@ def main(workdir: Path) -> None:
     kill = KillSwitch()
     broker = PaperBroker(workdir / "paper.json", quote, starting_cash=20_000.0, slippage_bps=0)
     oms = OMS(sessions, broker, RiskGate(limits, kill), quote, account="paper", starting_cash=20_000.0)
+    return oms, sessions, kill
+
+
+def main(workdir: Path) -> None:
+    oms, sessions, kill = build_stack(workdir)
     gateway = Gateway(oms, sessions, "csharp-test", poll_s=0.05)
     run_file = workdir / "gateway.json"
     write_run_file(run_file, gateway.info)

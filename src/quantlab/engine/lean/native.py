@@ -137,7 +137,12 @@ def install(target: Path, repo_root: Path, *, dotnet: str = "dotnet", git: str =
 
 LIVE_ENVIRONMENT = "live-quantlab"
 # Data-queue handlers a QuantLab live config may use: they supply prices only, never a brokerage connection.
-ALLOWED_DATA_QUEUES = frozenset({"QuantConnect.Lean.Engine.DataFeeds.Queues.FakeDataQueue"})
+ALLOWED_DATA_QUEUES = frozenset(
+    {
+        "QuantLabDataQueue",  # QuantLab's quotes through the gateway (the risk gate's prices)
+        "QuantConnect.Lean.Engine.DataFeeds.Queues.FakeDataQueue",  # LEAN's synthetic ticks (tests)
+    }
+)
 
 
 def build_live_config(
@@ -150,6 +155,7 @@ def build_live_config(
     results: str,
     storage: str,
     data_queue_handler: str,
+    force_exchange_open: bool = False,
 ) -> dict[str, Any]:
     """LEAN live-mode configuration routing every order through the QuantLab gateway (OMS-007).
 
@@ -188,6 +194,8 @@ def build_live_config(
         "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DefaultDataProvider",
         "parameters": {},
         "quantlab-gateway-file": gateway_file,
+        # Tests with synthetic quotes only: LEAN delivers data even while the exchange is closed.
+        "force-exchange-always-open": force_exchange_open,
         "environments": {
             LIVE_ENVIRONMENT: {
                 "live-mode": True,

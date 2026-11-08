@@ -784,3 +784,23 @@ that the config file exists (LEAN falls back to `config.json`) and pass no extra
 result files by price provenance before they are ever ingested (KI-0077).
 Tests: unit test for the allow-list; C# 15 passed; Python 609 passed, 3 skipped; real-LEAN tests 2 passed.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0041 — Phase 5c-4: LEAN paper deployments on QuantLab prices (`quantlab paper deploy`)
+Date: 2026-11-08 · Modules: oms (gateway, deployment), lean (C#), engine (native), cli · Feature IDs: LIVE-001,
+OMS-007 · Decision: DEC-0033
+Change: gateway `subscribe` / `quote` messages from `OMS.quote` (the risk gate's quote source, with data state);
+`QuantLabDataQueue` (LEAN `IDataQueueHandler`) sharing the brokerage's gateway connection (`GatewayClient.Shared`),
+re-subscribing after reconnects, exchange-local tick times, non-LIVE data reported once per symbol;
+`oms/deployment.deploy` and `quantlab paper deploy` (lifecycle stage `paper`, C#, native install, snapshot +
+compile, lock, fixed LEAN argv, audited start/stop, guaranteed cleanup, Ctrl+C / `--max-minutes`); live config
+allow-list extended to `QuantLabDataQueue`; test-only `force_exchange_open`.
+Bug found by the first real run: ticks were stamped in UTC instead of the exchange time zone, so LEAN held them
+back as future data and the algorithm never received a price (C# test now asserts exchange-local times).
+**Verified (real LEAN, native, this session):** a deployment ran the probe strategy on QuantLab's (synthetic,
+SIMULATED-labelled) quotes — no seeded price — and its order went through gateway, OMS and risk gate to the paper
+broker and back (`Filled qty 1 @ 50.01`); start/stop audited; token file removed.
+Tests: Python 613 passed, 4 skipped; C# 16 passed; real-LEAN integration 3 passed (golden backtest, live probe,
+deployment). A trading-safety review was started before commit; its outcome is recorded in the next entry.
+Not yet: a real-time LIVE feed run (only mock/synthetic quotes were used), a deployment registry/console view, Python
+strategies on the native engine (KI-0078).
+Result: PASS · Regression status: PASS

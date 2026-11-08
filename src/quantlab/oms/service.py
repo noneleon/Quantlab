@@ -188,6 +188,10 @@ class OMS:
             )
         return row.starting_cash
 
+    def quote(self, symbol: str) -> Quote | None:
+        """The current quote from the OMS's quote source (the same prices the risk gate uses)."""
+        return self._quotes(symbol)
+
     def marks(self, symbols: list[str]) -> dict[str, float]:
         out = {}
         for sym in symbols:
