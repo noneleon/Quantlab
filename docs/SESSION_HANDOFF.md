@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0042 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0043 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -63,10 +63,12 @@
   and received the fill (synthetic prices).
 - CHANGE-0041 (5c-4, DEC-0033): `quantlab paper deploy <strategy> --deployment <name>` — C# strategy promoted to
   `paper`, LEAN live mode on QuantLab's quotes (QuantLabDataQueue), orders via gateway/OMS/risk gate; real LEAN verified.
+- CHANGE-0042/0043: deployment review fixes; Paper Trading console page (status, data states, logs); IBKR quotes from
+  kept subscriptions with a lock around the shared client.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 616 passed, 4 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
-Web: `npm test` → 28 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
+Python: `uv run pytest` → 619 passed, 4 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Web: `npm test` → 29 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
 Real LEAN has run natively (C#, LEAN sample data) and matches LEAN's published statistics. Not yet: a real run of

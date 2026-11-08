@@ -514,3 +514,25 @@ export interface SupervisorStatus {
     errors: string[];
   } | null;
 }
+
+export interface DeploymentRow {
+  deployment: string;
+  run: string;
+  strategy?: string;
+  tree_hash?: string;
+  account?: string;
+  state: string; // running | stopped | lost
+  running: boolean;
+  started_at?: string;
+  heartbeat_at?: string;
+  heartbeat_age_s?: number;
+  stopped_by?: string;
+  exit_code?: number | null;
+  data_states?: string[];
+}
+
+export interface DeploymentLog {
+  deployment: string;
+  run: string;
+  lines: string[];
+}

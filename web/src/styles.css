@@ -79,3 +79,4 @@ button.action { padding: 5px 12px; border: 1px solid var(--border); background: 
 form.notice input { display: block; width: min(420px, 100%); margin: 6px 0; padding: 5px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 button.danger { padding: 6px 14px; border: 1px solid var(--bad); background: var(--panel); color: var(--bad); font-weight: 700; cursor: pointer; }
 button.danger:disabled { opacity: 0.45; cursor: not-allowed; }
+pre.log { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; max-height: 480px; overflow: auto; font-size: 12px; white-space: pre-wrap; }

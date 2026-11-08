@@ -459,3 +459,36 @@ def test_supervisor_status_endpoint(ctx, client):
     r = client.get("/api/paper/supervisor", headers=h)
     assert r.status_code == 200 and r.json() == {"running": False, "healthy": False, "status": None}
     assert client.post("/api/paper/supervisor", headers=h).status_code == 405
+
+
+def test_deployments_endpoints_are_read_only_and_path_safe(ctx, client):
+    import json as _json
+    from datetime import UTC, datetime, timedelta
+
+    h = auth(ctx)
+    assert client.get("/api/paper/deployments", headers=h).json() == []
+    run = ctx.settings.home / "deployments" / "dep-1" / "20261108T100000Z"
+    run.mkdir(parents=True)
+    now = datetime.now(UTC)
+    (run / "status.json").write_text(_json.dumps({"deployment": "dep-1", "state": "running", "strategy": "s",
+                                                  "heartbeat_at": now.isoformat()}))  # fmt: skip
+    (run / "engine.log").write_text("\n".join(f"line {i}" for i in range(500)))
+    old = ctx.settings.home / "deployments" / "dep-2" / "20261101T100000Z"
+    old.mkdir(parents=True)
+    stale_beat = (now - timedelta(hours=1)).isoformat()
+    (old / "status.json").write_text(
+        _json.dumps({"deployment": "dep-2", "state": "running", "heartbeat_at": stale_beat})
+    )
+    rows = {r["deployment"]: r for r in client.get("/api/paper/deployments", headers=h).json()}
+    assert rows["dep-1"]["running"] is True and rows["dep-1"]["run"] == "20261108T100000Z"
+    assert rows["dep-2"]["running"] is False and rows["dep-2"]["state"] == "lost"  # no heartbeat: crashed
+    log = client.get("/api/paper/deployments/dep-1/20261108T100000Z/log?lines=3", headers=h).json()
+    assert log["lines"] == ["line 497", "line 498", "line 499"]
+    for bad in (
+        "..%2F..%2Fsecret/20261108T100000Z",
+        "dep-1/..",
+        "dep-1/20261108T100000Z%2F..",
+        "Dep/20261108T100000Z",
+    ):
+        assert client.get(f"/api/paper/deployments/{bad}/log", headers=h).status_code == 404
+    assert client.post("/api/paper/deployments", headers=h).status_code == 405

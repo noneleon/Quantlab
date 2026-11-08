@@ -7,6 +7,7 @@ import { MODULES } from "./modules";
 import { BacktestDetailPage, BacktestList } from "./pages/Backtests";
 import { Dashboard } from "./pages/Dashboard";
 import { DatasetDetailPage, DatasetList } from "./pages/Datasets";
+import { DeploymentsPage } from "./pages/Deployments";
 import { ModulePage } from "./pages/ModulePage";
 import { ComparePage } from "./pages/Compare";
 import { OptimizationDetailPage, OptimizationList } from "./pages/Optimizations";
@@ -60,6 +61,7 @@ export function App({ token }: { token: string | null }) {
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
               <Route path="/risk" element={<RiskPage />} />
+              <Route path="/deployments" element={<DeploymentsPage />} />
               <Route path="/modules/:id" element={<ModulePage />} />
               <Route path="*" element={<p className="muted">Page not found.</p>} />
             </Routes>

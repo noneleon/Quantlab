@@ -822,3 +822,21 @@ Fixes (Python regression tests confirmed failing on the previous gateway):
 Remaining: IBKR snapshots subscribe/unsubscribe per quote (pacing; prefer the streaming path, KI-0080).
 Tests: Python 616 passed, 4 skipped; C# 17 passed; real-LEAN integration 3 passed.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0043 — Phase 5c-5: deployments view; IBKR quotes from kept subscriptions
+Date: 2026-11-08 · Modules: oms (deployment), api, web, data (IBKR), bootstrap · Feature IDs: LIVE-001, UI-006,
+DATA-019
+Change: each deployment run keeps `status.json` (state, 5 s heartbeat, strategy, approved tree hash, data states,
+stop reason, exit code); `read_deployments` derives running / stopped / lost (no heartbeat). Read-only API
+`GET /api/paper/deployments` and `/api/paper/deployments/{name}/{run}/log` (validated names, resolved path confined
+to the deployments folder, bounded tail). Web: "Paper Trading" page lists deployments with state, code version,
+price data states ("not a performance claim" unless LIVE) and the LEAN log; nothing on it starts or stops anything.
+IBKR: `IBKRProvider.latest` keeps subscriptions open (the first request waits like a snapshot; idle ones are dropped
+after 5 minutes; reconnects restore them) and the paper quote source prefers it (KI-0080); all quote calls are
+serialised with a lock because the gateway's quote thread and the risk gate share one non-thread-safe client (an
+issue introduced with CHANGE-0042's quote thread, found while designing this slice).
+Verified: real LEAN deployment test now also checks the status file and listing; the Deployments page was opened in
+real Chromium on that run's files (state, code hash, SIMULATED label, log with the fill line; no console errors).
+Tests: Python 619 passed, 4 skipped; web 29 passed; real-LEAN integration 3 passed. A trading-safety review was
+started before commit; its outcome is recorded in the next entry if it finds anything.
+Result: PASS · Regression status: PASS

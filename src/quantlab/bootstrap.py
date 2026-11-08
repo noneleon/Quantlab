@@ -8,6 +8,7 @@ as ``strategy add`` do not need.
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -147,13 +148,25 @@ class AppContext:
             0.0
         ]  # after a failed build/connect: no new attempt for 30 s (no timeout storm)
 
+        lock = (
+            threading.Lock()
+        )  # the gateway's quote thread and the risk gate share one (non-thread-safe) client
+
         def quote(symbol: str) -> Quote | None:
+            with lock:
+                return _quote(symbol)
+
+        def _quote(symbol: str) -> Quote | None:
             if time.monotonic() < retry_at[0]:
                 return None
             try:
                 if not provider:
                     provider.append(realtime_provider(self.settings, self.data, session))
-                quotes = provider[0].snapshot([symbol])
+                source = provider[0]
+                # Providers that keep subscriptions open (IBKR) are asked for the latest quote, not a
+                # per-call snapshot (subscribe / wait / unsubscribe), which hits IB pacing limits (KI-0080).
+                latest = getattr(source, "latest", None)
+                quotes = latest([symbol]) if latest is not None else source.snapshot([symbol])
             except MarketDataError as exc:  # no quote: no paper fill, and the risk gate rejects new orders
                 log.warning("paper.quote_unavailable", symbol=symbol, error=str(exc))
                 return None

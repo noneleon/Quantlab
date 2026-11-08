@@ -14,6 +14,7 @@ Security model (docs/SECURITY_POLICY.md):
 from __future__ import annotations
 
 import hmac
+import re
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -678,6 +679,31 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                     for d in decisions
                 ],
             }
+
+    @app.get("/api/paper/deployments", dependencies=auth)
+    def paper_deployments() -> list[dict[str, Any]]:
+        """Paper deployments (status files; `running` from the heartbeat). Read-only: start in the CLI."""
+        from quantlab.oms.deployment import read_deployments
+
+        return read_deployments(ctx.settings.home, datetime.now(UTC))
+
+    @app.get("/api/paper/deployments/{name}/{run}/log", dependencies=auth)
+    def paper_deployment_log(
+        name: str, run: str, lines: Annotated[int, Query(ge=1, le=2000)] = 200
+    ) -> dict[str, Any]:
+        """The last ``lines`` lines of a deployment's LEAN log."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", name) or not re.fullmatch(r"\d{8}T\d{6}Z", run):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown deployment run")
+        root = (ctx.settings.home / "deployments").resolve()
+        path = (root / name / run / "engine.log").resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown deployment run")
+        with path.open("rb") as fh:  # tail without reading a large log into memory
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 400_000))
+            text = fh.read().decode("utf-8", errors="replace")
+        return {"deployment": name, "run": run, "lines": text.splitlines()[-lines:]}
 
     @app.get("/api/paper/supervisor", dependencies=auth)
     def paper_supervisor() -> dict[str, Any]:

@@ -39,6 +39,9 @@ from quantlab.strategies.snapshot import hash_tree
 log = get_logger(__name__)
 
 
+HEARTBEAT_S = 5.0
+
+
 class DeploymentError(RuntimeError):
     pass
 
@@ -133,6 +136,16 @@ def deploy(
             )  # fmt: skip
             session.commit()
         state.started, state.actor = True, actor
+        state.status = {
+            "deployment": deployment,
+            "strategy": strategy,
+            "tree_hash": snapshot_hash,
+            "account": oms.account,
+            "mode": "paper",
+            "state": "running",
+            "started_at": datetime.now(UTC).isoformat(),
+        }
+        _write_status(state, work)
         state.thread = threading.Thread(target=state.gateway.serve, name=f"gateway-{deployment}", daemon=True)
         state.thread.start()
         log_path = work / "engine.log"
@@ -147,7 +160,11 @@ def deploy(
             on_started(work)
         deadline = time.monotonic() + max_minutes * 60 if max_minutes is not None else None
         state.stopped_by = "algorithm"
+        last_beat = 0.0
         while True:
+            if time.monotonic() - last_beat >= HEARTBEAT_S:  # the console tells running from crashed by this
+                last_beat = time.monotonic()
+                _write_status(state, work)
             try:
                 state.exit_code = state.proc.wait(timeout=1.0)
                 break
@@ -178,6 +195,7 @@ class _Running:
     stopped_by: str = "error"
     started: bool = False
     actor: str = "owner"
+    status: dict[str, object] | None = None
 
 
 def _finish(
@@ -196,12 +214,53 @@ def _finish(
         ("remove token", lambda: run_file.unlink(missing_ok=True)),  # valid only while the deployment runs
         ("record provenance", lambda: _write_provenance(state, work)),
         ("audit stop", lambda: _audit_stop(state, sessions, audit, deployment, work)),
+        ("final status", lambda: _write_status(state, work, final=True)),
     ]
     for name, step in steps:
         try:
             step()
         except BaseException as exc:  # including KeyboardInterrupt: the remaining steps still run
             log.warning("deploy.cleanup_failed", step=name, error=repr(exc))
+
+
+def _write_status(state: _Running, work: Path, *, final: bool = False) -> None:
+    """``status.json`` in the deployment's folder: what runs, since when, heartbeat, and how it ended."""
+    if state.status is None:
+        return
+    status = {
+        **state.status,
+        "heartbeat_at": datetime.now(UTC).isoformat(),
+        "data_states": _data_states(state),
+    }
+    if final:
+        status.update(
+            state="stopped",
+            stopped_at=status["heartbeat_at"],
+            stopped_by=state.stopped_by,
+            exit_code=state.exit_code,
+        )
+    tmp = work / "status.json.tmp"
+    tmp.write_text(json.dumps(status, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(work / "status.json")
+
+
+def read_deployments(home: Path, now: datetime) -> list[dict[str, object]]:
+    """Every deployment run under ``home`` (newest first) with ``running`` derived from the heartbeat."""
+    out: list[dict[str, object]] = []
+    root = home / "deployments"
+    for status_file in sorted(root.glob("*/*/status.json"), reverse=True):
+        try:
+            data = json.loads(status_file.read_text(encoding="utf-8"))
+            beat = datetime.fromisoformat(str(data.get("heartbeat_at")))
+        except (OSError, ValueError, TypeError):
+            continue
+        age = (now - beat).total_seconds()
+        running = data.get("state") == "running" and 0 <= age <= 3 * HEARTBEAT_S + 5
+        if data.get("state") == "running" and not running:
+            data["state"] = "lost"  # no heartbeat: the process ended without cleaning up (crash, kill)
+        data.update(run=status_file.parent.name, running=running, heartbeat_age_s=round(age, 1))
+        out.append(data)
+    return out
 
 
 def _stop_process(state: _Running) -> None:

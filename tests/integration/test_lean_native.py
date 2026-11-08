@@ -163,3 +163,10 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
     assert not (tmp_path / "home" / "run" / "gateway-deploy-probe.json").exists()  # token removed
     provenance = json.loads((result.work_dir / "provenance.json").read_text())
     assert provenance["data_states"] == ["SIMULATED"] and provenance["synthetic"] is True
+    from datetime import UTC, datetime
+
+    from quantlab.oms.deployment import read_deployments
+
+    (row,) = read_deployments(tmp_path / "home", datetime.now(UTC))
+    assert (row["deployment"], row["state"], row["running"]) == ("deploy-probe", "stopped", False)
+    assert row["stopped_by"] == "algorithm" and row["exit_code"] == 0 and row["data_states"] == ["SIMULATED"]

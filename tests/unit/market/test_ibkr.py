@@ -401,3 +401,32 @@ def test_ibkr_fetch_into_catalog_requires_matching_adjustment(db_session, tmp_pa
     result = catalog.fetch(db_session, "spy-ib", provider(fake), request)
     db_session.commit()
     assert result.created and result.version.row_count == 19  # June 2024 XNYS sessions (Juneteenth closed)
+
+
+# ---- latest(): kept subscriptions for deployments (KI-0080) ----------------------------------------------
+
+
+def test_latest_keeps_subscriptions_open_instead_of_resubscribing_every_call(monkeypatch):
+    fake = FakeIB()
+    p = provider(fake)
+    for _ in range(5):  # a deployment asks every second
+        (q,) = p.latest(["spy"])
+        assert q.symbol == "SPY" and q.bid == 100.0
+    assert fake.subscribed == ["SPY"] and fake.unsubscribed == []  # one subscription, never torn down
+
+
+def test_latest_drops_idle_subscriptions_and_restores_after_a_disconnect(monkeypatch):
+    import quantlab.data.providers.ibkr as ibkr
+
+    clock = [1000.0]
+    monkeypatch.setattr(ibkr.time, "monotonic", lambda: clock[0])
+    fake = FakeIB()
+    p = provider(fake)
+    p.latest(["SPY"])
+    p.latest(["QQQ"])
+    clock[0] += 301  # SPY idle for more than 5 minutes
+    p.latest(["QQQ"])
+    assert fake.unsubscribed == ["SPY"]
+    fake.connected = False  # gateway restart
+    p.latest(["QQQ"])
+    assert fake.subscribed.count("QQQ") == 2  # restored after reconnecting

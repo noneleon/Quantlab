@@ -220,6 +220,7 @@ class IBKRProvider:
         self._sleep = sleep
         self._now = now
         self._subscribed: set[str] = set()
+        self._kept: dict[str, float] = {}  # latest(): symbol -> last request (monotonic), kept subscribed
         self._reconnects = 0
         self._last_error: str | None = None
         self._last_state: DataState | None = None
@@ -353,6 +354,40 @@ class IBKRProvider:
             self._client.unsubscribe(symbol)
             self._subscribed.discard(symbol)
         return quotes
+
+    def latest(self, symbols: Sequence[str], *, idle_after_s: float = 300.0) -> list[Quote]:
+        """Current quotes from subscriptions that stay open (deployments ask every second; KI-0080).
+
+        A symbol's first request waits for data like ``snapshot``; later ones only read the current ticker.
+        Subscriptions not requested for ``idle_after_s`` are cancelled.
+        """
+        wanted = [s.upper() for s in symbols]
+        new = [s for s in wanted if s not in self._subscribed]
+        if not self._client.is_connected() and self._subscribed:
+            self._reconnect()  # restores every kept subscription
+        self._subscribe(wanted)
+        now = time.monotonic()
+        for symbol in wanted:
+            self._kept[symbol] = now
+        self._client.wait(0.05)  # process pending updates without blocking
+        ticks = self._client.ticks(wanted)
+        if new:
+            deadline = time.monotonic() + self._snapshot_timeout
+            while time.monotonic() < deadline and any(
+                t.symbol in new and t.bid is None and t.ask is None and t.last is None for t in ticks
+            ):
+                self._client.wait(0.25)
+                ticks = self._client.ticks(wanted)
+        if self._handle_messages():
+            for symbol in sorted(self._subscribed):
+                self._client.subscribe(symbol)
+            self._reconnects += 1
+        for symbol, last in list(self._kept.items()):
+            if now - last > idle_after_s:
+                self._client.unsubscribe(symbol)
+                self._subscribed.discard(symbol)
+                del self._kept[symbol]
+        return [self._quote(t) for t in ticks]
 
     def stream(self, symbols: Sequence[str]) -> Iterator[Quote]:
         wanted = self._subscribe(symbols)
