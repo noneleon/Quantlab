@@ -236,3 +236,36 @@ def test_a_paused_deployment_runs_but_its_orders_are_refused(tmp_path):
     assert "paused by the owner: integration test" in log, log[-3000:]
     with sessions() as s:
         assert queries.orders_with_state(s, "paper", None) == []  # nothing reached the OMS
+
+
+def test_a_lean_order_update_passes_the_risk_gate_and_fills_with_the_new_terms(tmp_path):
+    """OMS-006 on real LEAN: LimitOrder -> ticket.update(quantity, limit) -> gateway update -> risk gate ->
+    paper broker fills 2 shares at the synthetic ask."""
+    import sys
+
+    from quantlab.oms import queries
+    from quantlab.oms.deployment import deploy
+    from quantlab.strategies.snapshot import hash_tree
+
+    repo = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo / "tests" / "fixtures"))
+    from gateway_harness import build_stack
+
+    oms, sessions, _kill = build_stack(tmp_path / "stack")
+    probe = repo / "tests" / "fixtures" / "lean_update_probe"
+    result = deploy(
+        oms, sessions, deployment="update-probe", strategy="update-probe", strategy_dir=probe,
+        approved_tree_hash=hash_tree(probe).tree_hash, entry_file="main.py", install_dir=Path(INSTALL or ""),
+        home=tmp_path / "home", max_minutes=4, force_exchange_open=True,
+    )  # fmt: skip
+    log = result.log_path.read_text(encoding="utf-8", errors="replace")
+    assert result.stopped_by == "algorithm" and result.exit_code == 0, log[-3000:]
+    assert "UPDATE response True" in log, log[-3000:]
+    assert "UPDATE event 1 Filled qty 2 @ 50.01" in log, log[-3000:]
+    with sessions() as s:
+        ((order, state),) = queries.orders_with_state(s, "paper", None)
+        assert (
+            state.value == "FILLED" and order.quantity == 1
+        )  # original terms stay; the amendment changed them
+        assert [a.status for a in queries.amendments(s, order.id)] == ["requested", "applied"]
+        assert queries.terms(s, order).quantity == 2

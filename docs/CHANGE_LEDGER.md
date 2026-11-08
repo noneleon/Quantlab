@@ -975,3 +975,22 @@ Verified: in real Chromium against `quantlab serve` on the native LEAN engine �
 finished, result page opened; no console errors.
 Tests: Python 665 passed, 7 skipped; web 33 passed.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0052 — Order modification and trailing stops (OMS-001 / OMS-006, DEC-0037)
+Date: 2026-11-08 · Modules: oms (service, queries, models, gateway), brokers (base, paper, ibkr, ib_async_trading),
+migrations (0008), cli, api, web, lean (QuantLabBrokerage) · Feature IDs: OMS-001, OMS-006, OMS-007
+Change: migration 0008 (`order_amendments`, append-only; `orders.trail_amount/trail_percent`). `OMS.modify`
+(MODIFIABLE states, terms validation, risk gate on the remaining quantity, amendment rows, broker `modify`);
+`queries.terms` (current terms) now used for fill completion, reconciliation, pending exposure and the gateway's
+sell cap. `OrderType.TRAILING_STOP`: paper broker moves the stop with the best price (price or %), saved across
+restarts; IBKR TRAIL (auxPrice / trailingPercent) and modify by re-placing the order. CLI `paper order --type
+trailing_stop --trail X [--trail-percent]`, `paper modify`; API order list/detail show trail fields, current terms
+and amendments; web order detail shows them (read-only). Gateway: trailing fields on `place`, new `update` message
+(applied / unchanged / refused / rejected / unknown); C# plugin: TrailingStopOrder mapping (LEAN fraction → %),
+`UpdateOrder` through the gateway, an update QuantLab does not apply cancels the order (LEAN keeps refused terms on
+its order object — checked in LEAN 18229's BrokerageTransactionHandler); brokerage model allows updates.
+Verified on real LEAN (fresh `native-install`): a Python strategy's `ticket.update(quantity=2, limit=51)` passed the
+risk gate and filled 2 @ 50.01 (synthetic quotes); amendments requested → applied.
+Tests: Python 674 passed, 8 skipped; C# 20 passed; real-LEAN integration 7 passed; web 34 passed. No separate
+trading-safety subagent review was run for this change.
+Result: PASS · Regression status: PASS

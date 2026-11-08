@@ -99,6 +99,29 @@ export function OrderDetailView({ data }: { data: PaperOrderDetail }) {
     <section>
       <p><Link to="/orders">← Orders</Link></p>
       <h1>Order {data.order_id}</h1>
+      {data.terms ? (
+        <p>Current terms: quantity {data.terms.quantity}
+          {data.terms.limit_price != null ? ` · limit ${data.terms.limit_price}` : ""}
+          {data.terms.stop_price != null ? ` · stop ${data.terms.stop_price}` : ""}
+          {data.terms.trail_amount != null ? ` · trail ${data.terms.trail_amount}` : ""}</p>
+      ) : null}
+      {data.amendments && data.amendments.length ? (
+        <>
+          <h2>Modifications (append-only; <code>quantlab paper modify</code> or the strategy)</h2>
+          <table>
+            <thead><tr><th>Status</th><th>Quantity</th><th>Limit</th><th>Stop</th><th>Trail</th><th>Detail</th><th>At</th></tr></thead>
+            <tbody>
+              {data.amendments.map((a, i) => (
+                <tr key={`${a.amendment}-${i}`}>
+                  <td><span className={`badge ${a.status === "applied" ? "badge-ok" : a.status === "requested" ? "badge-muted" : "badge-bad"}`}>{a.status}</span></td>
+                  <td>{a.quantity}</td><td>{a.limit_price ?? "–"}</td><td>{a.stop_price ?? "–"}</td><td>{a.trail_amount ?? "–"}</td>
+                  <td><code>{Object.keys(a.detail).length ? JSON.stringify(a.detail) : ""}</code></td><td>{dateTime(a.at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
       <h2>State history (append-only)</h2>
       <table>
         <thead><tr><th>#</th><th>State</th><th>Detail</th><th>At</th></tr></thead>

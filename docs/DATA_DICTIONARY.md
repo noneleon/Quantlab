@@ -71,6 +71,7 @@ LEAN's AAPL factor file).
 | optimization_runs / trials | search spec, trial params, run_id, IS/OOS label, objective values | append-only |
 | accounts | broker account refs (no secrets), mode paper/live | mutable |
 | orders | order_id, client_order_key (UNIQUE), account, strategy run, spec, current_state | projection |
+| order_amendments | **IMPLEMENTED (0008)**: id, order_id FK, amendment (groups one modification), status requested/applied/refused/rejected/unknown, quantity (new total), limit_price, stop_price, trail_amount, detail JSON, created_at. `orders` gained trail_amount / trail_percent (0008). Current terms = order overlaid by the last applied amendment | append-only (triggers + ORM guard) |
 | order_events | order_id, seq, ts, event_type, payload, broker_ref | append-only |
 | fills | fill_id, order_id, broker_exec_id (UNIQUE), qty, price, commission, ts | append-only |
 | positions_confirmed / positions_theoretical | per account/strategy | projections |

@@ -310,6 +310,8 @@ class Gateway:
             self._place(msg, send)
         elif kind == "cancel":
             self._cancel(msg, send)
+        elif kind == "update":
+            self._update(msg, send)
         elif kind == "snapshot":
             send(self._snapshot())
         elif kind == "subscribe":
@@ -357,6 +359,8 @@ class Gateway:
             stop_price=_price(msg.get("stop_price"), "stop_price"),
             time_in_force=TimeInForce(str(msg.get("time_in_force", "day")).lower()),
             source=f"lean:{self.deployment}",
+            trail_amount=_price(msg.get("trail_amount"), "trail_amount"),
+            trail_percent=msg.get("trail_percent") is True,
         )
         with self._sessions() as session:
             existing = session.execute(
@@ -371,9 +375,10 @@ class Gateway:
                     )
             if existing is not None:  # a replay within this run: same order, or refused
                 same = (existing.symbol, existing.side, existing.quantity, existing.order_type,
-                        existing.limit_price, existing.stop_price, existing.time_in_force) == (
+                        existing.limit_price, existing.stop_price, existing.time_in_force,
+                        existing.trail_amount) == (
                         req.symbol, req.side.value, req.quantity, req.order_type.value, req.limit_price,
-                        req.stop_price, req.time_in_force.value)  # fmt: skip
+                        req.stop_price, req.time_in_force.value, req.trail_amount)  # fmt: skip
                 if not same:
                     raise GatewayError(
                         f"order id {lean_id} was already used in this run with other parameters"
@@ -456,7 +461,7 @@ class Gateway:
         account = self._oms.book(session).quantity(req.symbol)
         held = min(own, max(account, 0.0))
         working_sells = sum(
-            o.quantity - queries.filled_quantity(session, o.id)
+            queries.terms(session, o).quantity - queries.filled_quantity(session, o.id)
             for o, st in self._deployment_orders(session)
             if o.symbol == req.symbol and o.side == Side.SELL.value and st not in TERMINAL
         )
@@ -477,6 +482,45 @@ class Gateway:
             raise GatewayError(f"no order {lean_id} in this run of deployment {self.deployment}")
         state = self._oms.cancel(order_id)
         send(_order_message(lean_id, order_id, state.value, "", reply="cancel"))
+
+    def _update(self, msg: dict[str, Any], send: Callable[[dict[str, Any]], None]) -> None:
+        """OMS-006: new terms for one of this run's working orders (LEAN UpdateOrder), via the risk gate.
+
+        The reply says ``update``: applied | refused | rejected | unknown | unchanged. The plugin cancels the
+        order unless it was applied or unchanged, so LEAN and QuantLab never work different terms."""
+        lean_id = _lean_id(msg)
+        quantity = _number(msg.get("quantity"), "quantity")
+        with self._sessions() as session:
+            order = session.execute(
+                select(Order).where(Order.client_order_key == f"{self._prefix}{lean_id}")
+            ).scalar_one_or_none()
+            if order is None:
+                raise GatewayError(f"no order {lean_id} in this run of deployment {self.deployment}")
+            if (quantity > 0) != (order.side == Side.BUY.value) or quantity == 0:
+                raise GatewayError("an update cannot change the side of an order")
+            current = queries.terms(session, order)
+            order_id = order.id
+        wanted = queries.Terms(
+            abs(quantity),
+            _price(msg.get("limit_price"), "limit_price"),
+            _price(msg.get("stop_price"), "stop_price"),
+            _price(msg.get("trail_amount"), "trail_amount"),
+        )
+        if wanted == current:  # e.g. only LEAN's tag changed
+            with self._sessions() as session:
+                state = self._oms.state(session, order_id)
+            send(
+                {**_order_message(lean_id, order_id, state.value, "", reply="update"), "update": "unchanged"}
+            )
+            return
+        result = self._oms.modify(
+            order_id, quantity=wanted.quantity, limit_price=wanted.limit_price, stop_price=wanted.stop_price,
+            trail_amount=wanted.trail_amount, actor=f"lean:{self.deployment}",
+        )  # fmt: skip
+        with self._sessions() as session:
+            state = self._oms.state(session, order_id)
+        reply = _order_message(lean_id, order_id, state.value, "; ".join(result.reasons), reply="update")
+        send({**reply, "update": result.status})
 
     def _deployment_orders(
         self, session: Session, prefix: str | None = None

@@ -185,9 +185,15 @@ def paper_order(
     side: Annotated[str, typer.Argument(help="buy | sell")],
     quantity: float,
     key: Annotated[str, typer.Option(help="Idempotency key: the same key never creates a second order.")],
-    order_type: Annotated[str, typer.Option("--type", help="market | limit | stop | stop_limit")] = "market",
+    order_type: Annotated[
+        str, typer.Option("--type", help="market | limit | stop | stop_limit | trailing_stop")
+    ] = "market",
     limit_price: Annotated[float | None, typer.Option(help="Limit price.")] = None,
     stop_price: Annotated[float | None, typer.Option(help="Stop price.")] = None,
+    trail: Annotated[
+        float | None, typer.Option(help="Trailing stop distance (price, or % with --trail-percent).")
+    ] = None,
+    trail_percent: Annotated[bool, typer.Option(help="--trail is a percentage.")] = False,
     tif: Annotated[str, typer.Option(help="day | gtc")] = "day",
     home: HomeOpt = None,
     as_json: JsonOpt = False,
@@ -205,11 +211,18 @@ def paper_order(
             limit_price,
             stop_price,
             TimeInForce(tif),
+            trail_amount=trail,
+            trail_percent=trail_percent,
         )
     except ValueError as exc:
         fail(str(exc))
+    from quantlab.oms.service import OMSError
+
     with context(home) as ctx, ctx.sessions() as session:
-        result = ctx.paper_oms(session).submit(request)
+        try:
+            result = ctx.paper_oms(session).submit(request)
+        except OMSError as exc:
+            fail(str(exc))
     rejected: list[str] = result.decision.reasons if result.decision and not result.decision.approved else []
     payload: dict[str, Any] = {
         "order_id": result.order.id,
@@ -236,6 +249,46 @@ def paper_cancel(order_id: str, home: HomeOpt = None) -> None:
     with context(home) as ctx, ctx.sessions() as session:
         state = ctx.paper_oms(session).cancel(order_id)
     typer.echo(f"[PAPER] order {order_id}: {state.value}")
+
+
+@paper_app.command("modify")
+def paper_modify(
+    order_id: str,
+    quantity: Annotated[
+        float | None, typer.Option(help="New total quantity (more than already filled).")
+    ] = None,
+    limit_price: Annotated[float | None, typer.Option(help="New limit price.")] = None,
+    stop_price: Annotated[float | None, typer.Option(help="New stop price.")] = None,
+    trail: Annotated[
+        float | None, typer.Option(help="New trailing distance (same unit as the order).")
+    ] = None,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Change a working paper order (checked by the risk gate like a new order; recorded as an amendment)."""
+    from quantlab.oms.service import OMSError
+
+    with context(home) as ctx, ctx.sessions() as session:
+        try:
+            result = ctx.paper_oms(session).modify(
+                order_id,
+                quantity=quantity,
+                limit_price=limit_price,
+                stop_price=stop_price,
+                trail_amount=trail,
+            )
+        except OMSError as exc:
+            fail(str(exc))
+    payload = {"order_id": order_id, "status": result.status, "terms": result.terms.__dict__,
+               "reasons": result.reasons}  # fmt: skip
+    if as_json:
+        emit_json(payload)
+    else:
+        typer.echo(f"[PAPER] order {order_id}: modification {result.status}")
+        for r in result.reasons:
+            typer.secho(f"  {r}", fg=typer.colors.RED)
+    if result.status != "applied":
+        raise typer.Exit(1)
 
 
 @paper_app.command("orders")

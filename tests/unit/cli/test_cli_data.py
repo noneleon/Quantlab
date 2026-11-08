@@ -336,3 +336,29 @@ def test_health_cli_exit_codes_and_alerts(home):
         "fail",
         "ok",
     ]
+
+
+def test_paper_modify_and_trailing_stop_cli(home, tmp_path, monkeypatch):
+    """OMS-001/006 from the CLI: a trailing stop and a modified limit order (synthetic quotes)."""
+    from quantlab.core.config import load_settings
+
+    ql(*CREATE)
+    csv = tmp_path / "spy.csv"
+    csv.write_text(csv_text(daily_rows()))
+    ql("data", "import", "spy", csv, "--symbol", "SPY")
+    monkeypatch.setenv("QUANTLAB_MARKET_DATA__MOCK_DATASET", "spy")
+    assert ql("risk", "init").exit_code == 0
+    limits = load_settings().risk_limits_file
+    text = limits.read_text().replace('trading_calendar = "XNYS"', 'trading_calendar = "none"')
+    limits.write_text(text.replace("max_quote_age_s = 15.0", "max_quote_age_s = 1e10"))
+    lim = json.loads(ql("paper", "order", "SPY", "buy", "2", "--key", "lim", "--type", "limit",
+                        "--limit-price", "1", "--json").stdout)  # fmt: skip
+    assert lim["state"] == "ACCEPTED"
+    r = ql("paper", "modify", lim["order_id"], "--quantity", "3", "--limit-price", "2", "--json")
+    out = json.loads(r.stdout)
+    assert r.exit_code == 0 and out["status"] == "applied" and out["terms"]["quantity"] == 3
+    assert (
+        ql("paper", "modify", lim["order_id"], "--stop-price", "1").exit_code == 1
+    )  # limit orders have none
+    bad = ql("paper", "order", "SPY", "sell", "1", "--key", "t0", "--type", "trailing_stop")
+    assert bad.exit_code == 1 and "trail" in bad.output

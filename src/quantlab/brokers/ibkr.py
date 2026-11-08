@@ -103,6 +103,10 @@ class IBTradingClient(Protocol):
         """Request cancellation; False if no open order with this reference is known."""
         ...
 
+    def modify(self, order: BrokerOrder) -> bool:
+        """Send new terms for the open order with reference ``order.order_id``; False if none is known."""
+        ...
+
     def orders(self) -> list[IBOrderRecord]:
         """Every order known to the connection (open orders of all clients plus this session's)."""
         ...
@@ -223,6 +227,15 @@ class IBKRPaperBroker:
         self._ensure()
         if not self._client.cancel(order_id):
             raise BrokerError(f"order {order_id} is not working at IBKR")
+
+    def modify(self, order: BrokerOrder) -> None:
+        self._ensure()
+        try:
+            found = self._client.modify(order)
+        except Exception as exc:  # it may have reached IBKR
+            raise SubmitUnknown(f"IBKR: modifying {order.order_id} failed midway: {exc!r}") from exc
+        if not found:
+            raise BrokerError(f"order {order.order_id} is not working at IBKR")
 
     def events(self) -> list[SequencedEvent]:
         account = self._ensure()

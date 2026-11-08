@@ -160,6 +160,8 @@ namespace QuantLab.Brokerages
                 ["order_type"] = OrderTypeName(order),
                 ["limit_price"] = LimitPrice(order),
                 ["stop_price"] = StopPrice(order),
+                ["trail_amount"] = TrailAmount(order),
+                ["trail_percent"] = order is TrailingStopOrder { TrailingAsPercentage: true },
                 ["time_in_force"] = order.TimeInForce is GoodTilCanceledTimeInForce ? "gtc" : "day",
             };
             _unacked[order.Id] = message;
@@ -184,10 +186,40 @@ namespace QuantLab.Brokerages
             return !IsRejected(Text(r, "state"));
         }
 
+        /// <summary>OMS-006: LEAN has already applied the new terms to <paramref name="order"/>. QuantLab checks them
+        /// with its risk gate; if they are not applied there, the order is cancelled so that LEAN and QuantLab never
+        /// work different terms (LEAN keeps a refused update's terms on its order object).</summary>
         public override bool UpdateOrder(Order order)
         {
-            Warn("QuantLabNoUpdates",
-                $"order {order.Id}: order updates are not supported by the QuantLab gateway; cancel and place a new order");
+            var message = new Dictionary<string, object?>
+            {
+                ["type"] = "update",
+                ["id"] = order.Id,
+                ["quantity"] = order.Quantity,
+                ["limit_price"] = LimitPrice(order),
+                ["stop_price"] = StopPrice(order),
+                ["trail_amount"] = TrailAmount(order),
+            };
+            JsonElement? reply;
+            try
+            {
+                reply = _client.Request(message, m => IsReplyTo(m, order.Id, "update"));
+            }
+            catch (GatewayException exc)
+            {
+                reply = null;
+                Warn("QuantLabUpdateFailed", $"order {order.Id}: update not confirmed: {exc.Message}");
+            }
+            var outcome = reply != null && Type(reply.Value) == "order" ? Text(reply.Value, "update") : "";
+            if (outcome is "applied" or "unchanged")
+            {
+                Emit(order, OrderStatus.UpdateSubmitted, "updated at QuantLab (risk gate passed)");
+                return true;
+            }
+            var why = reply == null ? "no reply" : Type(reply.Value) == "error"
+                ? Text(reply.Value, "message") : $"{outcome}: {Text(reply.Value, "reason")}";
+            Warn("QuantLabUpdateRefused", $"order {order.Id}: update not applied ({why}); the order is cancelled");
+            CancelOrder(order);
             return false;
         }
 
@@ -356,8 +388,9 @@ namespace QuantLab.Brokerages
             if (order.TimeInForce is not (DayTimeInForce or GoodTilCanceledTimeInForce))
                 return $"time in force {order.TimeInForce.GetType().Name} is not supported (day or GTC)";
             return order.Type is OrderType.Market or OrderType.Limit or OrderType.StopMarket or OrderType.StopLimit
+                or OrderType.TrailingStop
                 ? null
-                : $"order type {order.Type} is not supported (market, limit, stop, stop-limit)";
+                : $"order type {order.Type} is not supported (market, limit, stop, stop-limit, trailing stop)";
         }
 
         private static string OrderTypeName(Order order) => order.Type switch
@@ -365,6 +398,7 @@ namespace QuantLab.Brokerages
             OrderType.Limit => "limit",
             OrderType.StopMarket => "stop",
             OrderType.StopLimit => "stop_limit",
+            OrderType.TrailingStop => "trailing_stop",
             _ => "market",
         };
 
@@ -377,10 +411,16 @@ namespace QuantLab.Brokerages
 
         private static decimal? StopPrice(Order order) => order switch
         {
+            TrailingStopOrder => null, // QuantLab moves a trailing stop itself (it derives from StopMarketOrder)
             StopMarketOrder s => s.StopPrice,
             StopLimitOrder sl => sl.StopPrice,
             _ => null,
         };
+
+        /// <summary>LEAN's trailing percentage is a fraction (0.05 = 5 %); QuantLab's is in percent.</summary>
+        private static decimal? TrailAmount(Order order) => order is TrailingStopOrder t
+            ? (t.TrailingAsPercentage ? t.TrailingAmount * 100m : t.TrailingAmount)
+            : null;
 
         private static bool IsRejected(string state) => state is "RISK_REJECTED" or "REJECTED" or "NOT_PLACED";
 

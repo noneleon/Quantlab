@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint, event
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from quantlab.core.db import Base, UTCDateTime
@@ -39,6 +39,25 @@ class Order(Base):
     stop_price: Mapped[float | None] = mapped_column(Float)
     time_in_force: Mapped[str] = mapped_column(String(4), nullable=False)
     source: Mapped[str] = mapped_column(String(64), nullable=False)  # e.g. "cli:owner", "strategy:<run>"
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    trail_amount: Mapped[float | None] = mapped_column(Float)  # trailing stop: distance (price or percent)
+    trail_percent: Mapped[bool | None] = mapped_column(Boolean)  # True: trail_amount is a percentage
+
+
+class OrderAmendment(Base):
+    """A modification of a working order (OMS-006): requested, then applied / refused / rejected / unknown."""
+
+    __tablename__ = "order_amendments"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), nullable=False, index=True)
+    amendment: Mapped[str] = mapped_column(String(26), nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    limit_price: Mapped[float | None] = mapped_column(Float)
+    stop_price: Mapped[float | None] = mapped_column(Float)
+    trail_amount: Mapped[float | None] = mapped_column(Float)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -118,7 +137,7 @@ class EquitySample(Base):
 @event.listens_for(Session, "before_flush")
 def _append_only(session: Session, _ctx: Any, _instances: Any) -> None:
     for obj in [*session.deleted, *session.dirty]:
-        if isinstance(obj, Order | OrderEvent | FillRecord | DailyEquity | OmsAccount | EquitySample) and (
-            obj in session.deleted or session.is_modified(obj)
-        ):
+        if isinstance(
+            obj, Order | OrderEvent | FillRecord | DailyEquity | OmsAccount | EquitySample | OrderAmendment
+        ) and (obj in session.deleted or session.is_modified(obj)):
             raise OrderRecordError("orders, order events and fills are append-only")

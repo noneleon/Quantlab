@@ -29,7 +29,20 @@ _ORDER_TYPES = {
     OrderType.LIMIT: "LMT",
     OrderType.STOP: "STP",
     OrderType.STOP_LIMIT: "STP LMT",
+    OrderType.TRAILING_STOP: "TRAIL",
 }
+
+
+def _set_prices(ib_order: Any, order: BrokerOrder) -> None:
+    if order.limit_price is not None:
+        ib_order.lmtPrice = order.limit_price
+    if order.order_type is OrderType.TRAILING_STOP:  # TRAIL: auxPrice = amount, or trailingPercent
+        if order.trail_percent:
+            ib_order.trailingPercent = order.trail_amount
+        else:
+            ib_order.auxPrice = order.trail_amount
+    elif order.stop_price is not None:
+        ib_order.auxPrice = order.stop_price
 
 
 def _utc(t: Any) -> datetime:
@@ -84,11 +97,18 @@ class IbAsyncTradingClient:  # pragma: no cover - needs a running IB Gateway / T
             orderRef=order.order_id,
             transmit=True,
         )
-        if order.limit_price is not None:
-            ib_order.lmtPrice = order.limit_price
-        if order.stop_price is not None:
-            ib_order.auxPrice = order.stop_price
+        _set_prices(ib_order, order)
         self._ib.placeOrder(self._contract(order.symbol), ib_order)
+
+    def modify(self, order: BrokerOrder) -> bool:
+        """IB modifies an order when it is placed again with the same order id (OMS-006)."""
+        for trade in self._ib.openTrades():
+            if trade.order.orderRef == order.order_id:
+                trade.order.totalQuantity = order.quantity
+                _set_prices(trade.order, order)
+                self._ib.placeOrder(trade.contract, trade.order)
+                return True
+        return False
 
     def cancel(self, order_ref: str) -> bool:
         for trade in self._ib.openTrades():

@@ -118,13 +118,59 @@ namespace QuantLab.Brokerages.Tests
         }
 
         [Fact]
-        public void UnsupportedOrdersAndUpdatesAreRefusedLocally()
+        public void UnsupportedOrdersAreRefusedLocally()
         {
             var moo = WithId(new MarketOnOpenOrder(Spy, 1, DateTime.UtcNow));
             Assert.False(_brokerage.PlaceOrder(moo));
             Assert.Contains("not supported", WaitFor(e => e.OrderId == moo.Id && e.Status == OrderStatus.Invalid).Message);
-            Assert.False(_brokerage.UpdateOrder(Limit(1, 10m)));
-            Assert.Contains(_messages, m => m.Code == "QuantLabNoUpdates");
+        }
+
+        private static void Apply(Order order, decimal? quantity = null, decimal? limit = null)
+        {
+            // what LEAN's transaction handler does before calling UpdateOrder
+            order.ApplyUpdateOrderRequest(new UpdateOrderRequest(DateTime.UtcNow, order.Id,
+                new UpdateOrderFields { Quantity = quantity, LimitPrice = limit }));
+        }
+
+        [Fact]
+        public void AnUpdateGoesThroughTheRiskGateAndTheNewTermsAreWorked()
+        {
+            var order = Limit(2, 10m);
+            Assert.True(_brokerage.PlaceOrder(order));
+            WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.Submitted);
+            Apply(order, quantity: 3, limit: 11m);
+            Assert.True(_brokerage.UpdateOrder(order));
+            WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.UpdateSubmitted);
+            Apply(order, limit: 60m); // marketable now: fills at the ask with the amended quantity
+            Assert.True(_brokerage.UpdateOrder(order));
+            var fill = WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.Filled);
+            Assert.Equal(3m, fill.FillQuantity);
+            Assert.Equal(50.01m, fill.FillPrice);
+        }
+
+        [Fact]
+        public void AnUpdateQuantLabDoesNotApplyCancelsTheOrder()
+        {
+            var order = Limit(2, 10m);
+            Assert.True(_brokerage.PlaceOrder(order));
+            WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.Submitted);
+            Apply(order, quantity: 1000); // over max_order_quantity: refused by the risk gate
+            Assert.False(_brokerage.UpdateOrder(order));
+            Assert.Contains(_messages, m => m.Code == "QuantLabUpdateRefused" && m.Message.Contains("order quantity"));
+            WaitFor(e => e.OrderId == order.Id && e.Status == OrderStatus.Canceled);
+        }
+
+        [Fact]
+        public void TrailingStopsArePlacedAtQuantLab()
+        {
+            var buy = Market(5);
+            Assert.True(_brokerage.PlaceOrder(buy));
+            WaitFor(e => e.OrderId == buy.Id && e.Status == OrderStatus.Filled);
+            var trail = WithId(new TrailingStopOrder(Spy, -5, 0.01m, true, DateTime.UtcNow)); // 1 % below the high
+            Assert.True(_brokerage.PlaceOrder(trail));
+            WaitFor(e => e.OrderId == trail.Id && e.Status == OrderStatus.Submitted); // 50 -> stop 49.5: not hit
+            Assert.True(_brokerage.CancelOrder(trail));
+            WaitFor(e => e.OrderId == trail.Id && e.Status == OrderStatus.Canceled);
         }
 
         [Fact]
@@ -237,12 +283,13 @@ namespace QuantLab.Brokerages.Tests
         }
 
         [Fact]
-        public void BrokerageModelRefusesUpdatesAndUnsupportedOrders()
+        public void BrokerageModelAllowsUpdatesOfSupportedOrdersOnly()
         {
             var model = new QuantLabBrokerageModel();
             Assert.Equal(AccountType.Cash, model.AccountType);
-            Assert.False(model.CanUpdateOrder(null!, Limit(1, 10m), null!, out var update));
-            Assert.Equal("QuantLabNoUpdates", update.Code);
+            var moo = WithId(new MarketOnOpenOrder(Spy, 1, DateTime.UtcNow));
+            Assert.False(model.CanUpdateOrder(null!, moo, null!, out var update));
+            Assert.Equal("QuantLabUnsupported", update.Code);
             Assert.False(model.CanSubmitOrder(null!, WithId(new MarketOnOpenOrder(Spy, 1, DateTime.UtcNow)), out var submit));
             Assert.Equal("QuantLabUnsupported", submit.Code);
         }

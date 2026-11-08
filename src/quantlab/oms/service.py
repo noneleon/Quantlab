@@ -51,7 +51,15 @@ from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
 from quantlab.data.market_data import DataState, Quote
 from quantlab.oms import queries
-from quantlab.oms.models import DailyEquity, EquitySample, FillRecord, OmsAccount, Order, OrderEvent
+from quantlab.oms.models import (
+    DailyEquity,
+    EquitySample,
+    FillRecord,
+    OmsAccount,
+    Order,
+    OrderAmendment,
+    OrderEvent,
+)
 from quantlab.oms.states import TERMINAL, WORKING, OrderState, can_transition
 from quantlab.portfolio.book import Book
 from quantlab.risk.gate import Decision, OrderIntent, PendingOrder, RiskContext, RiskGate
@@ -75,6 +83,17 @@ class CancelAllResult:
 
 
 CANCELLABLE = frozenset({S.SUBMITTED, S.ACCEPTED, S.PARTIALLY_FILLED})
+MODIFIABLE = frozenset({S.ACCEPTED, S.PARTIALLY_FILLED})  # acknowledged by the broker, not being cancelled
+
+
+@dataclass(frozen=True)
+class ModifyResult:
+    order_id: str
+    status: str  # applied | refused (risk gate) | rejected (broker) | unknown
+    terms: queries.Terms  # the order's terms now (unchanged unless applied)
+    reasons: list[str]
+
+
 PENDING_CANCEL_GRACE_S = 60.0  # likewise a younger PENDING_CANCEL (its broker call may not have happened yet)
 
 
@@ -93,6 +112,8 @@ class OrderRequest:
     stop_price: float | None = None
     time_in_force: TimeInForce = TimeInForce.DAY
     source: str = "cli:owner"
+    trail_amount: float | None = None  # trailing stop distance (OMS-001)
+    trail_percent: bool = False  # True: trail_amount is a percentage
 
 
 @dataclass(frozen=True)
@@ -206,6 +227,15 @@ class OMS:
     def submit(self, req: OrderRequest) -> SubmitResult:
         if not req.client_order_key.strip():
             raise OMSError("client_order_key is required (idempotency)")
+        if req.order_type is OrderType.TRAILING_STOP:
+            if (
+                req.trail_amount is None
+                or not req.trail_amount > 0
+                or (req.trail_percent and req.trail_amount >= 100)
+            ):
+                raise OMSError("a trailing stop needs a positive trail amount (a percentage below 100)")
+        elif req.trail_amount is not None:
+            raise OMSError("trail_amount is only for trailing stop orders")
         if req.client_order_key.lower().startswith("lean:") != req.source.startswith("lean:"):
             raise OMSError("keys starting with 'lean:' are reserved for the LEAN gateway (OMS-007)")
         # A first quote for a symbol can wait for market data (IBKR subscription): do that wait here, before
@@ -235,6 +265,8 @@ class OMS:
                 time_in_force=req.time_in_force.value,
                 source=req.source,
                 created_at=self._clock.now(),
+                trail_amount=req.trail_amount,
+                trail_percent=req.trail_percent if req.order_type is OrderType.TRAILING_STOP else None,
             )
             session.add(order)
             try:
@@ -307,6 +339,98 @@ class OMS:
         self.process_events()
         with self._sessions() as session:
             return self.state(session, order_id)
+
+    def modify(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        trail_amount: float | None = None,
+        actor: str = "owner",
+    ) -> ModifyResult:
+        """OMS-006: new terms for a working order, checked by the risk gate like a new order.
+
+        Quantity is the new total (it must exceed what already filled); symbol, side, type and time in force
+        never change. Recorded append-only: a "requested" amendment, then "applied", "refused" (risk gate),
+        "rejected" (broker; the old terms still apply) or "unknown" (anomaly; reconcile and check by hand).
+        """
+        with self._sessions() as session:
+            order = session.get(Order, order_id)
+            if order is None or order.account != self.account:
+                raise OMSError(f"no order {order_id} in account {self.account}")
+            state = self.state(session, order_id)
+            if state not in MODIFIABLE:
+                raise OMSError(
+                    f"order {order_id} is {state}; only accepted or partially filled orders can be modified"
+                )
+            old = queries.terms(session, order)
+            new = queries.Terms(
+                quantity if quantity is not None else old.quantity,
+                limit_price if limit_price is not None else old.limit_price,
+                stop_price if stop_price is not None else old.stop_price,
+                trail_amount if trail_amount is not None else old.trail_amount,
+            )
+            if new == old:
+                raise OMSError("nothing to change")
+            _check_terms(OrderType(order.order_type), new, bool(order.trail_percent))
+            filled = self._filled_quantity(session, order_id)
+            if new.quantity <= filled + 1e-9:
+                raise OMSError(f"the new quantity must exceed the {filled:g} already filled")
+            amendment = new_id()
+            remaining = queries.Terms(
+                new.quantity - filled, new.limit_price, new.stop_price, new.trail_amount
+            )
+            decision = self._gate.check(
+                session, self._intent(order, remaining), self._context(session, order)
+            )
+            detail = {"actor": actor, "previous": old.__dict__, "filled": filled}
+            self._amend(session, order_id, amendment, "requested", new, detail)
+            if not decision.approved:
+                self._amend(session, order_id, amendment, "refused", new, {"reasons": decision.reasons})
+                session.commit()
+                return ModifyResult(order_id, "refused", old, decision.reasons)
+            session.commit()
+            broker_order = self._broker_order(order, new)
+        try:
+            self._broker.modify(broker_order)
+        except BrokerError as exc:
+            status, reasons = "rejected", [str(exc)]
+        except Exception as exc:  # the broker may or may not have the new terms
+            status, reasons = "unknown", [repr(exc)]
+        else:
+            status, reasons = "applied", []
+        with self._sessions() as session:
+            self._amend(session, order_id, amendment, status, new, {"reasons": reasons})
+            if status == "unknown":
+                self._anomaly(
+                    session, f"order {order_id}: modification outcome unknown ({reasons[0]}); check it"
+                )
+            session.commit()
+        self.process_events()
+        with self._sessions() as session:
+            current = queries.terms(session, order)
+        log.info("oms.modified", order_id=order_id, status=status)
+        return ModifyResult(order_id, status, current, reasons)
+
+    def _amend(
+        self,
+        session: Session,
+        order_id: str,
+        amendment: str,
+        status: str,
+        t: queries.Terms,
+        detail: dict[str, Any],
+    ) -> None:
+        session.add(
+            OrderAmendment(
+                id=new_id(), order_id=order_id, amendment=amendment, status=status, quantity=t.quantity,
+                limit_price=t.limit_price, stop_price=t.stop_price, trail_amount=t.trail_amount,
+                detail=json.dumps(detail, sort_keys=True, default=str), created_at=self._clock.now(),
+            )
+        )  # fmt: skip
+        session.flush()
 
     def cancel_all(self, *, reason: str) -> CancelAllResult:
         """Cancel every working order of the account (kill switch, RISK-004). Never sends new orders.
@@ -462,7 +586,7 @@ class OMS:
                     filled = self._filled_quantity(session, order.id)
                     if order.id in open_ids:
                         target = S.PARTIALLY_FILLED if filled else S.ACCEPTED
-                    elif filled >= order.quantity - 1e-9:
+                    elif filled >= queries.terms(session, order).quantity - 1e-9:
                         target = S.FILLED
                     elif filled:
                         target = S.CANCELLED
@@ -480,7 +604,11 @@ class OMS:
                     if order.id in open_ids:
                         target = S.PARTIALLY_FILLED if filled else S.ACCEPTED
                     else:
-                        target = S.FILLED if filled >= order.quantity - 1e-9 else S.CANCELLED
+                        target = (
+                            S.FILLED
+                            if filled >= queries.terms(session, order).quantity - 1e-9
+                            else S.CANCELLED
+                        )
                     self._event(
                         session, order.id, target, {"resolved_by": "reconciliation", "was": "PENDING_CANCEL"}
                     )
@@ -622,9 +750,10 @@ class OMS:
             )
             session.flush()
             filled = self._filled_quantity(session, order.id)
-            target = S.FILLED if filled >= order.quantity - 1e-9 else S.PARTIALLY_FILLED
-            if filled > order.quantity + 1e-9:
-                self._anomaly(session, f"order {order.id}: filled {filled} > ordered {order.quantity}")
+            ordered = queries.terms(session, order).quantity
+            target = S.FILLED if filled >= ordered - 1e-9 else S.PARTIALLY_FILLED
+            if filled > ordered + 1e-9:
+                self._anomaly(session, f"order {order.id}: filled {filled} > ordered {ordered}")
             self._try_event(
                 session,
                 order.id,
@@ -644,29 +773,20 @@ class OMS:
         return True
 
     @staticmethod
-    def _intent(order: Order) -> OrderIntent:
+    def _intent(order: Order, terms: queries.Terms | None = None) -> OrderIntent:
+        t = terms or queries.Terms(order.quantity, order.limit_price, order.stop_price, order.trail_amount)
         return OrderIntent(
-            order.id,
-            order.symbol,
-            Side(order.side),
-            order.quantity,
-            OrderType(order.order_type),
-            order.limit_price,
-            order.stop_price,
-        )
+            order.id, order.symbol, Side(order.side), t.quantity, OrderType(order.order_type), t.limit_price,
+            t.stop_price,
+        )  # fmt: skip
 
     @staticmethod
-    def _broker_order(order: Order) -> BrokerOrder:
+    def _broker_order(order: Order, terms: queries.Terms | None = None) -> BrokerOrder:
+        t = terms or queries.Terms(order.quantity, order.limit_price, order.stop_price, order.trail_amount)
         return BrokerOrder(
-            order.id,
-            order.symbol,
-            Side(order.side),
-            order.quantity,
-            OrderType(order.order_type),
-            order.limit_price,
-            order.stop_price,
-            TimeInForce(order.time_in_force),
-        )
+            order.id, order.symbol, Side(order.side), t.quantity, OrderType(order.order_type), t.limit_price,
+            t.stop_price, TimeInForce(order.time_in_force), t.trail_amount, bool(order.trail_percent),
+        )  # fmt: skip
 
     def _context(self, session: Session, order: Order) -> RiskContext:
         book = self.book(session)
@@ -698,15 +818,17 @@ class OMS:
             unresolved += len(self._broker.open_order_ids() - tracked - {order.id})
         except Exception as exc:  # any failure to read the broker blocks new orders (fails closed)
             broker_error = f"cannot read the broker's open orders: {exc}"
-        pending = [
-            PendingOrder(
-                o.symbol,
-                (o.quantity - self._filled_quantity(session, o.id)) * (1 if o.side == Side.BUY else -1),
-                o.limit_price or o.stop_price,
+        pending = []
+        for o, st in everything:
+            if o.id == order.id or st not in WORKING:
+                continue
+            t = queries.terms(session, o)  # amended terms (OMS-006)
+            remaining = t.quantity - self._filled_quantity(session, o.id)
+            pending.append(
+                PendingOrder(
+                    o.symbol, remaining * (1 if o.side == Side.BUY else -1), t.limit_price or t.stop_price
+                )
             )
-            for o, st in everything
-            if o.id != order.id and st in WORKING
-        ]
         equity = book.snapshot(marks)["equity"]
         hour_ago = now - timedelta(hours=1)
         rejections = sum(
@@ -777,3 +899,29 @@ __all__ = [
     "SubmitResult",
     "TimeInForce",
 ]
+
+
+def _check_terms(kind: OrderType, t: queries.Terms, trail_percent: bool) -> None:
+    """The prices an order type needs (and no others) after a modification."""
+    if not t.quantity > 0:
+        raise OMSError("quantity must be positive")
+    for name, value in (
+        ("limit price", t.limit_price),
+        ("stop price", t.stop_price),
+        ("trail amount", t.trail_amount),
+    ):
+        if value is not None and not value > 0:
+            raise OMSError(f"{name} must be positive")
+    if kind in (OrderType.LIMIT, OrderType.STOP_LIMIT) and t.limit_price is None:
+        raise OMSError("limit price required")
+    if kind in (OrderType.MARKET, OrderType.STOP, OrderType.TRAILING_STOP) and t.limit_price is not None:
+        raise OMSError(f"a {kind.value} order has no limit price")
+    if kind in (OrderType.STOP, OrderType.STOP_LIMIT) and t.stop_price is None:
+        raise OMSError("stop price required")
+    if kind in (OrderType.MARKET, OrderType.LIMIT, OrderType.TRAILING_STOP) and t.stop_price is not None:
+        raise OMSError(f"a {kind.value} order has no stop price (a trailing stop computes its own)")
+    if kind is OrderType.TRAILING_STOP:
+        if t.trail_amount is None or (trail_percent and t.trail_amount >= 100):
+            raise OMSError("a trailing stop needs a positive trail amount (a percentage below 100)")
+    elif t.trail_amount is not None:
+        raise OMSError("trail amount is only for trailing stop orders")

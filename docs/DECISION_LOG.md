@@ -340,3 +340,16 @@ exactly like the CLI and store their results the same way. (2) Requests are vali
 stops the engine process; a cancelled optimization skips trials not started yet and ends "cancelled". (4) The job
 list is in server memory only (results are durable). (5) Unchanged: the console still cannot trade, deploy, pause or
 resume deployments, disengage the kill switch or change risk limits (DEC-0028/0034).
+
+### DEC-0037 — Modifying working orders; trailing stops
+State: ACCEPTED (owner: "develop the complete functionality", 2026-11-08; order capabilities strategies call)
+Decisions: (1) A modification changes quantity (new total, above the filled quantity), limit, stop or trail of an
+ACCEPTED / PARTIALLY_FILLED order; symbol, side, type and time in force never change. (2) It is checked by the
+central risk gate like a new order (remaining quantity at the new prices; the kill switch blocks it; cancelling is
+always possible). (3) Orders stay immutable: each modification is recorded in the append-only `order_amendments`
+table (requested → applied / refused / rejected / unknown); current terms = original + last applied amendment, and
+every exposure / fill computation uses them. (4) LEAN applies an update to its own order before asking the
+brokerage, so QuantLabBrokerage cancels an order whose update QuantLab does not apply: LEAN and QuantLab never work
+different terms. (5) Trailing stops follow the best price since placement by a price or percentage distance (LEAN's
+fractional percentage is converted); the paper broker moves the stop, IBKR receives a native TRAIL order. The web
+console shows modifications but cannot make them (DEC-0028).

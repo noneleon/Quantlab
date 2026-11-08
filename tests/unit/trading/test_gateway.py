@@ -521,3 +521,42 @@ def test_the_gateway_can_listen_on_an_owner_only_unix_socket(stack, tmp_path):  
     g.stop()
     t.join(timeout=5)
     assert not path.exists()  # removed when the gateway stops
+
+
+def test_updates_go_through_the_risk_gate_and_report_their_outcome(stack, gw):  # noqa: F811
+    """OMS-006 over the gateway: applied / unchanged / refused, and never another run's order."""
+    c = connect(gw)
+    c.recv()
+    c.send(type="place", id=1, symbol="SPY", quantity=2, order_type="limit", limit_price=40.0)
+    c.until(lambda m: m["type"] == "order" and m["id"] == 1 and m.get("reply") == "place")
+    c.send(type="update", id=1, quantity=3, limit_price=41.0)
+    up, _ = c.until(lambda m: m.get("reply") == "update")
+    assert up["update"] == "applied" and up["state"] == "ACCEPTED"
+    c.send(type="update", id=1, quantity=3, limit_price=41.0)
+    assert c.until(lambda m: m.get("reply") == "update")[0]["update"] == "unchanged"
+    c.send(type="update", id=1, quantity=1000, limit_price=41.0)
+    refused, _ = c.until(lambda m: m.get("reply") == "update")
+    assert refused["update"] == "refused" and "order quantity" in refused["reason"]
+    c.send(type="update", id=1, quantity=-3, limit_price=41.0)
+    err, _ = c.until(lambda m: m["type"] == "error" and m.get("reply") == "update")
+    assert "side" in err["message"]
+    c.send(type="update", id=99, quantity=1, limit_price=41.0)
+    assert "no order 99" in c.until(lambda m: m["type"] == "error")[0]["message"]
+    c.close()
+
+
+def test_trailing_stops_are_accepted_over_the_gateway(stack, gw):  # noqa: F811
+    c = connect(gw)
+    c.recv()
+    c.send(type="place", id=1, symbol="SPY", quantity=5)
+    c.until(lambda m: m["type"] == "order" and m["id"] == 1 and m["state"] == "FILLED")
+    c.send(type="place", id=2, symbol="SPY", quantity=-5, order_type="trailing_stop", trail_amount=1.0,
+           trail_percent=True)  # fmt: skip
+    placed, _ = c.until(lambda m: m["type"] == "order" and m["id"] == 2 and m.get("reply") == "place")
+    assert placed["state"] == "ACCEPTED"
+    with stack["sessions"]() as s:
+        from quantlab.oms.models import Order
+
+        order = s.get(Order, placed["order_id"])
+        assert (order.order_type, order.trail_amount, order.trail_percent) == ("trailing_stop", 1.0, True)
+    c.close()

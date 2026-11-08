@@ -123,4 +123,23 @@ describe("trading console (UI-006)", () => {
     expect(html).toContain("never started");
     expect(html).not.toMatch(/<(button|input|form)\b/);
   });
+
+  it("order detail shows current terms and every modification", async () => {
+    const { OrderDetailView } = await import("./pages/Trading");
+    const data = {
+      order_id: "O1", events: [], risk_decisions: [], fills: [],
+      terms: { quantity: 3, limit_price: 41, stop_price: null, trail_amount: null },
+      amendments: [
+        { amendment: "A1", status: "requested", quantity: 3, limit_price: 41, stop_price: null, trail_amount: null, detail: {}, at: "2026-11-08T10:00:00Z" },
+        { amendment: "A1", status: "applied", quantity: 3, limit_price: 41, stop_price: null, trail_amount: null, detail: {}, at: "2026-11-08T10:00:01Z" },
+        { amendment: "A2", status: "refused", quantity: 1000, limit_price: 41, stop_price: null, trail_amount: null,
+          detail: { reasons: ["order quantity: 1000 (max 100)"] }, at: "2026-11-08T10:01:00Z" },
+      ],
+    };
+    const html = renderToStaticMarkup(<MemoryRouter><OrderDetailView data={data} /></MemoryRouter>);
+    expect(html).toContain("Current terms: quantity 3 · limit 41");
+    expect(html).toContain(">refused<");
+    expect(html).toContain("order quantity: 1000");
+    expect(html).not.toMatch(/<(button|input|form)\b/); // the console never modifies orders
+  });
 });

@@ -25,6 +25,7 @@ class OrderType(StrEnum):
     LIMIT = "limit"
     STOP = "stop"
     STOP_LIMIT = "stop_limit"
+    TRAILING_STOP = "trailing_stop"  # stop follows the best price by trail_amount (price or percent)
 
 
 class TimeInForce(StrEnum):
@@ -54,6 +55,8 @@ class BrokerOrder:
     limit_price: float | None = None
     stop_price: float | None = None
     time_in_force: TimeInForce = TimeInForce.DAY
+    trail_amount: float | None = None  # trailing stop distance
+    trail_percent: bool = False  # True: trail_amount is a percentage of the reference price
 
 
 @dataclass(frozen=True)
@@ -135,6 +138,12 @@ class BrokerAdapter(Protocol):
         ...
 
     def cancel(self, order_id: str) -> None: ...
+
+    def modify(self, order: BrokerOrder) -> None:
+        """Replace a working order's terms (quantity = new total, prices, trail; same id, side and type).
+
+        Raises BrokerError (definitely not changed: the old terms still apply) or SubmitUnknown."""
+        ...
 
     def events(self) -> list[SequencedEvent]:
         """Unacknowledged events in broker order (returned again until ``acknowledge`` covers them)."""

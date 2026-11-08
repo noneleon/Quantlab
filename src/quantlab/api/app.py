@@ -16,6 +16,7 @@ Security model (docs/SECURITY_POLICY.md):
 from __future__ import annotations
 
 import hmac
+import json
 import re
 import threading
 from dataclasses import asdict
@@ -40,6 +41,7 @@ from quantlab.bootstrap import AppContext
 from quantlab.core.jobs import JobError, JobRunner
 from quantlab.data.catalog import DataError
 from quantlab.oms import queries as oms_queries
+from quantlab.oms.models import Order as OmsOrder
 from quantlab.optimize.service import OptimizationError
 from quantlab.risk.limits import RiskConfigError, load_limits
 from quantlab.risk.models import RiskDecision
@@ -623,6 +625,8 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
                     "order_type": o.order_type,
                     "limit_price": o.limit_price,
                     "stop_price": o.stop_price,
+                    "trail_amount": o.trail_amount,
+                    "trail_percent": o.trail_percent,
                     "time_in_force": o.time_in_force,
                     "mode": o.mode,
                     "source": o.source,
@@ -641,8 +645,24 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             decisions = session.execute(
                 select(RiskDecision).where(RiskDecision.order_id == order_id)
             ).scalars()
+            order = session.get(OmsOrder, order_id)
+            current = oms_queries.terms(session, order) if order is not None else None
             return {
                 "order_id": order_id,
+                "terms": current.__dict__ if current is not None else None,  # after applied amendments
+                "amendments": [
+                    {
+                        "amendment": a.amendment,
+                        "status": a.status,
+                        "quantity": a.quantity,
+                        "limit_price": a.limit_price,
+                        "stop_price": a.stop_price,
+                        "trail_amount": a.trail_amount,
+                        "detail": json.loads(a.detail),
+                        "at": a.created_at,
+                    }
+                    for a in oms_queries.amendments(session, order_id)
+                ],
                 "events": [
                     {"seq": e.seq, "state": e.state, "detail": e.json(), "at": e.created_at} for e in events
                 ],

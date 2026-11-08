@@ -124,6 +124,8 @@ class PaperBroker:
             reason = "limit price required"
         elif order.order_type in (OrderType.STOP, OrderType.STOP_LIMIT) and not order.stop_price:
             reason = "stop price required"
+        elif order.order_type is OrderType.TRAILING_STOP and not _valid_trail(order):
+            reason = "trailing stop needs a positive trail amount (percent below 100)"
         if reason is not None:
             self._emit(OrderRejected(order.order_id, reason, self._now()))
             self._save()
@@ -134,6 +136,32 @@ class PaperBroker:
         self._save()
         if mode == "unknown_placed":
             raise SubmitUnknown("paper broker: simulated timeout after the order was placed")
+        self._match()
+
+    def _modify_unlocked(self, order: BrokerOrder) -> None:
+        """OMS-006: new terms for a working order (the paper broker never fills partially: quantity = all)."""
+        w = self._state["working"].get(order.order_id)
+        if w is None:
+            raise BrokerError(f"order {order.order_id} is not working")
+        if (w["symbol"], w["side"], w["order_type"]) != (
+            order.symbol,
+            order.side.value,
+            order.order_type.value,
+        ):
+            raise BrokerError("a modification cannot change symbol, side or order type")
+        if order.quantity <= 0 or not math.isfinite(order.quantity):
+            raise BrokerError("quantity must be positive")
+        kind = order.order_type
+        if kind in (OrderType.LIMIT, OrderType.STOP_LIMIT) and not order.limit_price:
+            raise BrokerError("limit price required")
+        if kind in (OrderType.STOP, OrderType.STOP_LIMIT) and not order.stop_price and not w["triggered"]:
+            raise BrokerError("stop price required")
+        if kind is OrderType.TRAILING_STOP and not _valid_trail(order):
+            raise BrokerError("trailing stop needs a positive trail amount (percent below 100)")
+        w.update(quantity=order.quantity, limit_price=order.limit_price, trail_amount=order.trail_amount)
+        if kind is not OrderType.TRAILING_STOP:
+            w["stop_price"] = order.stop_price
+        self._save()
         self._match()
 
     def _cancel_unlocked(self, order_id: str) -> None:
@@ -205,6 +233,11 @@ class PaperBroker:
     def cancel(self, order_id: str) -> None:
         with self._locked():
             self._cancel_unlocked(order_id)
+
+    def modify(self, order: BrokerOrder) -> None:
+        quotes = self._fetch_quotes([order.symbol])
+        with self._locked(quotes):
+            self._modify_unlocked(order)
 
     def events(self) -> list[SequencedEvent]:
         quotes = self._fetch_quotes()
@@ -327,6 +360,21 @@ class PaperBroker:
         age = (self._now() - q.received_ts).total_seconds()
         return -2.0 <= age <= self._max_quote_age
 
+    def _trail(self, w: dict[str, Any], side: Side, last: float) -> bool:
+        """Move a trailing stop with the best price since it was placed; True once the last crosses it."""
+        ref = w.get("trail_ref")
+        best = (max if side is Side.SELL else min)(ref, last) if ref is not None else last
+        amount = float(w["trail_amount"])
+        distance = best * amount / 100.0 if w.get("trail_percent") else amount
+        stop = best - distance if side is Side.SELL else best + distance
+        if best != ref or stop != w.get("stop_price"):
+            w["trail_ref"], w["stop_price"] = best, stop
+            self._triggered = True  # saved with the next match: the reference survives restarts
+        hit = last <= stop if side is Side.SELL else last >= stop
+        if hit:
+            w["triggered"] = True
+        return hit
+
     def _fill_price(self, w: dict[str, Any], q: Quote) -> float | None:
         side = Side(w["side"])
         touch = (q.ask if side is Side.BUY else q.bid) or q.last
@@ -334,6 +382,11 @@ class PaperBroker:
         if touch is None:
             return None
         kind = OrderType(w["order_type"])
+        if kind is OrderType.TRAILING_STOP and not w["triggered"]:
+            if last is None:
+                return None
+            if not self._trail(w, side, last):
+                return None
         if kind in (OrderType.STOP, OrderType.STOP_LIMIT) and not w["triggered"]:
             if last is None:
                 return None
@@ -342,7 +395,7 @@ class PaperBroker:
                 return None
             w["triggered"] = True
             self._triggered = True
-        if kind in (OrderType.MARKET, OrderType.STOP):
+        if kind in (OrderType.MARKET, OrderType.STOP, OrderType.TRAILING_STOP):
             return touch * (1 + self._slippage) if side is Side.BUY else touch * (1 - self._slippage)
         limit = float(w["limit_price"])
         if side is Side.BUY:
@@ -434,3 +487,10 @@ def _decode(d: dict[str, Any]) -> BrokerEvent:
         data["side"] = Side(data["side"])
     event: BrokerEvent = cls(**data)
     return event
+
+
+def _valid_trail(order: BrokerOrder) -> bool:
+    amount = order.trail_amount
+    if amount is None or not math.isfinite(amount) or amount <= 0:
+        return False
+    return not (order.trail_percent and amount >= 100)

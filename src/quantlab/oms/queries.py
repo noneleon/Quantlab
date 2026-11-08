@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from quantlab.brokers.base import Side
-from quantlab.oms.models import FillRecord, Order, OrderEvent
+from quantlab.oms.models import FillRecord, Order, OrderAmendment, OrderEvent
 from quantlab.oms.states import OrderState
 from quantlab.portfolio.book import Book, Fill
 
@@ -50,6 +52,38 @@ def fills(session: Session, account: str) -> list[FillRecord]:
             select(FillRecord)
             .where(FillRecord.account == account)
             .order_by(FillRecord.executed_at, FillRecord.id)
+        ).scalars()
+    )
+
+
+@dataclass(frozen=True)
+class Terms:
+    """An order's current terms: the original ones overlaid by its last applied amendment (OMS-006)."""
+
+    quantity: float
+    limit_price: float | None
+    stop_price: float | None
+    trail_amount: float | None
+
+
+def terms(session: Session, order: Order) -> Terms:
+    last = session.execute(
+        select(OrderAmendment)
+        .where(OrderAmendment.order_id == order.id, OrderAmendment.status == "applied")
+        .order_by(OrderAmendment.created_at.desc(), OrderAmendment.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if last is None:
+        return Terms(order.quantity, order.limit_price, order.stop_price, order.trail_amount)
+    return Terms(last.quantity, last.limit_price, last.stop_price, last.trail_amount)
+
+
+def amendments(session: Session, order_id: str) -> list[OrderAmendment]:
+    return list(
+        session.execute(
+            select(OrderAmendment)
+            .where(OrderAmendment.order_id == order_id)
+            .order_by(OrderAmendment.created_at, OrderAmendment.id)
         ).scalars()
     )
 

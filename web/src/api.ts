@@ -440,6 +440,8 @@ export interface PaperOrderRow {
   order_type: string;
   limit_price: number | null;
   stop_price: number | null;
+  trail_amount?: number | null; // trailing stop (OMS-001)
+  trail_percent?: boolean | null;
   time_in_force: string;
   mode: string;
   source: string;
@@ -453,8 +455,18 @@ export interface RiskCheck {
   detail: string;
 }
 
+export interface OrderTerms {
+  quantity: number;
+  limit_price: number | null;
+  stop_price: number | null;
+  trail_amount: number | null;
+}
+
 export interface PaperOrderDetail {
   order_id: string;
+  terms?: OrderTerms | null; // current terms after applied amendments (OMS-006)
+  amendments?: { amendment: string; status: string; quantity: number; limit_price: number | null; stop_price: number | null;
+    trail_amount: number | null; detail: Record<string, unknown>; at: string }[];
   events: { seq: number; state: string; detail: Record<string, unknown>; at: string }[];
   risk_decisions: { approved: boolean; checks: RiskCheck[]; limits_sha256: string | null; at: string }[];
   fills: { exec_id: string; quantity: number; price: number; commission: number; at: string; price_state: string }[];
