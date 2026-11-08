@@ -29,7 +29,7 @@ from quantlab.core.audit import AuditLog
 from quantlab.core.clock import Clock, SystemClock
 from quantlab.core.ids import new_id
 from quantlab.data.calendars import SPECIAL_CALENDARS, session_bounds
-from quantlab.data.market_data import DataState, Quote
+from quantlab.data.market_data import NO_TRADE_FLAGS, DataState, Quote
 from quantlab.portfolio.book import Book
 from quantlab.risk.limits import RiskConfigError, load_limits
 from quantlab.risk.models import KillSwitchEvent, RiskDecision
@@ -200,11 +200,12 @@ class RiskGate:
                 -2.0 <= age <= lim.max_quote_age_s,
                 f"{age:.1f}s (max {lim.max_quote_age_s}s; future-dated quotes are refused)",
             )
+            bad = sorted(set(q.flags) & NO_TRADE_FLAGS)
+            d.check("quote flags", not bad, ", ".join(bad) if bad else "none")
             if q.bid and q.ask:
                 spread = (q.ask - q.bid) / ((q.ask + q.bid) / 2) * 10_000
-                d.check(
-                    "spread", spread <= lim.max_spread_bps, f"{spread:.1f} bps (max {lim.max_spread_bps})"
-                )
+                spread_ok = 0 <= spread <= lim.max_spread_bps
+                d.check("spread", spread_ok, f"{spread:.1f} bps (max {lim.max_spread_bps})")
             else:
                 d.check("spread", False, "bid or ask missing: spread unknown")
             touch = (q.ask if intent.side is Side.BUY else q.bid) or q.last

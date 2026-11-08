@@ -18,6 +18,7 @@ Safety properties:
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -207,6 +208,10 @@ class OMS:
             raise OMSError("client_order_key is required (idempotency)")
         if req.client_order_key.lower().startswith("lean:") != req.source.startswith("lean:"):
             raise OMSError("keys starting with 'lean:' are reserved for the LEAN gateway (OMS-007)")
+        # A first quote for a symbol can wait for market data (IBKR subscription): do that wait here, before
+        # the order's write transaction is open, so it never holds the database (kill switch) meanwhile.
+        with contextlib.suppress(Exception):  # the risk gate asks again and fails closed on no quote
+            self._quotes(req.symbol.upper())
         with self._sessions() as session:
             existing = session.execute(
                 select(Order).where(Order.client_order_key == req.client_order_key)

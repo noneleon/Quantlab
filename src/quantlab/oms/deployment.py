@@ -164,7 +164,10 @@ def deploy(
         while True:
             if time.monotonic() - last_beat >= HEARTBEAT_S:  # the console tells running from crashed by this
                 last_beat = time.monotonic()
-                _write_status(state, work)
+                try:
+                    _write_status(state, work)
+                except OSError as exc:  # e.g. Windows PermissionError while a reader has the file open
+                    log.warning("deploy.status_write_failed", error=repr(exc))
             try:
                 state.exit_code = state.proc.wait(timeout=1.0)
                 break
@@ -255,7 +258,7 @@ def read_deployments(home: Path, now: datetime) -> list[dict[str, object]]:
         except (OSError, ValueError, TypeError):
             continue
         age = (now - beat).total_seconds()
-        running = data.get("state") == "running" and 0 <= age <= 3 * HEARTBEAT_S + 5
+        running = data.get("state") == "running" and -5 <= age <= 3 * HEARTBEAT_S + 5  # small clock skew
         if data.get("state") == "running" and not running:
             data["state"] = "lost"  # no heartbeat: the process ended without cleaning up (crash, kill)
         data.update(run=status_file.parent.name, running=running, heartbeat_age_s=round(age, 1))

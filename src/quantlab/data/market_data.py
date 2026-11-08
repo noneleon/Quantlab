@@ -130,6 +130,10 @@ def normalize_quote(quote: Quote, *, stale_after_s: float = 15.0, max_clock_skew
     )
 
 
+# Quotes with any of these flags are never used to fill (paper broker) or to approve an order (risk gate).
+NO_TRADE_FLAGS = frozenset({"stale", "clock_skew", "crossed", "no_price", "halted", "frozen"})
+
+
 @dataclass(frozen=True)
 class QuoteGuard:
     """Accept only quotes in ``allowed`` states and without rejecting flags."""

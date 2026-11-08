@@ -95,6 +95,9 @@ class SecurityHeaders(BaseHTTPMiddleware):
         return response
 
 
+_TOKEN_IN_LOG = re.compile(r"""(["']?token["']?\s*[:=]\s*["']?)[^\s"',}]+""", re.IGNORECASE)
+
+
 def default_ui_dir() -> Path | None:
     """``web/dist`` of a source checkout (editable install), if it has been built."""
     candidate = Path(quantlab.__file__).resolve().parents[2] / "web" / "dist"
@@ -703,6 +706,8 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
             size = fh.tell()
             fh.seek(max(0, size - 400_000))
             text = fh.read().decode("utf-8", errors="replace")
+        # A gateway token printed by a strategy or a stack trace is never shown (review 5c-5 m3).
+        text = _TOKEN_IN_LOG.sub(r"\1<redacted>", text)
         return {"deployment": name, "run": run, "lines": text.splitlines()[-lines:]}
 
     @app.get("/api/paper/supervisor", dependencies=auth)

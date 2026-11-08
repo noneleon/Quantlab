@@ -45,13 +45,14 @@ class Quotes:
         self.px = {"SPY": 50.0}
         self.state = DataState.SIMULATED
         self.age = timedelta(0)
+        self.flags: tuple[str, ...] = ()
 
     def __call__(self, symbol):
         if symbol not in self.px:
             return None
         p = self.px[symbol]
         ts = self.clock.now() - self.age
-        return Quote(symbol, self.state, "test", ts, ts, bid=p - 0.01, ask=p + 0.01, last=p)
+        return Quote(symbol, self.state, "test", ts, ts, bid=p - 0.01, ask=p + 0.01, last=p, flags=self.flags)
 
 
 @pytest.fixture
@@ -783,3 +784,12 @@ def test_cancel_all_survives_a_failing_quote_source(stack):
     del quotes
     out = oms.cancel_all(reason="kill switch: outage")
     assert out.results == {a.order.id: "CANCELLED", b.order.id: "CANCELLED"} and out.complete
+
+
+@pytest.mark.parametrize("flag", ["halted", "stale", "crossed", "frozen"])
+def test_flagged_quotes_are_rejected_by_the_gate(stack, flag):
+    """Review 5c-5 m2: the gate rejects on quote flags (a crossed quote no longer passes the spread check)."""
+    stack["quotes"].flags = (flag,)
+    r = stack["oms"].submit(req(f"flag-{flag}"))
+    assert r.state is S.RISK_REJECTED
+    assert any(flag in reason for reason in r.decision.reasons)

@@ -67,3 +67,20 @@ def test_only_the_approved_files_are_deployed(stack, tmp_path):  # noqa: F811
     with pytest.raises(DeploymentError, match="not the approved version"):
         _deploy(stack, tmp_path, strategy_dir=strategy, approved=approved, install=install)
     assert not (tmp_path / "home" / "run" / "gateway-d1.json").exists()
+
+
+def test_a_heartbeat_slightly_in_the_future_still_counts_as_running(tmp_path):
+    """Review 5c-5 m4 (display only): small clock skew must not show a running deployment as lost."""
+    from datetime import UTC, datetime, timedelta
+
+    from quantlab.oms.deployment import read_deployments
+
+    run = tmp_path / "deployments" / "d1" / "20261108T100000Z"
+    run.mkdir(parents=True)
+    now = datetime(2026, 11, 8, 10, tzinfo=UTC)
+    beat = (now + timedelta(seconds=2)).isoformat()  # the writer's clock is slightly ahead
+    (run / "status.json").write_text(
+        json.dumps({"deployment": "d1", "state": "running", "heartbeat_at": beat})
+    )
+    (row,) = read_deployments(tmp_path, now)
+    assert row["running"] is True and row["state"] == "running"

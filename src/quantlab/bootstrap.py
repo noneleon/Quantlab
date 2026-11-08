@@ -7,6 +7,7 @@ as ``strategy add`` do not need.
 
 from __future__ import annotations
 
+import contextlib
 import secrets
 import threading
 import time
@@ -156,8 +157,10 @@ class AppContext:
             with lock:
                 return _quote(symbol)
 
+        symbol_retry_at: dict[str, float] = {}  # after a MarketDataError for one symbol: 30 s for that symbol
+
         def _quote(symbol: str) -> Quote | None:
-            if time.monotonic() < retry_at[0]:
+            if time.monotonic() < max(retry_at[0], symbol_retry_at.get(symbol, 0.0)):
                 return None
             try:
                 if not provider:
@@ -168,11 +171,15 @@ class AppContext:
                 latest = getattr(source, "latest", None)
                 quotes = latest([symbol]) if latest is not None else source.snapshot([symbol])
             except MarketDataError as exc:  # no quote: no paper fill, and the risk gate rejects new orders
+                symbol_retry_at[symbol] = time.monotonic() + 30.0  # no repeated waits under the lock
                 log.warning("paper.quote_unavailable", symbol=symbol, error=str(exc))
                 return None
             except Exception as exc:  # e.g. IB Gateway down, catalog unreadable: fail closed the same way
                 retry_at[0] = time.monotonic() + 30.0
-                provider.clear()  # rebuilt (reconnected) on the next attempt
+                if provider:  # free the IB client id before the rebuild connects again
+                    with contextlib.suppress(Exception):
+                        provider[0].close()
+                provider.clear()  # rebuilt (reconnected) on the next attempt, outside this back-off
                 log.warning("paper.quote_source_failed", symbol=symbol, error=repr(exc))
                 return None
             return quotes[0] if quotes else None

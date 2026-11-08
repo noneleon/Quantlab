@@ -33,7 +33,7 @@ import math
 import time
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
 from typing import Protocol
@@ -224,6 +224,7 @@ class IBKRProvider:
         self._reconnects = 0
         self._last_error: str | None = None
         self._last_state: DataState | None = None
+        self._link_down = False  # IB 1100 seen and not yet restored (1101/1102): every quote is stale
         self._notes: list[str] = []
 
     # ---- connection ---------------------------------------------------------------------------------
@@ -270,6 +271,10 @@ class IBKRProvider:
         for msg in self._client.messages():
             if msg.code in (DELAYED_DISPLAYED, NOT_SUBSCRIBED, COMPETING_SESSION, CONNECTIVITY_LOST):
                 self._last_error = f"IB {msg.code}: {msg.text}"
+            if msg.code == CONNECTIVITY_LOST:
+                self._link_down = True
+            if msg.code in (RESTORED_DATA_LOST, RESTORED_DATA_KEPT):
+                self._link_down = False
             if msg.code == RESTORED_DATA_LOST:
                 resubscribe = True
                 self._last_error = f"IB {msg.code}: {msg.text}"
@@ -359,17 +364,26 @@ class IBKRProvider:
         """Current quotes from subscriptions that stay open (deployments ask every second; KI-0080).
 
         A symbol's first request waits for data like ``snapshot``; later ones only read the current ticker.
-        Subscriptions not requested for ``idle_after_s`` are cancelled.
+        Subscriptions not requested for ``idle_after_s`` are cancelled. Never reconnects or backs off (it is
+        called under the OMS quote lock, review 5c-5 M2): a lost connection raises ``IBConnectError`` and the
+        caller rebuilds the provider after its own back-off. A ticker that has not updated for
+        ``stale_after_s``, or any quote while IB reports lost connectivity (1100), is flagged ``stale``.
         """
+        if not self._client.is_connected() and (self._subscribed or self._kept):
+            self._last_error = f"connection to {self.endpoint} lost"
+            raise IBConnectError(self._last_error)
         wanted = [s.upper() for s in symbols]
         new = [s for s in wanted if s not in self._subscribed]
-        if not self._client.is_connected() and self._subscribed:
-            self._reconnect()  # restores every kept subscription
         self._subscribe(wanted)
         now = time.monotonic()
         for symbol in wanted:
             self._kept[symbol] = now
         self._client.wait(0.05)  # process pending updates without blocking
+        if self._handle_messages():  # 1101: resubscribe before reading, so no ticker from the old session
+            for symbol in sorted(self._subscribed):
+                self._client.subscribe(symbol)
+            self._reconnects += 1
+            new = list(wanted)
         ticks = self._client.ticks(wanted)
         if new:
             deadline = time.monotonic() + self._snapshot_timeout
@@ -378,16 +392,19 @@ class IBKRProvider:
             ):
                 self._client.wait(0.25)
                 ticks = self._client.ticks(wanted)
-        if self._handle_messages():
-            for symbol in sorted(self._subscribed):
-                self._client.subscribe(symbol)
-            self._reconnects += 1
         for symbol, last in list(self._kept.items()):
             if now - last > idle_after_s:
                 self._client.unsubscribe(symbol)
                 self._subscribed.discard(symbol)
                 del self._kept[symbol]
-        return [self._quote(t) for t in ticks]
+        return [self._aged(self._quote(t)) for t in ticks]
+
+    def _aged(self, quote: Quote) -> Quote:
+        """Flag a kept ticker whose last update is too old (measured against now, not the exchange time)."""
+        age = (self._now() - quote.received_ts).total_seconds()
+        if (self._link_down or age > self._stale_after) and "stale" not in quote.flags:
+            return replace(quote, flags=tuple(sorted({*quote.flags, "stale"})))
+        return quote
 
     def stream(self, symbols: Sequence[str]) -> Iterator[Quote]:
         wanted = self._subscribe(symbols)

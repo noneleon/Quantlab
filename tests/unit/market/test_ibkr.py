@@ -428,5 +428,27 @@ def test_latest_drops_idle_subscriptions_and_restores_after_a_disconnect(monkeyp
     p.latest(["QQQ"])
     assert fake.unsubscribed == ["SPY"]
     fake.connected = False  # gateway restart
-    p.latest(["QQQ"])
-    assert fake.subscribed.count("QQQ") == 2  # restored after reconnecting
+    with pytest.raises(IBConnectError, match="lost"):  # never reconnects under the quote lock (5c-5 M2)
+        p.latest(["QQQ"])
+    assert fake.connect_calls == [("127.0.0.1", 4002, 18)]  # no reconnect attempt, no back-off sleep
+    assert fake.subscribed.count("QQQ") == 1
+
+
+def test_latest_flags_frozen_tickers_and_lost_connectivity_as_stale():
+    """Review 5c-5 M1: a kept ticker that stops updating, or IB 1100, must not look like a LIVE quote."""
+    now = [NOW]
+    fake = FakeIB()
+    p = provider(fake, now=lambda: now[0])
+    (q,) = p.latest(["SPY"])
+    assert "stale" not in q.flags
+    now[0] = NOW + timedelta(seconds=20)  # no update for 20 s (stale_after_s = 15)
+    (q,) = p.latest(["SPY"])
+    assert "stale" in q.flags and q.state is DataState.LIVE
+    now[0] = NOW
+    fake.pending.append(IBMessage(-1, 1100, "Connectivity between IB and TWS has been lost"))
+    (q,) = p.latest(["SPY"])
+    assert "stale" in q.flags
+    fake.pending.append(IBMessage(-1, 1101, "Connectivity restored - data lost"))
+    (q,) = p.latest(["SPY"])
+    assert "stale" not in q.flags
+    assert fake.subscribed.count("SPY") == 2  # resubscribed before the ticker was read

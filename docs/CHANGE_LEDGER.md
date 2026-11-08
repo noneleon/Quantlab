@@ -840,3 +840,27 @@ real Chromium on that run's files (state, code hash, SIMULATED label, log with t
 Tests: Python 619 passed, 4 skipped; web 29 passed; real-LEAN integration 3 passed. A trading-safety review was
 started before commit; its outcome is recorded in the next entry if it finds anything.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0044 — Phase 5c-5 follow-up: quote safety-review findings fixed
+Date: 2026-11-08 · Modules: data (IBKR, market_data), brokers (paper), risk (gate), oms (service, deployment),
+bootstrap, api · Feature IDs: DATA-019, BRK-002, RISK-*, OMS-007, LIVE-001
+Review (trading-safety-reviewer, started before CHANGE-0043 was committed): no BLOCKER, 2 MAJOR, 4 MINOR.
+Fixes:
+- MAJOR 1 (frozen quotes looked LIVE): `IBKRProvider.latest` flags a quote `stale` when its ticker has not updated
+  for `stale_after_s` (measured against now, not the exchange time) and every quote while IB 1100 (connectivity
+  lost) is pending; on 1101 it resubscribes before reading tickers. `PaperBroker` never fills a working order on a
+  quote with a no-trade flag (`NO_TRADE_FLAGS`: stale, clock_skew, crossed, no_price, halted, frozen) or a real-time
+  (LIVE / DELAYED / FROZEN) quote older than `max_quote_age_s` (60 s) by receipt time; SIMULATED replays carry
+  historical times by design and stay governed by the gate's `max_quote_age_s`.
+- MAJOR 2 (long waits under the quote lock): `latest` never reconnects or sleeps; a lost connection raises at once,
+  the paper quote function closes the provider (frees the IB client id) and rebuilds it only after its 30 s
+  back-off; a `MarketDataError` now backs off that symbol for 30 s; `OMS.submit` asks for the order's quote before
+  opening its write transaction, so a first-subscription wait never holds the database (kill switch).
+- MINOR: the risk gate rejects quotes with a no-trade flag (a tightening; a crossed quote no longer passes the spread
+  check); a failed heartbeat `status.json` write is logged instead of ending the deployment; the log endpoint
+  redacts `token` values; a heartbeat up to 5 s in the future (clock skew) is shown as running.
+Tests (new: flagged / old quotes never fill, gate rejects flagged quotes, `latest` stale + 1100/1101, no reconnect in
+`latest`, per-symbol and source back-off, log redaction, skewed heartbeat): Python 634 passed, 4 skipped; C# 17
+passed; real-LEAN integration 3 passed. Web unchanged (not re-run).
+Not covered by a test: the status-write guard inside the deploy loop (needs a LEAN run with a failing write).
+Result: PASS · Regression status: PASS

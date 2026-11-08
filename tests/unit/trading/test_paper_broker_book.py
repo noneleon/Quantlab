@@ -260,3 +260,26 @@ def test_quotes_gone_stale_while_waiting_for_the_lock_do_not_fill(tmp_path, monk
     assert b.open_order_ids() == {"o1"} and b.positions() == []
     monkeypatch.setattr(paper, "PREFETCH_MAX_AGE_S", 2.0)
     assert ExecutionReport in {type(e) for e in drain(b)}  # the next call refetches and fills
+
+
+@pytest.mark.parametrize("flag", ["stale", "halted", "crossed", "no_price", "frozen", "clock_skew"])
+def test_flagged_quotes_never_fill(tmp_path, flag):
+    """Review 5c-5 M1: a working order must not fill on a frozen, halted or otherwise unusable quote."""
+    quote = Quote("SPY", DataState.LIVE, "test", NOW, NOW, bid=100.0, ask=100.1, last=100.05, flags=(flag,))
+    b = broker(tmp_path, quotes=lambda s: quote)
+    b.submit(order("f"))
+    assert [type(e) for e in drain(b)] == [OrderAccepted] and b.open_order_ids() == {"f"}
+
+
+def test_old_real_time_quotes_never_fill_but_simulated_replays_do(tmp_path):
+    from datetime import timedelta
+
+    old = NOW - timedelta(seconds=61)  # max_quote_age_s defaults to 60
+    live = Quote("SPY", DataState.LIVE, "test", old, old, bid=100.0, ask=100.1, last=100.05)
+    b = broker(tmp_path / "live", quotes=lambda s: live)
+    b.submit(order("l"))
+    assert [type(e) for e in drain(b)] == [OrderAccepted]
+    replay = Quote("SPY", DataState.SIMULATED, "test", old, old, bid=100.0, ask=100.1, last=100.05)
+    b = broker(tmp_path / "sim", quotes=lambda s: replay)
+    b.submit(order("s"))
+    assert [type(e) for e in drain(b)][1:] == [ExecutionReport]  # synthetic replay: historical timestamps

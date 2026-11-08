@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-07 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0043 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0044 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -65,9 +65,12 @@
   `paper`, LEAN live mode on QuantLab's quotes (QuantLabDataQueue), orders via gateway/OMS/risk gate; real LEAN verified.
 - CHANGE-0042/0043: deployment review fixes; Paper Trading console page (status, data states, logs); IBKR quotes from
   kept subscriptions with a lock around the shared client.
+- CHANGE-0044: quote safety-review fixes — frozen IBKR tickers / IB 1100 flag quotes `stale`; the paper broker never
+  fills on flagged or old real-time quotes; the risk gate rejects flagged quotes; no reconnect under the quote lock
+  (back-off instead); the order's quote is fetched before the OMS write transaction; log token redaction.
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 619 passed, 4 skipped (real Docker); ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 634 passed, 4 skipped (CHANGE-0044); C# plugin 17 passed; real-LEAN integration 3 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 29 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
@@ -97,5 +100,6 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 - Example strategies: `sma_crossover` (sample minute data), `sma_daily` (dataset, RAW normalization, own benchmark).
 
 ## Next recommended task
-Phase 5c: 5c-3 native .NET launcher / C# algorithms, then a first LEAN paper run through the gateway. Phase 6 (live gates, LIVE-003) only with explicit owner approval.
+Phase 5 remaining: a LEAN paper deployment on a real-time LIVE feed (owner's IB Gateway, KI-0077/0080/0081), deployment
+pause/resume, Python strategies on the native engine (KI-0078). Phase 6 (live gates, LIVE-003) only with explicit owner approval.
 Owner actions: `quantlab risk init` + review limits; first real LEAN run (KI-0002); IBKR paper check — market data (KI-0043/0044) and the paper broker adapter (KI-0075).

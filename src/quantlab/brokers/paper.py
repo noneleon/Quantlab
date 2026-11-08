@@ -45,7 +45,7 @@ from quantlab.brokers.base import (
 )
 from quantlab.core.filelock import lock_file, unlock_file
 from quantlab.core.ids import new_id
-from quantlab.data.market_data import Quote
+from quantlab.data.market_data import NO_TRADE_FLAGS, DataState, Quote
 
 QuoteSource = Callable[[str], Quote | None]
 LOCK_TIMEOUT_S = 10.0
@@ -66,6 +66,7 @@ class PaperBroker:
         min_commission: float = 1.0,
         slippage_bps: float = 1.0,
         allow_short: bool = False,
+        max_quote_age_s: float = 60.0,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._file = state_file
@@ -74,6 +75,7 @@ class PaperBroker:
         self._min_commission = min_commission
         self._slippage = slippage_bps / 10_000.0
         self._allow_short = allow_short
+        self._max_quote_age = max_quote_age_s
         self._now = now
         self._triggered = False
         self.fail_next: str | None = None
@@ -287,8 +289,8 @@ class PaperBroker:
         changed = False
         for order_id, w in list(self._state["working"].items()):
             quote = self._prefetched.get(w["symbol"])
-            if quote is None:
-                continue
+            if quote is None or not self._fillable(quote):
+                continue  # no fill on a missing, old or flagged quote (stale, halted, crossed, ...)
             price = self._fill_price(w, quote)
             if price is None:
                 continue
@@ -311,6 +313,19 @@ class PaperBroker:
             changed = True
         if changed or self._triggered:
             self._save()
+
+    def _fillable(self, q: Quote) -> bool:
+        """No rejecting flag (as the risk gate); a real-time quote is at most ``max_quote_age_s`` old.
+
+        SIMULATED replays carry historical timestamps by design (the gate's ``max_quote_age_s`` governs
+        them). A source's own staleness (e.g. an IBKR ticker that stopped updating) arrives as ``stale``.
+        """
+        if set(q.flags) & NO_TRADE_FLAGS:
+            return False
+        if q.state is DataState.SIMULATED:
+            return True
+        age = (self._now() - q.received_ts).total_seconds()
+        return -2.0 <= age <= self._max_quote_age
 
     def _fill_price(self, w: dict[str, Any], q: Quote) -> float | None:
         side = Side(w["side"])
