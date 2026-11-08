@@ -240,6 +240,11 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok", "version": quantlab.__version__}
 
+    @app.get("/api/health/checks", dependencies=auth)
+    def health_checks() -> dict[str, Any]:
+        """OPS-001: read-only health checks (database, risk limits, kill switch, supervisor, deployments)."""
+        return ctx.health().as_dict()
+
     @app.get("/api/strategies", dependencies=auth)
     def list_strategies(include_archived: bool = False) -> list[StrategyOut]:
         with ctx.sessions() as session:

@@ -245,6 +245,13 @@ class PaperSettings(_Section):
         return self
 
 
+class AlertSettings(_Section):
+    """Alerts on health changes (OPS-002): always to logs/alerts.jsonl; optionally to a webhook."""
+
+    webhook_secret: str | None = None  # secret://… reference holding the webhook URL (it contains a token)
+    remind_after_s: float = Field(default=3600.0, ge=60)  # repeat a warn/fail that persists
+
+
 class SupervisorSettings(_Section):
     """Paper trading supervisor (LIVE-001). It never sends orders and never disengages the kill switch."""
 
@@ -343,6 +350,7 @@ class Settings(BaseSettings):
     lifecycle: LifecycleSettings = LifecycleSettings()
     paper: PaperSettings = PaperSettings()
     supervisor: SupervisorSettings = SupervisorSettings()
+    alerts: AlertSettings = AlertSettings()
     ai: AiSettings = AiSettings()
     logging: LoggingSettings = LoggingSettings()
 

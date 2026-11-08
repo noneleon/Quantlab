@@ -313,14 +313,20 @@ def paper_supervise(
 ) -> None:
     """Run the paper trading supervisor (events, reconcile, equity, DAY expiry). Never sends orders."""
     from quantlab.core.filelock import LockHeld
+    from quantlab.core.secret_store import SecretError
 
     with context(home) as ctx, ctx.sessions() as session:
         sup = ctx.paper_supervisor(session)
+        try:
+            alerter = ctx.alerter()
+        except SecretError as exc:
+            fail(f"alerts: {exc}")
         typer.echo(
-            f"[PAPER] supervising {sup.status.account} every {sup.status.interval_s}s (Ctrl+C to stop)"
+            f"[PAPER] supervising {sup.status.account} every {sup.status.interval_s}s (Ctrl+C to stop); "
+            f"alerts in {ctx.settings.home / 'logs' / 'alerts.jsonl'}"
         )
         try:
-            sup.run(max_ticks=ticks)
+            sup.run(max_ticks=ticks, after_tick=lambda: _report_alerts(alerter.update(ctx.health())))
         except LockHeld:
             fail(f"a supervisor is already running for {sup.status.account}")
         except KeyboardInterrupt:
@@ -331,6 +337,11 @@ def paper_supervise(
     )
     for e in st.errors[-5:]:
         typer.secho(f"  error: {e}", fg=typer.colors.YELLOW)
+
+
+def _report_alerts(alerts: list[Any]) -> None:
+    for alert in alerts:
+        typer.secho(alert.text, fg=typer.colors.GREEN if alert.status == "ok" else typer.colors.RED)
 
 
 @paper_app.command("supervisor-status")

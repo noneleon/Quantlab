@@ -30,6 +30,8 @@ from quantlab.data.catalog import DataCatalog
 from quantlab.data.market_data import MarketDataError, Quote
 from quantlab.engine import EngineAdapter, create_engine_adapter
 from quantlab.lifecycle.service import LifecycleService
+from quantlab.oms.alerts import Alerter
+from quantlab.oms.health import HealthReport
 from quantlab.oms.service import OMS
 from quantlab.oms.supervisor import Supervisor
 from quantlab.optimize.service import OptimizationService
@@ -206,6 +208,29 @@ class AppContext:
         return OMS(
             self.sessions, broker, gate, quote, account=paper.account, starting_cash=paper.starting_cash
         )
+
+    def health(self) -> HealthReport:
+        """OPS-001: read-only health checks (never contacts a broker)."""
+        from datetime import UTC, datetime
+
+        from quantlab.oms.health import run_checks
+
+        return run_checks(
+            self.sessions,
+            home=self.settings.home,
+            kill_switch=self.kill_switch(),
+            limits_file=self.settings.risk_limits_file,
+            supervisor_file=self.supervisor_status_file(),
+            native_dir=self.settings.lean_native_dir,
+            launcher=self.settings.engine.lean.launcher,
+            now=datetime.now(UTC),
+        )
+
+    def alerter(self) -> Alerter:
+        """OPS-002: alerts to logs/alerts.jsonl and, if configured, the webhook from the secret store."""
+        cfg = self.settings.alerts
+        url = self.secrets.get(cfg.webhook_secret).get_secret_value() if cfg.webhook_secret else None
+        return Alerter(self.settings.home, webhook_url=url, remind_after_s=cfg.remind_after_s)
 
     def supervisor_status_file(self) -> Path:
         return self.settings.home / "run" / f"supervisor-{self.settings.paper.oms_account}.json"

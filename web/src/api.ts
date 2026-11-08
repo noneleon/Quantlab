@@ -515,6 +515,18 @@ export interface SupervisorStatus {
   } | null;
 }
 
+export interface HealthCheck {
+  name: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+}
+
+export interface HealthReport {
+  status: "ok" | "warn" | "fail";
+  checked_at: string;
+  checks: HealthCheck[];
+}
+
 export interface DeploymentRow {
   deployment: string;
   run: string;

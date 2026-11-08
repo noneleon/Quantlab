@@ -316,3 +316,23 @@ def test_paper_pause_and_resume_cli(home, monkeypatch):
     assert ok.exit_code == 0 and "d1 resumed" in ok.output, ok.output
     again = ql_input("RESUME DEPLOYMENT\n", "paper", "resume", "d1", "--reason", "ok")
     assert again.exit_code == 1 and "not paused" in again.output
+
+
+def test_health_cli_exit_codes_and_alerts(home):
+    """OPS-001/002: exit 1 while a check fails (Task Scheduler / cron); --alert records changes."""
+    from quantlab.core.config import load_settings
+
+    r = ql("health", "--json")
+    data = json.loads(r.stdout)
+    by = {c["name"]: c for c in data["checks"]}
+    assert r.exit_code == 1 and by["risk limits"]["status"] == "fail"  # no limits: every order rejected
+    first = json.loads(ql("health", "--alert", "--json").stdout)
+    assert any("FAIL risk limits" in a for a in first["alerts"])
+    assert ql("risk", "init").exit_code == 0
+    r = ql("health", "--alert")
+    assert r.exit_code == 0 and "overall: WARN" in r.output and "RECOVERED risk limits" in r.output, r.output
+    alerts = (load_settings().home / "logs" / "alerts.jsonl").read_text().splitlines()
+    assert [json.loads(a)["status"] for a in alerts if json.loads(a)["check"] == "risk limits"] == [
+        "fail",
+        "ok",
+    ]

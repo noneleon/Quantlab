@@ -229,11 +229,25 @@ class Supervisor:
                 time.sleep(0.05)
 
     # ---- loop ------------------------------------------------------------------------------------------
-    def run(self, *, max_ticks: int | None = None, sleep: Callable[[float], None] = time.sleep) -> None:
-        """Run until interrupted (or ``max_ticks``); one supervisor per account (lock held throughout)."""
+    def run(
+        self,
+        *,
+        max_ticks: int | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        after_tick: Callable[[], None] | None = None,
+    ) -> None:
+        """Run until interrupted (or ``max_ticks``); one supervisor per account (lock held throughout).
+
+        ``after_tick`` (e.g. health checks + alerts, OPS-002) runs after every tick; its errors are logged and
+        never stop supervision."""
         with exclusive(self._file.with_name(self._file.name + ".lock")):
             while max_ticks is None or self.status.ticks < max_ticks:
                 self.tick()
+                if after_tick is not None:
+                    try:
+                        after_tick()
+                    except Exception as exc:
+                        log.warning("supervisor.after_tick_failed", error=repr(exc))
                 if max_ticks is not None and self.status.ticks >= max_ticks:
                     break
                 sleep(self._interval)

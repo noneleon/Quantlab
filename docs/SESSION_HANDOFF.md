@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0048 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0049 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -76,9 +76,11 @@
   paused (audited state, typed phrase to resume); console shows "paused".
 - CHANGE-0048 (DEC-0035): deployments run without network on Linux/WSL2 (network namespace, gateway over a Unix
   socket, probe before every deployment); `[paper] deployment_isolation`; console shows isolated / not isolated.
+- CHANGE-0049: health checks (`quantlab health`, `/api/health/checks`, dashboard) and alerts on changes (supervisor
+  loop + `quantlab health --alert` for Task Scheduler / cron; logs/alerts.jsonl + optional https webhook).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 643 passed, 7 skipped (CHANGE-0048); C# plugin 17 passed; real-LEAN integration 6 passed; web 29 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 652 passed, 7 skipped (CHANGE-0049); C# plugin 17 passed; real-LEAN integration 6 passed; web 30 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 29 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note

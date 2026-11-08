@@ -927,3 +927,20 @@ traded through the Unix-socket gateway and risk gate, and the Python probe could
 Tests: Python 643 passed, 7 skipped; C# 17 passed; web 29 passed; real-LEAN integration 6 passed.
 Not covered: Windows/macOS network isolation, filesystem sandboxing (KI-0082).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0049 — Health checks and alerts (OPS-001 / OPS-002)
+Date: 2026-11-08 · Modules: oms (health, alerts, supervisor), core (config), bootstrap, cli, api, web · Feature IDs:
+OPS-001, OPS-002
+Change: `oms/health.py` — read-only checks (database, risk limits, kill switch, supervisor heartbeat / health,
+deployments: lost / not isolated / paused, engine install) with ok / warn / fail and an overall status; never contacts a
+broker. `quantlab health [--json] [--alert]` exits 1 on a failure (for Windows Task Scheduler / cron);
+`GET /api/health/checks` (token required; the public `/api/health` ping is unchanged); Dashboard "Health" panel.
+`oms/alerts.py` — alerts on status changes, recoveries and hourly reminders (a healthy first run is quiet), appended to
+`logs/alerts.jsonl`, logged, and POSTed to an https webhook whose URL comes from the secret store
+(`[alerts] webhook_secret`); webhook failures are logged without the URL and never fatal. `paper supervise` runs checks +
+alerts after every tick (`Supervisor.run(after_tick=)`, errors never stop supervision).
+Verified: CLI end to end on a fresh home (fail without limits → exit 1 and FAIL alert; `risk init` → RECOVERED, exit
+0); supervisor run with alerting; Dashboard panel in real Chromium (no console errors); webhook delivery to a local
+receiver.
+Tests: Python 652 passed, 7 skipped; web 30 passed.
+Result: PASS · Regression status: PASS

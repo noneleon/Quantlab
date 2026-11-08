@@ -213,8 +213,8 @@ Last updated: 2026-11-07 (CHANGE-0025)
 ## OPS — Monitoring & reliability
 | ID | Feature | Module | Appr. | Phase | Location | Depends | Tests | Status | Limitations |
 |---|---|---|---|---|---|---|---|---|---|
-| OPS-001 | Health/status endpoints (engine, broker, data feeds, strategies) | ops | C | 5 | — | CORE-009 | — | PLANNED | |
-| OPS-002 | Alerts & notifications (desktop/email/webhook) | ops | C | 5 | — | OPS-001 | — | PLANNED | |
+| OPS-001 | Health/status endpoints (engine, broker, data feeds, strategies) | ops | C | 5 | `oms/health.py`, `quantlab health` (exit 1 on fail), `GET /api/health/checks`, Dashboard panel (CHANGE-0049) | CORE-009 | `test_health_alerts.py`, CLI/API/web tests | TESTED | Database, risk limits, kill switch, supervisor, deployments, engine install; read-only, never contacts a broker (broker/feed health comes through the supervisor's reconcile) |
+| OPS-002 | Alerts & notifications (desktop/email/webhook) | ops | C | 5 | `oms/alerts.py`; from `paper supervise` every tick and `quantlab health --alert` (Task Scheduler / cron); `[alerts] webhook_secret` (CHANGE-0049) | OPS-001 | `test_health_alerts.py` (incl. local webhook receiver) | TESTED | Changes, recoveries, hourly reminders to logs/alerts.jsonl + optional https webhook; email / desktop notifications not implemented |
 | OPS-003 | Process supervision & auto-restart | ops | C | 6 | — | LIVE-001 | — | PLANNED | |
 | OPS-004 | Backup & restore | ops | C | 9 | — | CORE-005 | — | PLANNED | |
 | OPS-005 | Resource & performance monitoring | ops | C | 9 | — | OPS-001 | — | PLANNED | |

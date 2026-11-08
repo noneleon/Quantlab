@@ -502,3 +502,13 @@ def test_deployments_endpoints_are_read_only_and_path_safe(ctx, client):
     ):
         assert client.get(f"/api/paper/deployments/{bad}/log", headers=h).status_code == 404
     assert client.post("/api/paper/deployments", headers=h).status_code == 405
+
+
+def test_health_checks_need_the_token_and_report_every_check(ctx, client):
+    assert client.get("/api/health/checks").status_code == 401
+    assert client.get("/api/health").json()["status"] == "ok"  # liveness ping stays public (no details)
+    data = client.get("/api/health/checks", headers=auth(ctx)).json()
+    names = [c["name"] for c in data["checks"]]
+    assert names == ["database", "risk limits", "kill switch", "supervisor", "deployments", "engine"]
+    assert data["status"] in ("ok", "warn", "fail")
+    assert client.post("/api/health/checks", headers=auth(ctx)).status_code == 405

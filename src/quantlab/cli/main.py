@@ -165,6 +165,39 @@ def init(home: HomeOpt = None) -> None:
 
 
 @app.command()
+def health(
+    alert: Annotated[
+        bool,
+        typer.Option("--alert", help="Also raise alerts for changed checks (Task Scheduler / cron)."),
+    ] = False,
+    home: HomeOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Health of the paper trading setup (OPS-001). Exit code 1 when a check fails, 0 otherwise."""
+    from quantlab.core.secret_store import SecretError
+
+    with context(home) as ctx:
+        report = ctx.health()
+        alerts = []
+        if alert:
+            try:
+                alerts = ctx.alerter().update(report)
+            except SecretError as exc:
+                fail(f"alerts: {exc}")
+    if as_json:
+        emit_json({**report.as_dict(), "alerts": [a.text for a in alerts]})
+    else:
+        colors = {"ok": typer.colors.GREEN, "warn": typer.colors.YELLOW, "fail": typer.colors.RED}
+        typer.secho(f"overall: {report.status.upper()}", fg=colors[report.status])
+        for c in report.checks:
+            typer.secho(f"  {c.status.upper():4} {c.name:12} {c.detail}", fg=colors[c.status])
+        for a in alerts:
+            typer.echo(f"alert: {a.text}")
+    if report.status == "fail":
+        raise typer.Exit(1)
+
+
+@app.command()
 def research(
     home: HomeOpt = None,
     port: Annotated[int, typer.Option(help="JupyterLab port (bound to 127.0.0.1).")] = 8888,

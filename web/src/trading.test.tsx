@@ -110,4 +110,17 @@ describe("trading console (UI-006)", () => {
     expect(html).not.toMatch(/<(input|select|form)\b/); // only "Log" buttons: nothing that starts or stops anything
     expect((html.match(/<button/g) ?? []).length).toBe(4);
   });
+
+  it("health checks show each status and detail, read-only", async () => {
+    const { HealthList } = await import("./pages/Dashboard");
+    const report = { status: "fail" as const, checked_at: "2026-11-09T15:00:00Z", checks: [
+      { name: "risk limits", status: "fail" as const, detail: "no risk limits file" },
+      { name: "supervisor", status: "warn" as const, detail: "never started" },
+      { name: "database", status: "ok" as const, detail: "reachable" },
+    ] };
+    const html = renderToStaticMarkup(<HealthList report={report} />);
+    expect(html).toContain("badge-bad");
+    expect(html).toContain("never started");
+    expect(html).not.toMatch(/<(button|input|form)\b/);
+  });
 });
