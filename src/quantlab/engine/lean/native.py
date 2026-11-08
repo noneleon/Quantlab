@@ -163,6 +163,7 @@ def build_live_config(
     results: str,
     storage: str,
     data_queue_handler: str,
+    language: str = "CSharp",
     force_exchange_open: bool = False,
 ) -> dict[str, Any]:
     """LEAN live-mode configuration routing every order through the QuantLab gateway (OMS-007).
@@ -171,6 +172,8 @@ def build_live_config(
     own brokerages are never configured. ``data_queue_handler`` supplies live prices to the algorithm (e.g.
     LEAN's ``FakeDataQueue`` for synthetic tests); the risk gate always uses QuantLab's own quotes.
     """
+    if language not in ("CSharp", "Python"):
+        raise EngineError(f"unknown algorithm language {language!r}")
     if data_queue_handler not in ALLOWED_DATA_QUEUES:
         raise EngineError(
             f"data-queue handler {data_queue_handler!r} is not allowed "
@@ -180,7 +183,7 @@ def build_live_config(
     return {
         "environment": LIVE_ENVIRONMENT,
         "algorithm-type-name": type_name,
-        "algorithm-language": "CSharp",
+        "algorithm-language": language,
         "algorithm-location": algorithm_location,
         "algorithm-id": algorithm_id,
         "data-folder": data_folder,

@@ -884,3 +884,18 @@ order list hash `3da9fa60…`; `quantlab backtest run` of the SMA example (param
 Tests: Python 637 passed, 5 skipped; real-LEAN integration 4 passed (new Python golden test). Paper deployments stay
 C# only (KI-0078).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0046 — Python strategies on paper deployments (KI-0078)
+Date: 2026-11-08 · Modules: oms (deployment), engine (lean/native live config), cli · Feature IDs: LIVE-001,
+ENG-007, OMS-007
+Change: `deploy()` and `quantlab paper deploy` accept `.py` strategies: the approved snapshot runs directly under
+LEAN's pythonnet (QuantLab's Python 3.11, `python_runtime`), C# is still compiled per run; `build_live_config` takes
+the algorithm language (checked). Installs without LEAN's Python modules are refused with a clear message. The
+lifecycle check (stage `paper`, approved tree hash) and every other deployment guard are unchanged.
+Verified on real LEAN (synthetic quotes, exchange forced open — test only): the Python probe received QuantLab's
+price (no seeded value), its order passed the gateway, OMS and risk gate and was filled; start/stop audited, token
+removed, provenance `SIMULATED` / synthetic. Found while checking: strategy code is not sandboxed (KI-0082).
+Tests: Python 638 passed, 6 skipped; real-LEAN integration 5 passed (C# and Python
+deployments, both goldens, live probe). No trading-safety subagent review this time (no order-path logic changed;
+only how the strategy process is started).
+Result: PASS · Regression status: PASS

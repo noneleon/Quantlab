@@ -153,3 +153,13 @@ def test_live_config_only_routes_through_quantlab_and_allowed_data_queues():
     assert env["live-mode-brokerage"] == "QuantLabBrokerage" and "live-mode-brokerage" not in cfg
     with pytest.raises(EngineError, match="not allowed"):
         native.build_live_config(data_queue_handler="InteractiveBrokersBrokerage", **kw)
+
+
+def test_live_config_language_is_checked():
+    kw = dict(algorithm_location="/a/main.py", type_name="main", algorithm_id="d", gateway_file="/g.json",
+              data_folder="/d/", results="/r", storage="/s",
+              data_queue_handler="QuantLabDataQueue")  # fmt: skip
+    assert native.build_live_config(language="Python", **kw)["algorithm-language"] == "Python"
+    assert native.build_live_config(**kw)["algorithm-language"] == "CSharp"
+    with pytest.raises(EngineError, match="unknown algorithm language"):
+        native.build_live_config(language="FSharp", **kw)

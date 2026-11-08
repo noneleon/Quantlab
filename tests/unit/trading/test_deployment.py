@@ -24,7 +24,7 @@ def _deploy(stack, tmp_path, *, strategy_dir, approved, install):  # noqa: F811
     )
 
 
-def test_python_strategies_and_missing_installs_are_refused(stack, tmp_path):  # noqa: F811
+def test_unsupported_files_and_missing_installs_are_refused(stack, tmp_path):  # noqa: F811
     common = {
         "deployment": "d1",
         "strategy": "s",
@@ -33,10 +33,16 @@ def test_python_strategies_and_missing_installs_are_refused(stack, tmp_path):  #
         "install_dir": tmp_path / "none",
         "home": tmp_path,
     }
-    with pytest.raises(DeploymentError, match="C# strategies"):
-        deploy(stack["oms"], stack["sessions"], entry_file="main.py", **common)
+    with pytest.raises(DeploymentError, match=r"C# \(\.cs\) or Python"):
+        deploy(stack["oms"], stack["sessions"], entry_file="algo.ipynb", **common)
     with pytest.raises(DeploymentError, match="native-install"):
         deploy(stack["oms"], stack["sessions"], entry_file="Algo.cs", **common)
+    install = tmp_path / "lean-native"  # an install from before Python support (no AlgorithmImports.py)
+    (install / "bin").mkdir(parents=True)
+    (install / "bin" / "QuantConnect.Lean.Launcher.dll").write_bytes(b"")
+    (install / "lean-native.json").write_text("{}")
+    with pytest.raises(DeploymentError, match="predates Python support"):
+        deploy(stack["oms"], stack["sessions"], entry_file="main.py", **{**common, "install_dir": install})
 
 
 def test_a_running_deployment_name_cannot_start_twice(stack, tmp_path):  # noqa: F811

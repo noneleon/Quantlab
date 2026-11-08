@@ -138,7 +138,10 @@ def test_real_lean_paper_order_goes_through_the_gateway_and_risk_gate(tmp_path):
         harness.wait(timeout=30)
 
 
-def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_path):
+@pytest.mark.parametrize(
+    ("probe", "entry"), [("lean_deploy_probe", "DeployProbe.cs"), ("lean_deploy_probe_py", "main.py")]
+)
+def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_path, probe, entry):
     """5c-4: `deploy` — LEAN live mode, prices from QuantLab via QuantLabDataQueue (no seeded price), order
     through the gateway, OMS and risk gate, fill back, audited start/stop. Synthetic quotes; exchange forced
     open (test only)."""
@@ -159,9 +162,9 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
         sessions,
         deployment="deploy-probe",
         strategy="deploy-probe",
-        strategy_dir=repo / "tests" / "fixtures" / "lean_deploy_probe",
-        approved_tree_hash=hash_tree(repo / "tests" / "fixtures" / "lean_deploy_probe").tree_hash,
-        entry_file="DeployProbe.cs",
+        strategy_dir=repo / "tests" / "fixtures" / probe,
+        approved_tree_hash=hash_tree(repo / "tests" / "fixtures" / probe).tree_hash,
+        entry_file=entry,
         install_dir=Path(INSTALL or ""),
         home=tmp_path / "home",
         max_minutes=4,

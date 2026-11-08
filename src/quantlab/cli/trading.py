@@ -385,7 +385,7 @@ def paper_gateway(
 
 @paper_app.command("deploy")
 def paper_deploy(
-    strategy: Annotated[str, typer.Argument(help="Registered C# strategy, promoted to the 'paper' stage.")],
+    strategy: Annotated[str, typer.Argument(help="Registered strategy (C# or Python), at stage 'paper'.")],
     deployment: Annotated[str, typer.Option(help="Deployment name (lowercase letters, digits, '-').")],
     max_minutes: Annotated[
         float | None,
@@ -409,9 +409,7 @@ def paper_deploy(
         approved = status["history"][-1]["tree_hash"]  # the files the latest promotion approved
         with ctx.sessions() as session:
             registered = ctx.registry.get(session, strategy)
-            directory, entry, language = registered.directory, registered.entry_file, registered.language
-            if language != "csharp":
-                fail("paper deployments run C# strategies on the native LEAN engine (Python: KI-0078)")
+            directory, entry = registered.directory, registered.entry_file
             typer.echo(f"[PAPER] deploying {strategy} as {deployment} (Ctrl+C to stop) …")
             try:
                 result = deploy(

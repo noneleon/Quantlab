@@ -1,9 +1,9 @@
 """Paper deployment of a LEAN strategy (LIVE-001 / OMS-007, DEC-0033).
 
-``deploy`` runs one C# strategy on the native LEAN engine in LEAN's real-time (live) mode with every order
-routed through QuantLab: LEAN → QuantLabBrokerage → gateway → OMS → risk gate → paper broker. Prices for the
-algorithm come from QuantLab's own quote source through the same gateway (QuantLabDataQueue), so the strategy
-and the risk gate see the same quotes, with their data state (LIVE / DELAYED / SIMULATED).
+``deploy`` runs one C# or Python strategy on the native LEAN engine in LEAN's real-time (live) mode with
+every order routed through QuantLab: LEAN → QuantLabBrokerage → gateway → OMS → risk gate → paper broker.
+Prices for the algorithm come from QuantLab's own quote source through the same gateway (QuantLabDataQueue),
+so the strategy and the risk gate see the same quotes, with their data state (LIVE / DELAYED / SIMULATED).
 
 Safety: paper only (the OMS accepts only paper adapters); the strategy files are snapshotted and compiled per
 deployment; one deployment per name (OS lock); the LEAN command line is fixed (launcher + ``--config`` only)
@@ -15,6 +15,7 @@ this layer.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -31,7 +32,14 @@ from quantlab.core.audit import AuditLog
 from quantlab.core.filelock import LockHeld, exclusive
 from quantlab.core.logging import get_logger
 from quantlab.engine.base import EngineError
-from quantlab.engine.lean.native import LAUNCHER, MANIFEST, build_live_config, compile_csharp
+from quantlab.engine.lean.native import (
+    LAUNCHER,
+    MANIFEST,
+    PYTHON_SUPPORT,
+    build_live_config,
+    compile_csharp,
+    python_runtime,
+)
 from quantlab.oms.gateway import Gateway, write_run_file
 from quantlab.oms.service import OMS
 from quantlab.strategies.snapshot import hash_tree
@@ -78,14 +86,21 @@ def deploy(
     ``approved_tree_hash`` is the file hash the strategy was promoted to ``paper`` with (lifecycle, DEC-0026);
     the snapshot that is compiled and run must match it exactly, so nothing unapproved is ever deployed.
     """
-    if not entry_file.endswith(".cs"):
-        raise DeploymentError(
-            "paper deployments run C# strategies on the native LEAN engine (Python: KI-0078)"
-        )
+    if not entry_file.endswith((".cs", ".py")):
+        raise DeploymentError("paper deployments run C# (.cs) or Python (.py) strategies on native LEAN")
+    python = entry_file.endswith(".py")
     if not (install_dir / MANIFEST).is_file() or not (install_dir / "bin" / LAUNCHER).is_file():
         raise DeploymentError(
             f"no native LEAN install at {install_dir}: run `quantlab engine native-install`"
         )
+    if python and not (install_dir / "bin" / PYTHON_SUPPORT).is_file():
+        raise DeploymentError(
+            "this native LEAN install predates Python support: re-run `quantlab engine native-install`"
+        )
+    try:
+        env = {**os.environ, **python_runtime()} if python else None
+    except EngineError as exc:
+        raise DeploymentError(str(exc)) from exc
     stop = stop or threading.Event()
     run_file = home / "run" / f"gateway-{deployment}.json"
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -107,13 +122,16 @@ def deploy(
                 f"the strategy files ({snapshot_hash[:12]}) are not the approved version "
                 f"({approved_tree_hash[:12]}): re-promote to 'paper' before deploying"
             )
-        try:
-            dll = compile_csharp(work / "strategy", work / "build", dotnet=dotnet)
-        except EngineError as exc:
-            raise DeploymentError(str(exc)) from exc
+        if python:  # LEAN's pythonnet runs the approved snapshot directly
+            location = work / "strategy" / entry_file
+        else:
+            try:
+                location = compile_csharp(work / "strategy", work / "build", dotnet=dotnet)
+            except EngineError as exc:
+                raise DeploymentError(str(exc)) from exc
         write_run_file(run_file, state.gateway.info)
         cfg = build_live_config(
-            algorithm_location=str(dll),
+            algorithm_location=str(location),
             type_name=Path(entry_file).stem,
             algorithm_id=f"{deployment}-{stamp}",
             gateway_file=str(run_file),
@@ -121,6 +139,7 @@ def deploy(
             results=str(work / "results"),
             storage=str(work / "storage"),
             data_queue_handler="QuantLabDataQueue",
+            language="Python" if python else "CSharp",
             force_exchange_open=force_exchange_open,
         )
         config = work / "lean-config.json"
@@ -155,6 +174,7 @@ def deploy(
                 cwd=install_dir / "bin",
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                env=env,  # Python strategies: LEAN's pythonnet uses QuantLab's Python 3.11
             )
         if on_started is not None:
             on_started(work)
