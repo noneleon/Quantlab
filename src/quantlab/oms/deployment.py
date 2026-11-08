@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ from quantlab.engine.base import EngineError
 from quantlab.engine.lean.native import LAUNCHER, MANIFEST, build_live_config, compile_csharp
 from quantlab.oms.gateway import Gateway, write_run_file
 from quantlab.oms.service import OMS
+from quantlab.strategies.snapshot import hash_tree
 
 log = get_logger(__name__)
 
@@ -47,7 +49,7 @@ class DeploymentResult:
     work_dir: Path
     log_path: Path
     exit_code: int | None
-    stopped_by: str  # "algorithm" (LEAN exited), "owner" (stop requested), "time limit"
+    stopped_by: str  # "algorithm" (LEAN exited), "owner", "time limit", "gateway failure", "error"
 
 
 def deploy(
@@ -55,17 +57,24 @@ def deploy(
     sessions: sessionmaker[Session],
     *,
     deployment: str,
+    strategy: str,
     strategy_dir: Path,
     entry_file: str,
+    approved_tree_hash: str,
     install_dir: Path,
     home: Path,
+    actor: str = "owner",
     stop: threading.Event | None = None,
     max_minutes: float | None = None,
     dotnet: str = "dotnet",
     force_exchange_open: bool = False,
     on_started: Callable[[Path], None] | None = None,
 ) -> DeploymentResult:
-    """Run the strategy until LEAN exits, ``stop`` is set or ``max_minutes`` elapse; always cleans up."""
+    """Run the strategy until LEAN exits, ``stop`` is set or ``max_minutes`` elapse; always cleans up.
+
+    ``approved_tree_hash`` is the file hash the strategy was promoted to ``paper`` with (lifecycle, DEC-0026);
+    the snapshot that is compiled and run must match it exactly, so nothing unapproved is ever deployed.
+    """
     if not entry_file.endswith(".cs"):
         raise DeploymentError(
             "paper deployments run C# strategies on the native LEAN engine (Python: KI-0078)"
@@ -79,26 +88,27 @@ def deploy(
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     work = home / "deployments" / deployment / stamp
     audit = AuditLog()
-    try:
-        lock = exclusive(run_file.with_name(run_file.name + ".lock"))
-        lock.__enter__()
-    except LockHeld:
-        raise DeploymentError(f"deployment {deployment!r} (or its gateway) is already running") from None
-    gateway: Gateway | None = None
-    thread: threading.Thread | None = None
-    proc: subprocess.Popen[bytes] | None = None
-    exit_code: int | None = None
-    stopped_by = "error"
-    started = False
-    try:
-        gateway = Gateway(oms, sessions, deployment)  # validates the name, binds to loopback
+    with ExitStack() as cleanup:
+        try:
+            cleanup.enter_context(exclusive(run_file.with_name(run_file.name + ".lock")))
+        except LockHeld:
+            raise DeploymentError(f"deployment {deployment!r} (or its gateway) is already running") from None
+        state = _Running()
+        cleanup.callback(_finish, state, run_file, sessions, audit, deployment, work)  # runs on every exit
+        state.gateway = Gateway(oms, sessions, deployment)  # validates the name, binds to loopback
         work.mkdir(parents=True)
         shutil.copytree(strategy_dir, work / "strategy")  # the deployed code is fixed for this run
+        snapshot_hash = hash_tree(work / "strategy").tree_hash
+        if snapshot_hash != approved_tree_hash:
+            raise DeploymentError(
+                f"the strategy files ({snapshot_hash[:12]}) are not the approved version "
+                f"({approved_tree_hash[:12]}): re-promote to 'paper' before deploying"
+            )
         try:
             dll = compile_csharp(work / "strategy", work / "build", dotnet=dotnet)
         except EngineError as exc:
             raise DeploymentError(str(exc)) from exc
-        write_run_file(run_file, gateway.info)
+        write_run_file(run_file, state.gateway.info)
         cfg = build_live_config(
             algorithm_location=str(dll),
             type_name=Path(entry_file).stem,
@@ -117,17 +127,17 @@ def deploy(
         (work / "results").mkdir()
         with sessions() as session:
             audit.record(
-                session, actor_type="user", actor="owner", action="paper.deploy.start", target=deployment,
-                details={"strategy_dir": str(strategy_dir), "entry_file": entry_file, "work_dir": str(work),
-                         "account": oms.account},
+                session, actor_type="user", actor=actor, action="paper.deploy.start", target=deployment,
+                details={"strategy": strategy, "tree_hash": snapshot_hash, "entry_file": entry_file,
+                         "work_dir": str(work), "account": oms.account},
             )  # fmt: skip
             session.commit()
-        started = True
-        thread = threading.Thread(target=gateway.serve, name=f"gateway-{deployment}", daemon=True)
-        thread.start()
+        state.started, state.actor = True, actor
+        state.thread = threading.Thread(target=state.gateway.serve, name=f"gateway-{deployment}", daemon=True)
+        state.thread.start()
         log_path = work / "engine.log"
         with log_path.open("wb") as log_file:
-            proc = subprocess.Popen(
+            state.proc = subprocess.Popen(
                 [dotnet, LAUNCHER, "--config", str(config)],  # fixed command line: no extra LEAN arguments
                 cwd=install_dir / "bin",
                 stdout=log_file,
@@ -136,44 +146,109 @@ def deploy(
         if on_started is not None:
             on_started(work)
         deadline = time.monotonic() + max_minutes * 60 if max_minutes is not None else None
-        stopped_by = "algorithm"
+        state.stopped_by = "algorithm"
         while True:
             try:
-                exit_code = proc.wait(timeout=1.0)
+                state.exit_code = state.proc.wait(timeout=1.0)
                 break
             except subprocess.TimeoutExpired:
                 pass
             except KeyboardInterrupt:  # Ctrl+C: the owner stops the deployment (cleaned up below)
-                stopped_by = "owner"
+                state.stopped_by = "owner"
                 break
             if stop.is_set():
-                stopped_by = "owner"
+                state.stopped_by = "owner"
+                break
+            if not state.thread.is_alive():  # no gateway: LEAN cannot trade; stop instead of running on
+                state.stopped_by = "gateway failure"
                 break
             if deadline is not None and time.monotonic() > deadline:
-                stopped_by = "time limit"
+                state.stopped_by = "time limit"
                 break
-        return DeploymentResult(deployment, work, log_path, exit_code, stopped_by)
-    finally:
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                exit_code = proc.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                exit_code = proc.wait()
-        if gateway is not None:
-            gateway.stop()
-        if thread is not None:
-            thread.join(timeout=10)
-        run_file.unlink(missing_ok=True)  # the token is only valid while the deployment runs
+    # The cleanup above has run: the exit code is LEAN's real one, also after a terminate.
+    return DeploymentResult(deployment, work, log_path, state.exit_code, state.stopped_by)
+
+
+@dataclass
+class _Running:
+    gateway: Gateway | None = None
+    thread: threading.Thread | None = None
+    proc: subprocess.Popen[bytes] | None = None
+    exit_code: int | None = None
+    stopped_by: str = "error"
+    started: bool = False
+    actor: str = "owner"
+
+
+def _finish(
+    state: _Running,
+    run_file: Path,
+    sessions: sessionmaker[Session],
+    audit: AuditLog,
+    deployment: str,
+    work: Path,
+) -> None:
+    """Every step runs even if an earlier one fails or a second Ctrl+C arrives."""
+    steps: list[tuple[str, Callable[[], None]]] = [
+        ("stop LEAN", lambda: _stop_process(state)),
+        ("stop gateway", lambda: state.gateway.stop() if state.gateway is not None else None),
+        ("join gateway", lambda: state.thread.join(timeout=10) if state.thread is not None else None),
+        ("remove token", lambda: run_file.unlink(missing_ok=True)),  # valid only while the deployment runs
+        ("record provenance", lambda: _write_provenance(state, work)),
+        ("audit stop", lambda: _audit_stop(state, sessions, audit, deployment, work)),
+    ]
+    for name, step in steps:
         try:
-            if started:
-                with sessions() as session:
-                    audit.record(
-                        session, actor_type="user", actor="owner", action="paper.deploy.stop",
-                        target=deployment,
-                        details={"exit_code": exit_code, "stopped_by": stopped_by, "work_dir": str(work)},
-                    )  # fmt: skip
-                    session.commit()
-        finally:
-            lock.__exit__(None, None, None)
+            step()
+        except BaseException as exc:  # including KeyboardInterrupt: the remaining steps still run
+            log.warning("deploy.cleanup_failed", step=name, error=repr(exc))
+
+
+def _stop_process(state: _Running) -> None:
+    proc = state.proc
+    if proc is None:
+        return
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    state.exit_code = proc.returncode
+
+
+def _data_states(state: _Running) -> list[str]:
+    return sorted(state.gateway.data_states) if state.gateway is not None else []
+
+
+def _write_provenance(state: _Running, work: Path) -> None:
+    if not state.started:
+        return
+    states = _data_states(state)
+    (work / "provenance.json").write_text(
+        json.dumps(
+            {
+                "data_states": states,
+                "synthetic": any(s != "LIVE" for s in states),  # SIMULATED / DELAYED / flagged quotes
+                "note": "paper deployment: simulated executions, prices as labelled; not a performance claim",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _audit_stop(
+    state: _Running, sessions: sessionmaker[Session], audit: AuditLog, deployment: str, work: Path
+) -> None:
+    if not state.started:
+        return
+    with sessions() as session:
+        audit.record(
+            session, actor_type="user", actor=state.actor, action="paper.deploy.stop", target=deployment,
+            details={"exit_code": state.exit_code, "stopped_by": state.stopped_by, "work_dir": str(work),
+                     "data_states": _data_states(state)},
+        )  # fmt: skip
+        session.commit()

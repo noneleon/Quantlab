@@ -130,6 +130,7 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
     from quantlab.core.audit import AuditEntry
     from quantlab.oms import queries
     from quantlab.oms.deployment import deploy
+    from quantlab.strategies.snapshot import hash_tree
 
     repo = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repo / "tests" / "fixtures"))
@@ -140,7 +141,9 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
         oms,
         sessions,
         deployment="deploy-probe",
+        strategy="deploy-probe",
         strategy_dir=repo / "tests" / "fixtures" / "lean_deploy_probe",
+        approved_tree_hash=hash_tree(repo / "tests" / "fixtures" / "lean_deploy_probe").tree_hash,
         entry_file="DeployProbe.cs",
         install_dir=Path(INSTALL or ""),
         home=tmp_path / "home",
@@ -150,7 +153,7 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
     log = result.log_path.read_text(encoding="utf-8", errors="replace")
     assert result.stopped_by == "algorithm" and result.exit_code == 0, log[-3000:]
     assert "DEPLOY first price 50" in log  # QuantLab's quote (synthetic), not a seeded value
-    assert "prices are SIMULATED, not LIVE" in log  # the data state reached the algorithm
+    assert "SPY prices are SIMULATED, not clean LIVE data" in log  # the data state reached the algorithm
     assert "DEPLOY order event 1 Filled qty 1 @ 50.01" in log
     with sessions() as s:
         ((order, state),) = queries.orders_with_state(s, "paper", None)
@@ -158,3 +161,5 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
         actions = [e.action for e in s.query(AuditEntry).order_by(AuditEntry.seq)]
         assert actions.count("paper.deploy.start") == 1 and actions[-1] == "paper.deploy.stop"
     assert not (tmp_path / "home" / "run" / "gateway-deploy-probe.json").exists()  # token removed
+    provenance = json.loads((result.work_dir / "provenance.json").read_text())
+    assert provenance["data_states"] == ["SIMULATED"] and provenance["synthetic"] is True

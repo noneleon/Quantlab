@@ -136,6 +136,9 @@ class Gateway:
         self._stop = threading.Event()
         self._run: str | None = None
         self._subscribed: dict[str, tuple[Any, ...]] = {}
+        self._latest: dict[str, Any] = {}  # symbol -> latest Quote, fetched off the order path
+        self._quotes_lock = threading.Lock()
+        self.data_states: set[str] = set()  # every data state / flag sent to the algorithm (provenance)
         self._issued: set[str] = set()  # run ids this gateway handed out
         self._refused: dict[tuple[str, int], str] = {}  # (run, LEAN id) -> why: a replay stays refused
         self._audit = AuditLog()
@@ -193,8 +196,22 @@ class Gateway:
         )
         log.info("gateway.connected", deployment=self.deployment, run=self._run)
         sent_states: dict[str, str] = {}
-        self._subscribed = {}  # symbol -> last quote sent (reset per connection)
         sent_fills: set[str] = set()
+        self._subscribed = {}  # symbol -> last quote sent (reset per connection)
+        quotes_stop = threading.Event()
+        threading.Thread(target=self._quote_loop, args=(quotes_stop,), daemon=True).start()
+        try:
+            self._serve_session(reader, send, sent_states, sent_fills)
+        finally:
+            quotes_stop.set()
+
+    def _serve_session(
+        self,
+        reader: _LineReader,
+        send: Callable[[dict[str, Any]], None],
+        sent_states: dict[str, str],
+        sent_fills: set[str],
+    ) -> None:
         self._guarded(send, lambda: self._push(send, sent_states, sent_fills))  # replay after (re)connect
         while not self._stop.is_set():
             try:
@@ -210,9 +227,9 @@ class Gateway:
                 self._guarded(replies.append, functools.partial(self._handle, msg, replies.append), msg)
             self._guarded(send, self._oms.process_events, report=False)
             self._guarded(send, lambda: self._push(send, sent_states, sent_fills), report=False)
-            self._guarded(send, lambda: self._push_quotes(send), report=False)
             for reply in replies:
                 send(reply)
+            self._guarded(send, lambda: self._push_quotes(send), report=False)  # never delays replies
 
     def _hello(self, reader: _LineReader) -> str | None:
         """The run id if the client authenticated within HELLO_TIMEOUT_S overall, else None."""
@@ -366,13 +383,32 @@ class Gateway:
                 self._subscribed.setdefault(sym, ())
         send({"type": "subscribed", "symbols": sorted(self._subscribed), "reply": "subscribe"})
 
+    def _quote_loop(self, stop: threading.Event) -> None:
+        """Fetch quotes for subscribed symbols off the order path: a slow provider (e.g. an IBKR snapshot
+        waiting for a closed market) never delays order replies or fills."""
+        while not stop.is_set():
+            for sym in list(self._subscribed):
+                try:
+                    q = self._oms.quote(sym)
+                except Exception as exc:  # no quote is "no price", never a crash
+                    log.warning("gateway.quote_failed", symbol=sym, error=repr(exc))
+                    q = None
+                with self._quotes_lock:
+                    if q is None:
+                        self._latest.pop(sym, None)
+                    else:
+                        self._latest[sym] = q
+            stop.wait(QUOTE_REFRESH_S)
+
     def _push_quotes(self, send: Callable[[dict[str, Any]], None]) -> None:
         now = time.monotonic()
         for sym, last in list(self._subscribed.items()):
-            q = self._oms.quote(sym)
+            with self._quotes_lock:
+                q = self._latest.get(sym)
             if q is None:
                 continue
-            key = (q.bid, q.ask, q.last, q.state.value)
+            flags = sorted(q.flags)
+            key = (q.bid, q.ask, q.last, q.state.value, tuple(flags))
             if last and last[0] == key and now - last[1] < QUOTE_REFRESH_S:
                 continue  # unchanged: refreshed at most once per QUOTE_REFRESH_S
             self._subscribed[sym] = (key, now)
@@ -385,10 +421,13 @@ class Gateway:
                     "last": q.last,
                     "bid_size": q.bid_size,
                     "ask_size": q.ask_size,
-                    "ts": (q.exchange_ts or q.received_ts).isoformat(),
+                    "ts": q.received_ts.isoformat(),  # when QuantLab saw it (exchange times can be old)
                     "state": q.state.value,  # LIVE / DELAYED / SIMULATED: the algorithm knows what it gets
+                    "flags": flags,  # stale / halted / crossed / ...: such quotes are not used as prices
                 }
             )
+            self.data_states.add(q.state.value)
+            self.data_states.update(f"flag:{f}" for f in flags)
 
     def _check_own_position(self, session: Session, req: OrderRequest) -> None:
         """A deployment sells only what it holds: the smaller of its own net position and the account's,

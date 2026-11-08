@@ -27,7 +27,7 @@ namespace QuantLab.Brokerages
         private readonly IDataAggregator _aggregator;
         private readonly EventBasedDataQueueHandlerSubscriptionManager _subscriptions = new();
         private readonly ConcurrentDictionary<string, (Symbol Symbol, NodaTime.DateTimeZone ExchangeTimeZone)> _symbols = new();
-        private readonly ConcurrentDictionary<string, string> _warnedStates = new();
+        private readonly ConcurrentDictionary<string, string> _lastState = new(); // symbol -> state + flags last seen
         private GatewayClient? _client;
 
         /// <summary>Created by LEAN's composer; the gateway connection is the brokerage's (shared per run file).</summary>
@@ -97,15 +97,46 @@ namespace QuantLab.Brokerages
 
         private void OnMessage(JsonElement msg)
         {
+            try
+            {
+                OnQuote(msg);
+            }
+            catch (Exception exc) when (exc is KeyNotFoundException or FormatException or InvalidOperationException)
+            {
+                Log.Error($"QuantLabDataQueue: malformed quote ignored: {exc.Message}"); // never kills the reader
+            }
+        }
+
+        private void OnQuote(JsonElement msg)
+        {
             if (!msg.TryGetProperty("type", out var type) || type.GetString() != "quote") return;
             var ticker = msg.GetProperty("symbol").GetString() ?? "";
             if (!_symbols.TryGetValue(ticker, out var subscribed)) return;
             var symbol = subscribed.Symbol;
             var state = msg.TryGetProperty("state", out var st) ? st.GetString() ?? "" : "";
-            if (state != "LIVE" && _warnedStates.TryAdd($"{ticker}:{state}", state))
+            var flags = new List<string>();
+            if (msg.TryGetProperty("flags", out var f) && f.ValueKind == JsonValueKind.Array)
             {
-                Log.Trace($"QuantLabDataQueue: {ticker} prices are {state}, not LIVE (simulated/delayed data — not a performance claim)");
+                foreach (var item in f.EnumerateArray())
+                {
+                    var flag = item.GetString();
+                    if (!string.IsNullOrEmpty(flag)) flags.Add(flag);
+                }
             }
+            var label = flags.Count > 0 ? $"{state} [{string.Join(",", flags)}]" : state;
+            if (_lastState.TryGetValue(ticker, out var previous) ? previous != label : true)
+            {
+                _lastState[ticker] = label; // every change is reported, not only the first one
+                if (state != "LIVE" || flags.Count > 0)
+                {
+                    Log.Trace($"QuantLabDataQueue: {ticker} prices are {label}, not clean LIVE data (not a performance claim)");
+                }
+                else if (previous != null)
+                {
+                    Log.Trace($"QuantLabDataQueue: {ticker} prices are LIVE again");
+                }
+            }
+            if (flags.Count > 0) return; // stale / halted / crossed / no price: never used as a price
             var utc = DateTime.Parse(msg.GetProperty("ts").GetString()!, CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
             var time = utc.ConvertFromUtc(subscribed.ExchangeTimeZone); // LEAN data times are exchange-local

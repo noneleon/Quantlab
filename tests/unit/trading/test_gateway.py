@@ -428,3 +428,38 @@ def test_subscribed_quotes_are_the_risk_gates_quotes_with_their_data_state(stack
         c.send(**bad)
         c.until(lambda m: m["type"] == "error")
     c.close()
+
+
+def test_quote_flags_reach_the_algorithm(stack, gw, monkeypatch):  # noqa: F811
+    """5c-4 review M2: a stale/halted quote keeps state LIVE but carries flags; the algorithm sees them."""
+    from dataclasses import replace
+
+    real = stack["oms"].quote
+    monkeypatch.setattr(stack["oms"], "quote", lambda sym: replace(real(sym), flags=("stale",)))
+    c = connect(gw)
+    c.recv()
+    c.send(type="subscribe", symbols=["SPY"])
+    q, _ = c.until(lambda m: m["type"] == "quote")
+    assert q["flags"] == ["stale"]
+    assert "flag:stale" in gw.data_states and "SIMULATED" in gw.data_states
+    c.close()
+
+
+def test_a_slow_quote_source_never_delays_order_replies(stack, gw, monkeypatch):  # noqa: F811
+    """5c-4 review M1: e.g. an IBKR snapshot waiting on a closed market must not time out orders."""
+    real = stack["oms"].quote
+
+    def slow(sym):
+        time.sleep(3)
+        return real(sym)
+
+    monkeypatch.setattr(stack["oms"], "quote", slow)  # the algorithm's quote feed (not the risk gate's)
+    c = connect(gw)
+    c.recv()
+    c.send(type="subscribe", symbols=["SPY"])
+    c.until(lambda m: m["type"] == "subscribed")
+    started = time.monotonic()
+    c.send(type="place", id=1, symbol="SPY", quantity=1)
+    c.until(lambda m: m["type"] == "order" and m.get("reply") == "place", timeout=5)
+    assert time.monotonic() - started < 2.0
+    c.close()

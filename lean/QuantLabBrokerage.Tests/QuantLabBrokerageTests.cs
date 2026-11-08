@@ -292,5 +292,24 @@ namespace QuantLab.Brokerages.Tests
             Assert.True(queue.IsConnected); // the brokerage's connection, not a second one
             Assert.True(_brokerage.PlaceOrder(Market(1))); // orders still work on the same connection
         }
+    
+
+        [Fact]
+        public void FlaggedQuotesAreNeverUsedAsPricesAndMalformedOnesDoNotCrash()
+        {
+            var aggregator = new RecordingAggregator();
+            using var queue = new QuantLabDataQueue(aggregator);
+            var config = new QuantConnect.Data.SubscriptionDataConfig(typeof(QuantConnect.Data.Market.TradeBar), Spy,
+                Resolution.Second, TimeZones.NewYork, TimeZones.NewYork, true, true, false);
+            queue.Subscribe(config, (_, _) => { });
+            var onMessage = typeof(QuantLabDataQueue).GetMethod("OnMessage", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            void Deliver(string json) => onMessage.Invoke(queue, new object[] { System.Text.Json.JsonDocument.Parse(json).RootElement.Clone() });
+            var ts = DateTime.UtcNow.ToString("o");
+            Deliver($"{{\"type\":\"quote\",\"symbol\":\"SPY\",\"bid\":49.99,\"ask\":50.01,\"last\":50,\"ts\":\"{ts}\",\"state\":\"LIVE\",\"flags\":[\"stale\"]}}");
+            Assert.Empty(aggregator.Updates); // a stale quote is not a price
+            Deliver("{\"type\":\"quote\",\"symbol\":\"SPY\",\"ts\":\"not a time\"}"); // logged, ignored
+            Deliver($"{{\"type\":\"quote\",\"symbol\":\"SPY\",\"bid\":49.99,\"ask\":50.01,\"last\":50,\"ts\":\"{ts}\",\"state\":\"LIVE\",\"flags\":[]}}");
+            Assert.Equal(2, aggregator.Updates.Count); // clean quote: quote tick + trade tick
+        }
     }
 }

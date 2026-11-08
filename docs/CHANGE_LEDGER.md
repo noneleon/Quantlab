@@ -804,3 +804,21 @@ deployment). A trading-safety review was started before commit; its outcome is r
 Not yet: a real-time LIVE feed run (only mock/synthetic quotes were used), a deployment registry/console view, Python
 strategies on the native engine (KI-0078).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0042 — Phase 5c-4 follow-up: deployment safety-review findings fixed
+Date: 2026-11-08 · Modules: oms (gateway, deployment), lean (C#), cli · Feature IDs: LIVE-001, OMS-007
+Review (trading-safety-reviewer, started before CHANGE-0041 was committed): no BLOCKER — no order bypasses the risk
+gate, live trading cannot be enabled, the test-only exchange-open flag cannot reach production. 2 MAJOR + 7 MINOR.
+Fixes (Python regression tests confirmed failing on the previous gateway):
+- MAJOR: quotes for the algorithm are fetched on a separate thread and pushed after the order replies, so a slow
+  provider (e.g. an IBKR snapshot on a closed market) can no longer time out order replies or delay fills.
+- MAJOR: quote flags (stale / halted / crossed / …) are forwarded; flagged quotes are never used as prices by
+  `QuantLabDataQueue`; every change of a symbol's data state is reported to the algorithm (not only the first);
+  the data states seen are recorded in `provenance.json` (with a `synthetic` flag) and in the stop audit.
+- MINOR: `deploy()` itself verifies that the snapshot matches the hash the strategy was promoted with (no
+  unapproved code, no race after the CLI's check) and audits strategy, tree hash and actor; every cleanup step runs
+  even after a failure or a second Ctrl+C; the real LEAN exit code is returned; a dead gateway stops the deployment;
+  tick times use QuantLab's receive time; a malformed quote can no longer kill the plugin's reader.
+Remaining: IBKR snapshots subscribe/unsubscribe per quote (pacing; prefer the streaming path, KI-0080).
+Tests: Python 616 passed, 4 skipped; C# 17 passed; real-LEAN integration 3 passed.
+Result: PASS · Regression status: PASS

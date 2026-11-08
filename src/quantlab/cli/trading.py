@@ -406,6 +406,7 @@ def paper_deploy(
             )
         if status["stale"]:
             fail(f"{status['stale_note']}; re-promote before deploying")
+        approved = status["history"][-1]["tree_hash"]  # the files the latest promotion approved
         with ctx.sessions() as session:
             registered = ctx.registry.get(session, strategy)
             directory, entry, language = registered.directory, registered.entry_file, registered.language
@@ -417,8 +418,10 @@ def paper_deploy(
                     ctx.paper_oms(session),
                     ctx.sessions,
                     deployment=deployment,
+                    strategy=strategy,
                     strategy_dir=Path(directory),
                     entry_file=entry,
+                    approved_tree_hash=approved,
                     install_dir=ctx.settings.lean_native_dir,
                     home=ctx.settings.home,
                     max_minutes=max_minutes,
