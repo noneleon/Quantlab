@@ -190,3 +190,34 @@ def test_paper_deployment_trades_on_quantlab_prices_through_the_risk_gate(tmp_pa
     (row,) = read_deployments(tmp_path / "home", datetime.now(UTC))
     assert (row["deployment"], row["state"], row["running"]) == ("deploy-probe", "stopped", False)
     assert row["stopped_by"] == "algorithm" and row["exit_code"] == 0 and row["data_states"] == ["SIMULATED"]
+
+
+def test_a_paused_deployment_runs_but_its_orders_are_refused(tmp_path):
+    """DEC-0034 on real LEAN: the strategy still gets prices; its order is refused before the OMS."""
+    import sys
+
+    from quantlab.oms import queries
+    from quantlab.oms.deployment import deploy
+    from quantlab.oms.pausing import pause
+    from quantlab.strategies.snapshot import hash_tree
+
+    repo = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo / "tests" / "fixtures"))
+    from gateway_harness import build_stack
+
+    oms, sessions, _kill = build_stack(tmp_path / "stack")
+    with sessions() as s:
+        pause(s, "paused-probe", actor="owner", reason="integration test", channel="test")
+        s.commit()
+    probe = repo / "tests" / "fixtures" / "lean_deploy_probe_py"
+    result = deploy(
+        oms, sessions, deployment="paused-probe", strategy="paused-probe", strategy_dir=probe,
+        approved_tree_hash=hash_tree(probe).tree_hash, entry_file="main.py", install_dir=Path(INSTALL or ""),
+        home=tmp_path / "home", max_minutes=4, force_exchange_open=True,
+    )  # fmt: skip
+    log = result.log_path.read_text(encoding="utf-8", errors="replace")
+    assert result.stopped_by == "algorithm" and result.exit_code == 0, log[-3000:]
+    assert "DEPLOY first price 50" in log
+    assert "paused by the owner: integration test" in log, log[-3000:]
+    with sessions() as s:
+        assert queries.orders_with_state(s, "paper", None) == []  # nothing reached the OMS

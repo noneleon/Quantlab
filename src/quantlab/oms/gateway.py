@@ -51,6 +51,7 @@ from quantlab.core.ids import new_id
 from quantlab.core.logging import get_logger
 from quantlab.oms import queries
 from quantlab.oms.models import FillRecord, Order
+from quantlab.oms.pausing import pause_state
 from quantlab.oms.service import OMS, OMSError, OrderRequest, OrderType, Side, TimeInForce
 from quantlab.oms.states import TERMINAL, OrderState
 from quantlab.portfolio.book import Book, Fill
@@ -324,6 +325,10 @@ class Gateway:
     def _place_checked(
         self, msg: dict[str, Any], lean_id: int, send: Callable[[dict[str, Any]], None]
     ) -> None:
+        with self._sessions() as session:  # checked on every order: a pause applies at once (DEC-0034)
+            paused = pause_state(session, self.deployment)
+        if paused.paused:
+            raise GatewayError(f"deployment {self.deployment} is paused by the owner: {paused.reason}")
         quantity = _number(msg.get("quantity"), "quantity")
         if quantity == 0:
             raise GatewayError("quantity must not be 0")

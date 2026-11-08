@@ -306,3 +306,14 @@ reported to the algorithm). (3) The strategy is snapshotted and compiled per dep
 lock); fixed LEAN command line and existing config file; start/stop audited; LEAN, gateway and token file are always
 cleaned up. (4) `force-exchange-always-open` exists for synthetic tests only and is not reachable from the CLI.
 (5) No live trading: everything stays behind the paper-only OMS (DEC-0010).
+
+### DEC-0034 — Pausing one paper deployment
+State: ACCEPTED (owner: "1 2" — pause/resume and strategy isolation, 2026-11-08; builds on DEC-0027/0033)
+Decisions: (1) `quantlab paper pause <deployment> --reason …` makes the gateway refuse every new order of that
+deployment from its next order on; LEAN keeps running and receiving prices, cancels stay allowed; working orders are
+cancelled unless `--keep-orders`; positions are never flattened. (2) `quantlab paper resume <deployment>` needs a
+person at an interactive terminal and the typed phrase `RESUME DEPLOYMENT` (same rule as disengaging the kill
+switch, CLAUDE.md §4). (3) The state is the latest `paper.deploy.pause` / `paper.deploy.resume` entry of the
+append-only audit log (no new table or migration): it survives restarts and is checked on every order. (4) The web
+console shows the paused state only; it gets no pause or resume control (DEC-0028 unchanged). (5) The kill switch
+still blocks every order of every deployment and wins over a resumed deployment.

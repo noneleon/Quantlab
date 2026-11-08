@@ -383,6 +383,72 @@ def paper_gateway(
             typer.echo("gateway stopped")
 
 
+@paper_app.command("pause")
+def paper_pause(
+    deployment: Annotated[str, typer.Argument(help="Deployment name.")],
+    reason: ReasonOpt = "",
+    cancel_orders: Annotated[
+        bool,
+        typer.Option(
+            "--cancel-orders/--keep-orders",
+            help="Also cancel the deployment's working orders (default). Positions are never flattened.",
+        ),
+    ] = True,
+    home: HomeOpt = None,
+) -> None:
+    """Refuse every new order from one deployment (it keeps running); takes effect on its next order."""
+    from quantlab.oms.deployment import cancel_deployment_orders
+    from quantlab.oms.gateway import NAME_RE
+    from quantlab.oms.pausing import PauseError, pause
+
+    if not NAME_RE.match(deployment):
+        fail("deployment names are 1-32 characters: lowercase letters, digits and '-'")
+    with context(home) as ctx:
+        with ctx.sessions() as session:  # recorded and committed first: nothing below can delay it
+            try:
+                pause(session, deployment, actor="owner", reason=reason, channel="cli")
+            except PauseError as exc:
+                fail(str(exc))
+            session.commit()
+        typer.secho(f"{deployment} PAUSED: its new orders are refused", fg=typer.colors.YELLOW)
+        if not cancel_orders:
+            return
+        with ctx.sessions() as session:
+            results = cancel_deployment_orders(ctx.paper_oms(session), ctx.sessions, deployment)
+        for oid, outcome in results.items():
+            typer.echo(f"  {oid}: {outcome}")
+        if any(v.startswith("cancel failed") for v in results.values()):
+            fail("paused, but some orders could not be cancelled: cancel them by hand")
+        typer.echo(f"{len(results)} working order(s) cancelled")
+
+
+@paper_app.command("resume")
+def paper_resume(
+    deployment: Annotated[str, typer.Argument(help="Deployment name.")],
+    reason: ReasonOpt = "",
+    home: HomeOpt = None,
+) -> None:
+    """Let a paused deployment place orders again. Asks for the typed confirmation phrase."""
+    from quantlab.oms.pausing import RESUME_CONFIRMATION, PauseError, resume
+
+    if not _interactive():
+        fail(
+            "a deployment can only be resumed by a person at an interactive terminal "
+            "(no piped input, scripts or AI tools; CLAUDE.md §4)"
+        )
+    confirm = typer.prompt(
+        f'Type "{RESUME_CONFIRMATION}" to let {deployment} trade again', default="", show_default=False
+    )
+    with context(home) as ctx, ctx.sessions() as session:
+        try:
+            resume(session, deployment, actor="owner", reason=reason, confirmation=confirm,
+                   channel="interactive terminal")  # fmt: skip
+        except PauseError as exc:
+            fail(str(exc))
+        session.commit()
+    typer.echo(f"{deployment} resumed")
+
+
 @paper_app.command("deploy")
 def paper_deploy(
     strategy: Annotated[str, typer.Argument(help="Registered strategy (C# or Python), at stage 'paper'.")],

@@ -9,7 +9,14 @@ import { useApi } from "../hooks";
 
 function StateBadge({ row }: { row: DeploymentRow }) {
   const cls = row.running ? "badge-ok" : row.state === "lost" ? "badge-bad" : "badge-muted";
-  return <span className={`badge ${cls}`}>{row.running ? "running" : row.state}</span>;
+  const badge = <span className={`badge ${cls}`}>{row.running ? "running" : row.state}</span>;
+  if (!row.paused) return badge;
+  return (
+    <>
+      {badge}{" "}
+      <span className="badge badge-warn" title={row.pause_reason ?? ""}>paused · new orders refused</span>
+    </>
+  );
 }
 
 function DataBadge({ states }: { states?: string[] }) {
@@ -27,7 +34,8 @@ export function DeploymentsView({ rows, onShowLog }: { rows: DeploymentRow[]; on
     <section>
       <h1>Paper deployments</h1>
       <p className="muted">Read-only. Start a strategy promoted to <code>paper</code> with <code>quantlab paper deploy</code>; every
-        order goes through the QuantLab risk gate to the paper broker. The kill switch (Risk page) stops all new orders.</p>
+        order goes through the QuantLab risk gate to the paper broker. <code>quantlab paper pause</code> / <code>resume</code> stop or
+        allow one deployment's new orders; the kill switch (Risk page) stops all new orders.</p>
       {rows.length === 0 ? <Empty>No deployments yet.</Empty> : (
         <table>
           <thead><tr><th>Deployment</th><th>Run</th><th>Strategy</th><th>Code</th><th>State</th><th>Prices</th><th>Started</th>

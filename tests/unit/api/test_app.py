@@ -482,7 +482,14 @@ def test_deployments_endpoints_are_read_only_and_path_safe(ctx, client):
     (old / "status.json").write_text(
         _json.dumps({"deployment": "dep-2", "state": "running", "heartbeat_at": stale_beat})
     )
+    from quantlab.oms.pausing import pause
+
+    with ctx.sessions() as s:
+        pause(s, "dep-1", actor="owner", reason="review", channel="test")
+        s.commit()
     rows = {r["deployment"]: r for r in client.get("/api/paper/deployments", headers=h).json()}
+    assert rows["dep-1"]["paused"] is True and rows["dep-1"]["pause_reason"] == "review"
+    assert rows["dep-2"]["paused"] is False
     assert rows["dep-1"]["running"] is True and rows["dep-1"]["run"] == "20261108T100000Z"
     assert rows["dep-2"]["running"] is False and rows["dep-2"]["state"] == "lost"  # no heartbeat: crashed
     log = client.get("/api/paper/deployments/dep-1/20261108T100000Z/log?lines=3", headers=h).json()

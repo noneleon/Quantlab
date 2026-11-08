@@ -300,3 +300,19 @@ def test_paper_trading_cli_through_risk_gate(home, tmp_path, monkeypatch):
     assert [d["approved"] for d in decisions] == [False, True, True, False]
     assert any(c["check"] == "kill switch" for c in decisions[0]["failed"])
     assert ql("paper", "order", "SPY", "hold", "1", "--key", "bad").exit_code == 1
+
+
+def test_paper_pause_and_resume_cli(home, monkeypatch):
+    """DEC-0034: pausing needs a reason; resuming needs a person at a terminal and the typed phrase."""
+    assert ql("paper", "pause", "d1").exit_code == 1  # reason required
+    assert ql("paper", "pause", "Bad_Name", "--reason", "x").exit_code == 1
+    r = ql("paper", "pause", "d1", "--reason", "review fills")
+    assert r.exit_code == 0 and "PAUSED" in r.output and "0 working order(s) cancelled" in r.output, r.output
+    piped = ql_input("RESUME DEPLOYMENT\n", "paper", "resume", "d1", "--reason", "ok")
+    assert piped.exit_code == 1 and "interactive terminal" in piped.output
+    monkeypatch.setattr("quantlab.cli.trading._interactive", lambda: True)
+    assert ql_input("yes\n", "paper", "resume", "d1", "--reason", "ok").exit_code == 1
+    ok = ql_input("RESUME DEPLOYMENT\n", "paper", "resume", "d1", "--reason", "ok")
+    assert ok.exit_code == 0 and "d1 resumed" in ok.output, ok.output
+    again = ql_input("RESUME DEPLOYMENT\n", "paper", "resume", "d1", "--reason", "ok")
+    assert again.exit_code == 1 and "not paused" in again.output

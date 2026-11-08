@@ -334,3 +334,23 @@ def _audit_stop(
                      "data_states": _data_states(state)},
         )  # fmt: skip
         session.commit()
+
+
+def cancel_deployment_orders(oms: OMS, sessions: sessionmaker[Session], deployment: str) -> dict[str, str]:
+    """Cancel every working order a deployment placed (used by pause): order id -> new state or error."""
+    from quantlab.oms import queries
+    from quantlab.oms.service import CANCELLABLE
+
+    with sessions() as session:
+        ids = [
+            o.id
+            for o, st in queries.orders_with_state(session, oms.account, None)
+            if o.source == f"lean:{deployment}" and st in CANCELLABLE
+        ]
+    out: dict[str, str] = {}
+    for order_id in ids:
+        try:
+            out[order_id] = oms.cancel(order_id).value
+        except Exception as exc:  # reported to the owner; the pause itself is already recorded
+            out[order_id] = f"cancel failed: {exc}"
+    return out

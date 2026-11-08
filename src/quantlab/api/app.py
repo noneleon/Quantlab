@@ -687,8 +687,16 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
     def paper_deployments() -> list[dict[str, Any]]:
         """Paper deployments (status files; `running` from the heartbeat). Read-only: start in the CLI."""
         from quantlab.oms.deployment import read_deployments
+        from quantlab.oms.pausing import paused_deployments
 
-        return read_deployments(ctx.settings.home, datetime.now(UTC))
+        rows = read_deployments(ctx.settings.home, datetime.now(UTC))
+        with ctx.sessions() as session:  # pause state lives in the audit log, not the status file (DEC-0034)
+            paused = paused_deployments(session)
+        for row in rows:
+            state = paused.get(str(row.get("deployment")))
+            row["paused"] = state is not None
+            row["pause_reason"] = state.reason if state is not None else None
+        return rows
 
     @app.get("/api/paper/deployments/{name}/{run}/log", dependencies=auth)
     def paper_deployment_log(

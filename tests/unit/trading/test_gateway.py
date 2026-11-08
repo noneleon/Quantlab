@@ -463,3 +463,35 @@ def test_a_slow_quote_source_never_delays_order_replies(stack, gw, monkeypatch):
     c.until(lambda m: m["type"] == "order" and m.get("reply") == "place", timeout=5)
     assert time.monotonic() - started < 2.0
     c.close()
+
+
+def test_a_paused_deployment_cannot_place_but_can_cancel_and_resume(stack, gw):  # noqa: F811
+    """DEC-0034: pause refuses new orders at once (audited, not placed); cancels still work; resume needs
+    the typed phrase."""
+    from quantlab.oms.pausing import RESUME_CONFIRMATION, PauseError, pause, pause_state, resume
+
+    c = connect(gw)
+    c.recv()
+    c.send(type="place", id=1, symbol="SPY", quantity=5, order_type="limit", limit_price=40.0)
+    c.until(lambda m: m["type"] == "order" and m["id"] == 1 and m["state"] == "ACCEPTED")
+    with stack["sessions"]() as s:
+        pause(s, "momentum-1", actor="owner", reason="checking fills", channel="test")
+        s.commit()
+        assert pause_state(s, "momentum-1").reason == "checking fills"
+        assert not pause_state(s, "other").paused  # only this deployment
+    c.send(type="place", id=2, symbol="SPY", quantity=5)
+    err, _ = c.until(lambda m: m["type"] == "error")
+    assert "paused by the owner: checking fills" in err["message"] and err.get("outcome") == "not_placed"
+    c.send(type="cancel", id=1)  # reducing risk is always allowed
+    c.until(lambda m: m["type"] == "order" and m["id"] == 1 and m["state"] == "CANCELLED")
+    with stack["sessions"]() as s:
+        with pytest.raises(PauseError, match=RESUME_CONFIRMATION):
+            resume(s, "momentum-1", actor="owner", reason="ok", confirmation="resume", channel="test")
+        resume(s, "momentum-1", actor="owner", reason="ok", confirmation=RESUME_CONFIRMATION, channel="test")
+        s.commit()
+        with pytest.raises(PauseError, match="not paused"):
+            resume(s, "momentum-1", actor="owner", reason="ok", confirmation=RESUME_CONFIRMATION, channel="t")
+        assert len(stack["oms"].orders(s, limit=None)) == 1  # the refused order was never stored
+    c.send(type="place", id=3, symbol="SPY", quantity=5)
+    c.until(lambda m: m["type"] == "order" and m["id"] == 3 and m["state"] == "FILLED")
+    c.close()

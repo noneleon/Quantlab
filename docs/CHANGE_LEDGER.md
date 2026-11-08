@@ -899,3 +899,15 @@ Tests: Python 638 passed, 6 skipped; real-LEAN integration 5 passed (C# and Pyth
 deployments, both goldens, live probe). No trading-safety subagent review this time (no order-path logic changed;
 only how the strategy process is started).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0047 — Pause / resume one paper deployment (DEC-0034)
+Date: 2026-11-08 · Modules: oms (pausing, gateway, deployment), cli, api, web · Feature IDs: LIVE-001, UI-006
+Change: new `oms/pausing.py` (state from the audit log; `pause` needs a reason; `resume` needs `RESUME DEPLOYMENT`
+and a paused deployment). The gateway checks the pause on every `place` before anything is stored; a refusal is
+audited and reported to LEAN as `not_placed`. `quantlab paper pause` (cancels the deployment's working orders unless
+`--keep-orders`) and `quantlab paper resume` (interactive terminal only). `GET /api/paper/deployments` adds `paused`
+and `pause_reason`; the Deployments page shows "paused · new orders refused" (no new controls).
+Verified on real LEAN: a paused Python deployment received QuantLab's price, its order was refused with the pause
+reason and nothing reached the OMS.
+Tests: Python 640 passed, 6 skipped; web 29 passed; real-LEAN integration 6 passed.
+Result: PASS · Regression status: PASS

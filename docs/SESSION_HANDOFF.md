@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0046 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0047 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -72,9 +72,11 @@
   golden Python run reproduces LEAN's published statistics and order hash; custom execution models work natively.
 - CHANGE-0046: `quantlab paper deploy` accepts Python strategies (real LEAN: QuantLab price → order through gateway
   and risk gate → fill, synthetic quotes).
+- CHANGE-0047 (DEC-0034): `quantlab paper pause|resume <deployment>` — new orders refused at the gateway while
+  paused (audited state, typed phrase to resume); console shows "paused".
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 638 passed, 6 skipped (CHANGE-0046); C# plugin 17 passed; real-LEAN integration 5 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 640 passed, 6 skipped (CHANGE-0047); C# plugin 17 passed; real-LEAN integration 6 passed; web 29 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 29 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note
@@ -105,5 +107,5 @@ Real Tiingo data must never be committed (licence: personal use, no redistributi
 
 ## Next recommended task
 Phase 5 remaining: a LEAN paper deployment on a real-time LIVE feed (owner's IB Gateway, KI-0077/0080/0081), deployment
-pause/resume, strategy isolation (KI-0082). Phase 6 (live gates, LIVE-003) only with explicit owner approval.
+strategy isolation (KI-0082). Phase 6 (live gates, LIVE-003) only with explicit owner approval.
 Owner actions: `quantlab risk init` + review limits; first real LEAN run (KI-0002); IBKR paper check — market data (KI-0043/0044) and the paper broker adapter (KI-0075).

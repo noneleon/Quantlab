@@ -95,12 +95,15 @@ describe("trading console (UI-006)", () => {
       { deployment: "d1", run: "20261108T100000Z", strategy: "s", tree_hash: "ab".repeat(32), state: "running", running: true,
         data_states: ["SIMULATED"], started_at: "2026-11-08T10:00:00Z", heartbeat_at: "2026-11-08T10:05:00Z" },
       { deployment: "d2", run: "20261107T100000Z", state: "lost", running: false, data_states: ["LIVE"] },
+      { deployment: "d3", run: "20261108T110000Z", state: "running", running: true, paused: true, pause_reason: "review" },
     ];
     const html = renderToStaticMarkup(<MemoryRouter><DeploymentsView rows={rows} onShowLog={() => {}} /></MemoryRouter>);
     expect(html).toContain("SIMULATED · not a performance claim");
     expect(html).toContain("no heartbeat — process gone");
+    expect(html).toContain("paused · new orders refused");
+    expect(html).toContain("quantlab paper pause");
     expect(html).toContain("quantlab paper deploy");
     expect(html).not.toMatch(/<(input|select|form)\b/); // only "Log" buttons: nothing that starts or stops anything
-    expect((html.match(/<button/g) ?? []).length).toBe(2);
+    expect((html.match(/<button/g) ?? []).length).toBe(3);
   });
 });
