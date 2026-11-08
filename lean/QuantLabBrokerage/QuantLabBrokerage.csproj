@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- QuantLab gateway brokerage for LEAN (OMS-007, DEC-0007 option A, DEC-0031).
+       LEAN's own assemblies are compile-time references only: the plugin DLL is copied next to LEAN's. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>false</NuGetAudit> <!-- advisories of LEAN's own transitive packages; LEAN ships them, not us -->
+    <AssemblyName>QuantLab.Brokerages.QuantLab</AssemblyName>
+    <RootNamespace>QuantLab.Brokerages</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="QuantConnect.Brokerages" Version="2.5.18229" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

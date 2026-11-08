@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]   # Windows is the primary target platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - name: Install (locked)
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Type-check
+        run: uv run mypy
+      - name: Module boundaries
+        run: uv run lint-imports
+      - name: Tests
+        run: uv run pytest --cov --cov-report=term-missing
+
+  web:
+    name: web UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install (locked)
+        run: npm ci
+      - name: Type-check
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  lean-plugin:
+    name: LEAN gateway brokerage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - name: Install Python (locked) for the gateway harness
+        run: uv sync --locked
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build plugin
+        run: dotnet build lean/QuantLabBrokerage -c Release
+      - name: Tests against the real Python gateway
+        run: dotnet test lean/QuantLabBrokerage.Tests -c Release
+      - name: Native LEAN install (LEAN 2.5.18229 NuGet + data at tag 18229)
+        run: |
+          uv run quantlab init --home ${{ runner.temp }}/ql-home
+          uv run quantlab engine native-install --home ${{ runner.temp }}/ql-home
+      - name: Real LEAN golden check (C# example reproduces LEAN's published statistics)
+        env:
+          QUANTLAB_TEST_LEAN_NATIVE: ${{ runner.temp }}/ql-home/engine/lean-native
+        run: uv run pytest tests/integration/test_lean_native.py -v

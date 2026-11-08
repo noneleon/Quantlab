@@ -1,0 +1,939 @@
+"""Local REST API (CORE-009) with token authentication (SEC-003).
+
+Security model (docs/SECURITY_POLICY.md):
+* Binds to 127.0.0.1 by default (enforced by config validation).
+* Every endpoint except ``/api/health`` requires ``Authorization: Bearer <token>``. The token lives
+  in the OS keyring (``secret://quantlab/api/token``, created by ``quantlab init``). If no token is
+  configured the API **fails closed** (503) instead of running unauthenticated.
+* Host-header allow-list (DNS-rebinding protection for a localhost service). No CORS.
+* Changes are limited to: strategy files (editor), engaging the kill switch (DEC-0028) and background research
+  jobs — backtests and optimizations of the owner's strategies (CORE-007, DEC-0036). Nothing here can trade,
+  deploy, disengage the kill switch or change risk limits.
+* Serves the built web UI (``web/dist``) same-origin (DEC-0018) with a strict Content-Security-Policy; the UI
+  receives the token through a URL fragment printed by ``quantlab serve`` and sends it as a bearer header.
+"""
+
+from __future__ import annotations
+
+import hmac
+import json
+import re
+import threading
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+
+import quantlab
+from quantlab.backtest.models import BacktestRun
+from quantlab.backtest.service import BacktestError
+from quantlab.bootstrap import AppContext
+from quantlab.core.jobs import JobError, JobRunner
+from quantlab.data.catalog import DataError
+from quantlab.oms import queries as oms_queries
+from quantlab.oms.models import Order as OmsOrder
+from quantlab.optimize.service import OptimizationError
+from quantlab.risk.limits import RiskConfigError, load_limits
+from quantlab.risk.models import RiskDecision
+from quantlab.strategies.lifecycle import LifecycleLog
+from quantlab.strategies.registry import StrategyError, load_manifest
+from quantlab.strategies.snapshot import SnapshotError
+from quantlab.strategies.workspace import ConflictError, bundled_templates_dir, list_templates
+
+LOCAL_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
+
+
+class BacktestJobIn(BaseModel):
+    strategy: str = Field(max_length=100)
+    parameters: dict[str, str] = Field(default_factory=dict)
+    dataset: str | None = Field(default=None, max_length=100)
+    dataset_version: str | None = Field(default=None, max_length=64)
+    models: dict[str, str] | None = None
+    timeout_s: float | None = Field(default=None, gt=0, le=24 * 3600)
+
+
+class SweepJobIn(BaseModel):
+    strategy: str = Field(max_length=100)
+    space: list[str] = Field(min_length=1, max_length=20)  # "name=1,2,3" or "name=lo:hi:step"
+    objective: str = Field(default="sharpe", max_length=200)
+    constraints: list[str] = Field(default_factory=list, max_length=20)
+    parameters: dict[str, str] = Field(default_factory=dict)
+    models: dict[str, str] | None = None
+    dataset: str | None = Field(default=None, max_length=100)
+    method: Literal["grid", "random", "tpe"] = "grid"
+    samples: int | None = Field(default=None, ge=1, le=10_000)
+    seed: int = 0
+    parallel: int = Field(default=1, ge=1, le=8)
+    extra_objectives: list[str] = Field(default_factory=list, max_length=5)
+
+
+class WalkForwardJobIn(SweepJobIn):
+    start: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    train_days: int = Field(ge=1)
+    test_days: int = Field(ge=1)
+    anchored: bool = False
+    start_param: str = Field(default="start", max_length=64)
+    end_param: str = Field(default="end", max_length=64)
+
+
+class EngageRequest(BaseModel):
+    reason: str = Field(max_length=500)
+    confirm: str = Field(max_length=64)
+    cancel_orders: bool = True
+
+
+class StrategyOut(BaseModel):
+    id: str
+    name: str
+    path: str
+    entry_file: str
+    language: str
+    description: str
+    archived: bool
+    stage: str = "research"  # lifecycle stage (STR-004)
+
+
+UI_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+    "font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+)
+# FastAPI's interactive docs load assets from a CDN; they keep a relaxed policy (developer convenience only).
+_DOCS_PATHS = ("/api/docs", "/api/openapi.json")
+UI_NOT_BUILT = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>QuantLab</title></head>
+<body style="font-family: system-ui; max-width: 640px; margin: 48px auto;">
+<h1>QuantLab API is running</h1>
+<p>The web UI has not been built. Build it once (needs Node.js 22):</p>
+<pre>cd web
+npm ci
+npm run build</pre>
+<p>then restart <code>quantlab serve</code>. The API itself is available under <code>/api/</code>.</p>
+</body></html>"""
+
+
+class SecurityHeaders(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if not request.url.path.startswith(_DOCS_PATHS):
+            response.headers.setdefault("Content-Security-Policy", UI_CSP)
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+
+_TOKEN_IN_LOG = re.compile(r"""(["']?token["']?\s*[:=]\s*["']?)[^\s"',}]+""", re.IGNORECASE)
+
+
+def default_ui_dir() -> Path | None:
+    """``web/dist`` of a source checkout (editable install), if it has been built."""
+    candidate = Path(quantlab.__file__).resolve().parents[2] / "web" / "dist"
+    return candidate if (candidate / "index.html").is_file() else None
+
+
+class DatasetOut(BaseModel):
+    name: str
+    asset_class: str
+    market: str
+    resolution: str
+    calendar: str
+    provenance: str
+    price_adjustment: str
+    source: str
+    license_terms: str
+    redistribution_allowed: bool
+    versions: int
+    latest_version: str | None
+    latest_rows: int | None
+    latest_start: str | None
+    latest_end: str | None
+    latest_validation_ok: bool | None
+
+
+class DatasetDetailOut(DatasetOut):
+    version_history: list[dict[str, Any]]
+    corporate_actions: list[dict[str, Any]]  # of the latest version
+
+
+class BarsOut(BaseModel):
+    dataset: str
+    version: str
+    provenance: str
+    price_adjustment: str
+    adjustment: str
+    symbol: str
+    truncated: bool
+    bars: list[dict[str, Any]]
+
+
+class BacktestSummaryOut(BaseModel):
+    id: str
+    strategy_id: str
+    status: str
+    created_at: str
+    finished_at: str | None
+    data_provenance: str
+    rerun_of: str | None
+    total_return: float | None
+    sharpe: float | None
+    max_drawdown: float | None
+
+
+class BacktestDetailOut(BacktestSummaryOut):
+    parameters: dict[str, str]
+    engine_status: str | None
+    runtime_error: str | None
+    error: str | None
+    inputs_hash: str
+    result_hash: str | None
+    engine_statistics: dict[str, str] | None
+    metrics: dict[str, Any] | None
+    cross_checks: list[dict[str, Any]] | None
+    manifest: dict[str, Any]
+
+
+def _summary(run: BacktestRun) -> dict[str, Any]:
+    metrics = run.json("metrics") or {}
+    return {
+        "id": run.id,
+        "strategy_id": run.strategy_id,
+        "status": run.status,
+        "created_at": run.created_at.isoformat(),
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "data_provenance": run.data_provenance,
+        "rerun_of": run.rerun_of,
+        "total_return": metrics.get("total_return"),
+        "sharpe": metrics.get("sharpe"),
+        "max_drawdown": metrics.get("max_drawdown"),
+    }
+
+
+class CreateStrategyIn(BaseModel):
+    name: str
+    template: str
+
+
+class SaveFileIn(BaseModel):
+    content: str
+    expected_sha256: str | None  # sha256 the editor last read; null for a new file
+
+
+def _strategy_out(s: Any, stage: str = "research") -> StrategyOut:
+    return StrategyOut(
+        stage=stage,
+        id=s.id,
+        name=s.name,
+        path=s.path,
+        entry_file=s.entry_file,
+        language=s.language,
+        description=s.description,
+        archived=s.archived,
+    )
+
+
+def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
+    app = FastAPI(
+        title="QuantLab",
+        version=quantlab.__version__,
+        docs_url="/api/docs",
+        redoc_url=None,
+        openapi_url="/api/openapi.json",
+    )
+    allowed_hosts = list(LOCAL_HOSTS)
+    if ctx.settings.server.remote_access:
+        allowed_hosts.append(ctx.settings.server.host)
+    app.add_middleware(SecurityHeaders)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+    def require_token(authorization: Annotated[str | None, Header()] = None) -> None:
+        expected = ctx.api_token()
+        if expected is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "API token not configured; run `quantlab init`"
+            )
+        scheme, _, presented = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not hmac.compare_digest(
+            presented.encode(), expected.get_secret_value().encode()
+        ):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "invalid or missing token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    auth = [Depends(require_token)]
+
+    @app.get("/api/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok", "version": quantlab.__version__}
+
+    @app.get("/api/health/checks", dependencies=auth)
+    def health_checks() -> dict[str, Any]:
+        """OPS-001: read-only health checks (database, risk limits, kill switch, supervisor, deployments)."""
+        return ctx.health().as_dict()
+
+    @app.get("/api/strategies", dependencies=auth)
+    def list_strategies(include_archived: bool = False) -> list[StrategyOut]:
+        with ctx.sessions() as session:
+            log = LifecycleLog()
+            return [
+                _strategy_out(s, log.current(session, s)[0])
+                for s in ctx.registry.list(session, include_archived=include_archived)
+            ]
+
+    @app.get("/api/strategies/{name}/lifecycle", dependencies=auth)
+    def strategy_lifecycle(name: str) -> dict[str, Any]:
+        """STR-004 stage, history and gate thresholds (read-only; transitions are CLI-only)."""
+        try:
+            return ctx.lifecycle().status(name)
+        except StrategyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    # ---- strategy files (UI-003, DEC-0024): the only write endpoints; token-protected like the rest ----
+    def _strategy(session: Any, name: str) -> Any:
+        try:
+            return ctx.registry.get(session, name)
+        except StrategyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.get("/api/strategy-templates", dependencies=auth)
+    def strategy_templates() -> list[dict[str, Any]]:
+        out = []
+        for name, path in list_templates(bundled_templates_dir()).items():
+            manifest = load_manifest(path)
+            out.append({"name": name, "description": manifest.description, "parameters": manifest.parameters})
+        return out
+
+    @app.post("/api/strategies", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def create_strategy(body: CreateStrategyIn) -> StrategyOut:
+        templates = list_templates(bundled_templates_dir())
+        if body.template not in templates:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown template {body.template!r}")
+        with ctx.sessions() as session:
+            try:
+                s = ctx.workspace.create_from_template(
+                    session, body.name, templates[body.template], ctx.settings.layout.strategies_dir
+                )
+            except StrategyError as exc:
+                session.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+            session.commit()
+            return _strategy_out(s)
+
+    @app.get("/api/strategies/{name}/files", dependencies=auth)
+    def strategy_files(name: str) -> list[dict[str, Any]]:
+        with ctx.sessions() as session:
+            s = _strategy(session, name)
+            try:
+                return [asdict(f) for f in ctx.workspace.list_files(s)]
+            except (StrategyError, SnapshotError) as exc:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    @app.get("/api/strategies/{name}/files/{path:path}", dependencies=auth)
+    def strategy_file(name: str, path: str) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            s = _strategy(session, name)
+            try:
+                return asdict(ctx.workspace.read(s, path))
+            except StrategyError as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.put("/api/strategies/{name}/files/{path:path}", dependencies=auth)
+    def save_strategy_file(name: str, path: str, body: SaveFileIn) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            s = _strategy(session, name)
+            try:
+                result = ctx.workspace.write(session, s, path, body.content, body.expected_sha256)
+            except ConflictError as exc:
+                session.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+            except StrategyError as exc:
+                session.rollback()
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+            session.commit()
+            return asdict(result)
+
+    def _dataset_out(d: Any, versions: list[Any]) -> dict[str, Any]:
+        latest = versions[-1] if versions else None
+        return dict(
+            name=d.name,
+            asset_class=d.asset_class,
+            market=d.market,
+            resolution=d.resolution,
+            calendar=d.calendar,
+            provenance=d.provenance,
+            price_adjustment=d.price_adjustment,
+            source=d.source,
+            license_terms=d.license_terms,
+            redistribution_allowed=d.redistribution_allowed,
+            versions=len(versions),
+            latest_version=latest.content_hash[:20] if latest else None,
+            latest_rows=latest.row_count if latest else None,
+            latest_start=latest.start_ts.isoformat() if latest else None,
+            latest_end=latest.end_ts.isoformat() if latest else None,
+            latest_validation_ok=latest.json("validation")["ok"] if latest else None,
+        )
+
+    @app.get("/api/datasets", dependencies=auth)
+    def list_datasets() -> list[DatasetOut]:
+        with ctx.sessions() as session:
+            return [
+                DatasetOut(**_dataset_out(d, ctx.data.versions(session, d)))
+                for d in ctx.data.list_datasets(session)
+            ]
+
+    @app.get("/api/datasets/{name}", dependencies=auth)
+    def get_dataset(name: str) -> DatasetDetailOut:
+        with ctx.sessions() as session:
+            try:
+                d = ctx.data.get(session, name)
+            except DataError as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+            versions = ctx.data.versions(session, d)
+            history = [
+                {
+                    "version": v.content_hash,
+                    "created_at": v.created_at.isoformat(),
+                    "rows": v.row_count,
+                    "start": v.start_ts.isoformat(),
+                    "end": v.end_ts.isoformat(),
+                    "symbols": sorted(v.json("symbols")),
+                    "conflict_policy": v.conflict_policy,
+                    "source": v.source,
+                    "notes": v.json("notes"),
+                    "validation": v.json("validation"),
+                }
+                for v in versions
+            ]
+            actions = ctx.data.actions(session, name) if versions else None
+            action_rows = (
+                []
+                if actions is None
+                else [
+                    {
+                        "symbol": r.symbol,
+                        "ex_date": r.ex_date.isoformat(),
+                        "kind": r.kind,
+                        "value": float(r.value),
+                    }
+                    for r in actions.itertuples(index=False)
+                ]
+            )
+            return DatasetDetailOut(
+                **_dataset_out(d, versions), version_history=history, corporate_actions=action_rows
+            )
+
+    @app.get("/api/datasets/{name}/bars", dependencies=auth)
+    def get_bars(
+        name: str,
+        symbol: str,
+        version: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=100_000)] = 5_000,
+        adjust: Literal["raw", "split", "split_dividend"] = "raw",
+    ) -> BarsOut:
+        """Most recent ``limit`` bars of one symbol (read-only); ``adjust`` applies corporate actions."""
+        with ctx.sessions() as session:
+            try:
+                d = ctx.data.get(session, name)
+                frame, resolved = ctx.data.read(
+                    session, name, version=version, symbols=[symbol], adjust=adjust
+                )
+            except (DataError, ValueError) as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        truncated = len(frame) > limit
+        frame = frame.tail(limit)
+        bars = [
+            {
+                "ts": ts.isoformat(),
+                "open": o,
+                "high": h,
+                "low": lo,
+                "close": c,
+                "volume": None if v != v else v,  # NaN -> null
+            }
+            for ts, o, h, lo, c, v in zip(
+                frame["ts"],
+                frame["open"],
+                frame["high"],
+                frame["low"],
+                frame["close"],
+                frame["volume"],
+                strict=True,
+            )
+        ]
+        return BarsOut(
+            dataset=d.name,
+            version=resolved.content_hash,
+            provenance=d.provenance,
+            price_adjustment=d.price_adjustment,
+            adjustment=adjust,
+            symbol=symbol.upper(),
+            truncated=truncated,
+            bars=bars,
+        )
+
+    @app.get("/api/backtests", dependencies=auth)
+    def list_backtests(
+        strategy: str | None = None, limit: Annotated[int, Query(ge=1, le=1000)] = 100
+    ) -> list[BacktestSummaryOut]:
+        try:
+            runs = ctx.read_only_backtests().list(strategy, limit)
+        except StrategyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return [BacktestSummaryOut(**_summary(r)) for r in runs]
+
+    @app.get("/api/backtests/{run_id}", dependencies=auth)
+    def get_backtest(run_id: str) -> BacktestDetailOut:
+        try:
+            run = ctx.read_only_backtests().get(run_id)
+        except BacktestError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return BacktestDetailOut(
+            **_summary(run),
+            parameters=run.json("parameters"),
+            engine_status=run.engine_status,
+            runtime_error=run.runtime_error,
+            error=run.error,
+            inputs_hash=run.inputs_hash,
+            result_hash=run.result_hash,
+            engine_statistics=run.json("engine_statistics"),
+            metrics=run.json("metrics"),
+            cross_checks=run.json("cross_checks"),
+            manifest=run.json("manifest"),
+        )
+
+    @app.get("/api/backtests/{run_id}/charts", dependencies=auth)
+    def backtest_charts(
+        run_id: str, benchmark: str | None = None, benchmark_symbol: str | None = None
+    ) -> dict[str, Any]:
+        """AN-002 chart datasets (+ BT-008 benchmark) and the run's orders."""
+        try:
+            return ctx.read_only_backtests().chart_data(
+                run_id, benchmark=benchmark, benchmark_symbol=benchmark_symbol
+            )
+        except (BacktestError, DataError) as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.get("/api/backtests/{run_id}/report", dependencies=auth)
+    def backtest_report(
+        run_id: str, benchmark: str | None = None, benchmark_symbol: str | None = None
+    ) -> Response:
+        """The self-contained HTML report, as a download (rendered on request; nothing is written)."""
+        try:
+            text, _ = ctx.read_only_backtests().report_html(
+                run_id, benchmark=benchmark, benchmark_symbol=benchmark_symbol
+            )
+        except (BacktestError, DataError) as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return Response(
+            text,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="backtest-{run_id}.html"'},
+        )
+
+    # ---- optimization (read-only; studies are started from the CLI) --------------------------------------
+    @app.get("/api/optimizations", dependencies=auth)
+    def list_optimizations(limit: Annotated[int, Query(ge=1, le=1000)] = 100) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": o.id,
+                "kind": o.kind,
+                "strategy": o.strategy_name,
+                "status": o.status,
+                "created_at": o.created_at,
+                "finished_at": o.finished_at,
+                "objective": (o.json("spec") or {}).get("objective"),
+            }
+            for o in ctx.read_only_optimizer().recent(limit)
+        ]
+
+    @app.get("/api/optimizations/{optimization_id}", dependencies=auth)
+    def get_optimization(optimization_id: str) -> dict[str, Any]:
+        service = ctx.read_only_optimizer()
+        try:
+            opt = service.get(optimization_id)
+        except OptimizationError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return {
+            "id": opt.id,
+            "kind": opt.kind,
+            "strategy": opt.strategy_name,
+            "status": opt.status,
+            "created_at": opt.created_at,
+            "finished_at": opt.finished_at,
+            "error": opt.error,
+            "spec": opt.json("spec"),
+            "summary": opt.json("summary"),
+            "trials": [
+                {
+                    "seq": t.seq,
+                    "window": t.window,
+                    "segment": t.segment,
+                    "parameters": t.json("parameters"),
+                    "run_id": t.run_id,
+                    "status": t.status,
+                    "objective": t.objective,
+                    "metrics": t.json("metrics"),
+                }
+                for t in service.trials(optimization_id)
+            ],
+        }
+
+    @app.get("/api/compare", dependencies=auth)
+    def compare_backtests(runs: str) -> dict[str, Any]:
+        """AN-004: ?runs=<id>,<id>[,...] (2-10 runs)."""
+        try:
+            return ctx.read_only_backtests().compare_many([r for r in runs.split(",") if r])
+        except BacktestError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.get("/api/backtests/{run_id}/robustness", dependencies=auth)
+    def backtest_robustness(
+        run_id: str,
+        samples: Annotated[int, Query(ge=10, le=5000)] = 1000,
+        seed: int = 0,
+    ) -> dict[str, Any]:
+        try:
+            return ctx.read_only_backtests().robustness(run_id, samples=samples, seed=seed)
+        except BacktestError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    # ---- paper trading + risk (read-only; orders and the kill switch are CLI-only, CLAUDE.md §4) -----------
+    @app.get("/api/paper/orders", dependencies=auth)
+    def paper_orders(limit: Annotated[int, Query(ge=1, le=1000)] = 200) -> list[dict[str, Any]]:
+        with ctx.sessions() as session:
+            return [
+                {
+                    "id": o.id,
+                    "client_order_key": o.client_order_key,
+                    "symbol": o.symbol,
+                    "side": o.side,
+                    "quantity": o.quantity,
+                    "order_type": o.order_type,
+                    "limit_price": o.limit_price,
+                    "stop_price": o.stop_price,
+                    "trail_amount": o.trail_amount,
+                    "trail_percent": o.trail_percent,
+                    "time_in_force": o.time_in_force,
+                    "mode": o.mode,
+                    "source": o.source,
+                    "state": state.value,
+                    "created_at": o.created_at,
+                }
+                for o, state in oms_queries.orders_with_state(session, ctx.settings.paper.oms_account, limit)
+            ]
+
+    @app.get("/api/paper/orders/{order_id}", dependencies=auth)
+    def paper_order(order_id: str) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            events = oms_queries.order_events(session, order_id)
+            if not events:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown order {order_id}")
+            decisions = session.execute(
+                select(RiskDecision).where(RiskDecision.order_id == order_id)
+            ).scalars()
+            order = session.get(OmsOrder, order_id)
+            current = oms_queries.terms(session, order) if order is not None else None
+            return {
+                "order_id": order_id,
+                "terms": current.__dict__ if current is not None else None,  # after applied amendments
+                "amendments": [
+                    {
+                        "amendment": a.amendment,
+                        "status": a.status,
+                        "quantity": a.quantity,
+                        "limit_price": a.limit_price,
+                        "stop_price": a.stop_price,
+                        "trail_amount": a.trail_amount,
+                        "detail": json.loads(a.detail),
+                        "at": a.created_at,
+                    }
+                    for a in oms_queries.amendments(session, order_id)
+                ],
+                "events": [
+                    {"seq": e.seq, "state": e.state, "detail": e.json(), "at": e.created_at} for e in events
+                ],
+                "risk_decisions": [
+                    {
+                        "approved": d.approved,
+                        "checks": d.json("checks"),
+                        "limits_sha256": d.limits_sha256,
+                        "at": d.created_at,
+                    }
+                    for d in decisions
+                ],
+                "fills": [
+                    {
+                        "exec_id": f.exec_id,
+                        "quantity": f.quantity,
+                        "price": f.price,
+                        "commission": f.commission,
+                        "at": f.executed_at,
+                        "price_state": f.price_state,
+                    }
+                    for f in oms_queries.fills(session, ctx.settings.paper.oms_account)
+                    if f.order_id == order_id
+                ],
+            }
+
+    @app.get("/api/paper/portfolio", dependencies=auth)
+    def paper_portfolio() -> dict[str, Any]:
+        """Confirmed book from fills (unmarked: marking needs live quotes, see `quantlab paper positions`)."""
+        with ctx.sessions() as session:
+            account = ctx.settings.paper.oms_account
+            pinned = oms_queries.account_starting_cash(session, account)
+            configured = ctx.settings.paper.oms_starting_cash
+            book = oms_queries.confirmed_book(session, account, pinned if pinned is not None else configured)
+            states = oms_queries.fill_price_states(session, account)
+            warnings = [w for w in [oms_queries.simulation_warning(states)] if w]
+            if pinned is not None and abs(pinned - configured) > 1e-9:
+                warnings.append(
+                    f"paper.starting_cash is {configured} but the account started with {pinned}; the "
+                    "pinned value is used and the OMS refuses orders until the configuration matches"
+                )
+            return {
+                "account": account,
+                "mode": "paper",
+                "fill_price_states": states,
+                "warning": "; ".join(warnings) or None,
+                **book.snapshot(),
+            }
+
+    @app.get("/api/risk", dependencies=auth)
+    def risk_status(limit: Annotated[int, Query(ge=1, le=500)] = 50) -> dict[str, Any]:
+        with ctx.sessions() as session:
+            last = ctx.kill_switch().state(session)
+            try:
+                loaded = load_limits(ctx.settings.risk_limits_file)
+                limits: dict[str, Any] = {
+                    "valid": True,
+                    "sha256": loaded.sha256,
+                    "values": loaded.limits.model_dump(),
+                }
+            except RiskConfigError as exc:
+                limits = {"valid": False, "error": str(exc)}
+            decisions = session.execute(
+                select(RiskDecision).order_by(RiskDecision.created_at.desc()).limit(limit)
+            ).scalars()
+            return {
+                "kill_switch": {
+                    "engaged": bool(last and last.engaged),
+                    "reason": last.reason if last else None,
+                    "at": last.created_at if last else None,
+                },
+                "limits": limits,
+                "decisions": [
+                    {
+                        "order_id": d.order_id,
+                        "approved": d.approved,
+                        "failed": [c for c in d.json("checks") if not c["ok"]],
+                        "at": d.created_at,
+                    }
+                    for d in decisions
+                ],
+            }
+
+    @app.get("/api/paper/deployments", dependencies=auth)
+    def paper_deployments() -> list[dict[str, Any]]:
+        """Paper deployments (status files; `running` from the heartbeat). Read-only: start in the CLI."""
+        from quantlab.oms.deployment import read_deployments
+        from quantlab.oms.pausing import paused_deployments
+
+        rows = read_deployments(ctx.settings.home, datetime.now(UTC))
+        with ctx.sessions() as session:  # pause state lives in the audit log, not the status file (DEC-0034)
+            paused = paused_deployments(session)
+        for row in rows:
+            state = paused.get(str(row.get("deployment")))
+            row["paused"] = state is not None
+            row["pause_reason"] = state.reason if state is not None else None
+        return rows
+
+    @app.get("/api/paper/deployments/{name}/{run}/log", dependencies=auth)
+    def paper_deployment_log(
+        name: str, run: str, lines: Annotated[int, Query(ge=1, le=2000)] = 200
+    ) -> dict[str, Any]:
+        """The last ``lines`` lines of a deployment's LEAN log."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", name) or not re.fullmatch(r"\d{8}T\d{6}Z", run):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown deployment run")
+        root = (ctx.settings.home / "deployments").resolve()
+        path = (root / name / run / "engine.log").resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown deployment run")
+        with path.open("rb") as fh:  # tail without reading a large log into memory
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 400_000))
+            text = fh.read().decode("utf-8", errors="replace")
+        # A gateway token printed by a strategy or a stack trace is never shown (review 5c-5 m3).
+        text = _TOKEN_IN_LOG.sub(r"\1<redacted>", text)
+        return {"deployment": name, "run": run, "lines": text.splitlines()[-lines:]}
+
+    @app.get("/api/paper/supervisor", dependencies=auth)
+    def paper_supervisor() -> dict[str, Any]:
+        from quantlab.oms.supervisor import read_status
+
+        return read_status(ctx.supervisor_status_file(), datetime.now(UTC))
+
+    # The only trading write in the API (DEC-0028): engaging the kill switch can only *reduce* risk.
+    # Disengaging, orders and limits stay CLI-only (CLAUDE.md §4).
+    @app.post("/api/risk/kill-switch/engage", dependencies=auth)
+    def engage_kill_switch(body: EngageRequest) -> dict[str, Any]:
+        from quantlab.risk.gate import ENGAGE_CONFIRMATION
+
+        if body.confirm != ENGAGE_CONFIRMATION:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f'type exactly "{ENGAGE_CONFIRMATION}" to confirm'
+            )
+        if not body.reason.strip():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "a reason is required")
+        with ctx.sessions() as session:  # committed first: nothing below can delay or undo it
+            try:
+                ctx.kill_switch().engage(session, actor="owner", reason=body.reason, channel="web console")
+                session.commit()
+            except IntegrityError:  # engaged at the same instant from elsewhere (same sequence number)
+                session.rollback()
+                if not ctx.kill_switch().engaged(session):
+                    raise
+
+        out: dict[str, Any] = {"engaged": True, "cancelled": None, "still_working": None, "error": None}
+        if body.cancel_orders:
+            try:
+                with ctx.sessions() as session:
+                    result = ctx.paper_oms(session).cancel_all(reason=f"kill switch: {body.reason.strip()}")
+                out["cancelled"], out["still_working"] = result.results, result.still_working
+            except Exception as exc:  # the switch stays engaged; the owner must cancel by hand
+                out["error"] = f"kill switch engaged, but cancelling working orders failed: {exc}"
+        return out
+
+    # ---- web UI (same origin) ---------------------------------------------------------------------
+    # ---- background jobs (CORE-007, DEC-0036): backtests and optimizations, never trading ------------------
+    jobs = JobRunner(max_workers=ctx.settings.server.max_jobs)
+    app.state.jobs = jobs
+    app.router.on_shutdown.append(jobs.shutdown)
+
+    def _study(body: SweepJobIn) -> Any:
+        from quantlab.optimize.objective import Constraint, ExpressionError, Objective
+        from quantlab.optimize.service import StudySpec
+        from quantlab.optimize.space import Space, SpaceError
+
+        if body.method in ("random", "tpe") and not body.samples:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"method {body.method!r} needs samples")
+        try:
+            return StudySpec(
+                strategy=body.strategy,
+                space=Space.parse(body.space),
+                objective=Objective.parse(body.objective),
+                constraints=tuple(Constraint.parse(c) for c in body.constraints),
+                method=body.method,
+                samples=body.samples if body.method != "grid" else None,
+                seed=body.seed,
+                fixed=body.parameters,
+                dataset=body.dataset,
+                models=body.models or None,
+                max_parallel=body.parallel,
+                extra_objectives=tuple(Objective.parse(o) for o in body.extra_objectives),
+            )
+        except (SpaceError, ExpressionError, OptimizationError) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    def _known_strategy(name: str) -> None:
+        with ctx.sessions() as session:
+            try:
+                ctx.registry.get(session, name)
+            except Exception as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown strategy {name!r}") from exc
+
+    @app.post("/api/jobs/backtest", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def start_backtest(body: BacktestJobIn) -> dict[str, Any]:
+        _known_strategy(body.strategy)
+
+        def run(cancel: threading.Event) -> str:
+            result = ctx.backtests(cancel).run(
+                body.strategy, body.parameters, timeout_s=body.timeout_s, dataset=body.dataset,
+                dataset_version=body.dataset_version, models=body.models or None,
+            )  # fmt: skip
+            if result.status not in ("succeeded", "cancelled"):
+                raise BacktestError(f"backtest {result.id} {result.status}: {result.error or ''}".strip())
+            return result.id
+
+        return jobs.submit("backtest", f"backtest {body.strategy}", body.model_dump(), run).as_dict()
+
+    @app.post("/api/jobs/sweep", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def start_sweep(body: SweepJobIn) -> dict[str, Any]:
+        _known_strategy(body.strategy)
+        spec = _study(body)
+        return jobs.submit("optimization", f"sweep {body.strategy}", body.model_dump(),
+                           lambda cancel: ctx.optimizer(cancel).sweep(spec).id).as_dict()  # fmt: skip
+
+    @app.post("/api/jobs/walk-forward", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def start_walk_forward(body: WalkForwardJobIn) -> dict[str, Any]:
+        from datetime import date as _date
+
+        from quantlab.optimize.service import WalkForwardSpec
+
+        _known_strategy(body.strategy)
+        spec = _study(body)
+        wf = WalkForwardSpec(_date.fromisoformat(body.start), _date.fromisoformat(body.end), body.train_days,
+                             body.test_days, body.anchored, body.start_param, body.end_param)  # fmt: skip
+        try:
+            wf.windows()
+        except OptimizationError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+        def run(cancel: threading.Event) -> str:
+            return ctx.optimizer(cancel).walk_forward(spec, wf).id
+
+        return jobs.submit("optimization", f"walk-forward {body.strategy}", body.model_dump(), run).as_dict()
+
+    @app.get("/api/jobs", dependencies=auth)
+    def list_jobs() -> list[dict[str, Any]]:
+        return [j.as_dict() for j in jobs.list()]
+
+    @app.get("/api/jobs/{job_id}", dependencies=auth)
+    def get_job(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.get(job_id).as_dict()
+        except JobError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.post("/api/jobs/{job_id}/cancel", dependencies=auth)
+    def cancel_job(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.cancel(job_id).as_dict()
+        except JobError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    # The web UI's catch-all route comes last: every /api route must be registered before it.
+    if ui_dir is not None and (ui_dir / "index.html").is_file():
+        index = ui_dir / "index.html"
+        if (ui_dir / "assets").is_dir():
+            app.mount("/assets", StaticFiles(directory=ui_dir / "assets"), name="assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa(path: str) -> Response:
+            if path.startswith("api/") or path == "api":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+            candidate = (ui_dir / path).resolve()
+            if path and candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
+                return FileResponse(candidate)
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})  # client-side routes
+    else:
+
+        @app.get("/", include_in_schema=False)
+        def ui_not_built() -> HTMLResponse:
+            return HTMLResponse(UI_NOT_BUILT)
+
+    return app

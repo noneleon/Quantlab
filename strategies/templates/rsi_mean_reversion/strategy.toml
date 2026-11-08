@@ -1,0 +1,13 @@
+[strategy]
+entry_file = "main.py"
+language = "python"
+description = "Template: RSI mean reversion on one daily symbol (enter oversold, exit on recovery or time stop)."
+
+[parameters]
+symbol = "SPY"
+period = 2
+entry = 10
+exit = 70
+max_days = 10
+start = "2015-01-02"
+end = "2024-12-31"

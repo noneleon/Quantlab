@@ -1,0 +1,11 @@
+[strategy]
+entry_file = "main.py"
+language = "python"
+description = "Template: monthly momentum rotation across a list of daily symbols (top N by rate of change)."
+
+[parameters]
+symbols = "SPY,QQQ,IWM,TLT"
+lookback = 126
+top = 2
+start = "2015-01-02"
+end = "2024-12-31"

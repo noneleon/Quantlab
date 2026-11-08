@@ -1,0 +1,4 @@
+[strategy]
+entry_file = "main.py"
+language = "python"
+description = "Example (Python): buy SPY with all cash on the first bar — LEAN's BasicTemplateAlgorithm logic on LEAN's sample data."
