@@ -6,7 +6,9 @@ Security model (docs/SECURITY_POLICY.md):
   in the OS keyring (``secret://quantlab/api/token``, created by ``quantlab init``). If no token is
   configured the API **fails closed** (503) instead of running unauthenticated.
 * Host-header allow-list (DNS-rebinding protection for a localhost service). No CORS.
-* Read-only: no endpoint starts runs or changes state yet. Nothing here can trade.
+* Changes are limited to: strategy files (editor), engaging the kill switch (DEC-0028) and background research
+  jobs — backtests and optimizations of the owner's strategies (CORE-007, DEC-0036). Nothing here can trade,
+  deploy, disengage the kill switch or change risk limits.
 * Serves the built web UI (``web/dist``) same-origin (DEC-0018) with a strict Content-Security-Policy; the UI
   receives the token through a URL fragment printed by ``quantlab serve`` and sends it as a bearer header.
 """
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import hmac
 import re
+import threading
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +37,7 @@ import quantlab
 from quantlab.backtest.models import BacktestRun
 from quantlab.backtest.service import BacktestError
 from quantlab.bootstrap import AppContext
+from quantlab.core.jobs import JobError, JobRunner
 from quantlab.data.catalog import DataError
 from quantlab.oms import queries as oms_queries
 from quantlab.optimize.service import OptimizationError
@@ -45,6 +49,40 @@ from quantlab.strategies.snapshot import SnapshotError
 from quantlab.strategies.workspace import ConflictError, bundled_templates_dir, list_templates
 
 LOCAL_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
+
+
+class BacktestJobIn(BaseModel):
+    strategy: str = Field(max_length=100)
+    parameters: dict[str, str] = Field(default_factory=dict)
+    dataset: str | None = Field(default=None, max_length=100)
+    dataset_version: str | None = Field(default=None, max_length=64)
+    models: dict[str, str] | None = None
+    timeout_s: float | None = Field(default=None, gt=0, le=24 * 3600)
+
+
+class SweepJobIn(BaseModel):
+    strategy: str = Field(max_length=100)
+    space: list[str] = Field(min_length=1, max_length=20)  # "name=1,2,3" or "name=lo:hi:step"
+    objective: str = Field(default="sharpe", max_length=200)
+    constraints: list[str] = Field(default_factory=list, max_length=20)
+    parameters: dict[str, str] = Field(default_factory=dict)
+    models: dict[str, str] | None = None
+    dataset: str | None = Field(default=None, max_length=100)
+    method: Literal["grid", "random", "tpe"] = "grid"
+    samples: int | None = Field(default=None, ge=1, le=10_000)
+    seed: int = 0
+    parallel: int = Field(default=1, ge=1, le=8)
+    extra_objectives: list[str] = Field(default_factory=list, max_length=5)
+
+
+class WalkForwardJobIn(SweepJobIn):
+    start: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    train_days: int = Field(ge=1)
+    test_days: int = Field(ge=1)
+    anchored: bool = False
+    start_param: str = Field(default="start", max_length=64)
+    end_param: str = Field(default="end", max_length=64)
 
 
 class EngageRequest(BaseModel):
@@ -761,6 +799,104 @@ def create_app(ctx: AppContext, ui_dir: Path | None = None) -> FastAPI:
         return out
 
     # ---- web UI (same origin) ---------------------------------------------------------------------
+    # ---- background jobs (CORE-007, DEC-0036): backtests and optimizations, never trading ------------------
+    jobs = JobRunner(max_workers=ctx.settings.server.max_jobs)
+    app.state.jobs = jobs
+    app.router.on_shutdown.append(jobs.shutdown)
+
+    def _study(body: SweepJobIn) -> Any:
+        from quantlab.optimize.objective import Constraint, ExpressionError, Objective
+        from quantlab.optimize.service import StudySpec
+        from quantlab.optimize.space import Space, SpaceError
+
+        if body.method in ("random", "tpe") and not body.samples:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"method {body.method!r} needs samples")
+        try:
+            return StudySpec(
+                strategy=body.strategy,
+                space=Space.parse(body.space),
+                objective=Objective.parse(body.objective),
+                constraints=tuple(Constraint.parse(c) for c in body.constraints),
+                method=body.method,
+                samples=body.samples if body.method != "grid" else None,
+                seed=body.seed,
+                fixed=body.parameters,
+                dataset=body.dataset,
+                models=body.models or None,
+                max_parallel=body.parallel,
+                extra_objectives=tuple(Objective.parse(o) for o in body.extra_objectives),
+            )
+        except (SpaceError, ExpressionError, OptimizationError) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    def _known_strategy(name: str) -> None:
+        with ctx.sessions() as session:
+            try:
+                ctx.registry.get(session, name)
+            except Exception as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown strategy {name!r}") from exc
+
+    @app.post("/api/jobs/backtest", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def start_backtest(body: BacktestJobIn) -> dict[str, Any]:
+        _known_strategy(body.strategy)
+
+        def run(cancel: threading.Event) -> str:
+            result = ctx.backtests(cancel).run(
+                body.strategy, body.parameters, timeout_s=body.timeout_s, dataset=body.dataset,
+                dataset_version=body.dataset_version, models=body.models or None,
+            )  # fmt: skip
+            if result.status not in ("succeeded", "cancelled"):
+                raise BacktestError(f"backtest {result.id} {result.status}: {result.error or ''}".strip())
+            return result.id
+
+        return jobs.submit("backtest", f"backtest {body.strategy}", body.model_dump(), run).as_dict()
+
+    @app.post("/api/jobs/sweep", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def start_sweep(body: SweepJobIn) -> dict[str, Any]:
+        _known_strategy(body.strategy)
+        spec = _study(body)
+        return jobs.submit("optimization", f"sweep {body.strategy}", body.model_dump(),
+                           lambda cancel: ctx.optimizer(cancel).sweep(spec).id).as_dict()  # fmt: skip
+
+    @app.post("/api/jobs/walk-forward", dependencies=auth, status_code=status.HTTP_201_CREATED)
+    def start_walk_forward(body: WalkForwardJobIn) -> dict[str, Any]:
+        from datetime import date as _date
+
+        from quantlab.optimize.service import WalkForwardSpec
+
+        _known_strategy(body.strategy)
+        spec = _study(body)
+        wf = WalkForwardSpec(_date.fromisoformat(body.start), _date.fromisoformat(body.end), body.train_days,
+                             body.test_days, body.anchored, body.start_param, body.end_param)  # fmt: skip
+        try:
+            wf.windows()
+        except OptimizationError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+        def run(cancel: threading.Event) -> str:
+            return ctx.optimizer(cancel).walk_forward(spec, wf).id
+
+        return jobs.submit("optimization", f"walk-forward {body.strategy}", body.model_dump(), run).as_dict()
+
+    @app.get("/api/jobs", dependencies=auth)
+    def list_jobs() -> list[dict[str, Any]]:
+        return [j.as_dict() for j in jobs.list()]
+
+    @app.get("/api/jobs/{job_id}", dependencies=auth)
+    def get_job(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.get(job_id).as_dict()
+        except JobError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.post("/api/jobs/{job_id}/cancel", dependencies=auth)
+    def cancel_job(job_id: str) -> dict[str, Any]:
+        try:
+            return jobs.cancel(job_id).as_dict()
+        except JobError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    # The web UI's catch-all route comes last: every /api route must be registered before it.
     if ui_dir is not None and (ui_dir / "index.html").is_file():
         index = ui_dir / "index.html"
         if (ui_dir / "assets").is_dir():

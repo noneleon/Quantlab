@@ -17,6 +17,7 @@ runs form the walk-forward equity curve.
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -166,7 +167,10 @@ class OptimizationService:
         backtests: BacktestService,
         registry: StrategyRegistry | None = None,
         clock: Clock | None = None,
+        cancel: threading.Event | None = None,
     ) -> None:
+        """``cancel`` (CORE-007 jobs): trials not yet started are skipped and the study ends "cancelled"."""
+        self._cancel = cancel
         self._sessions = session_factory
         self._backtests = backtests
         self._registry = registry or StrategyRegistry()
@@ -223,7 +227,7 @@ class OptimizationService:
         except Exception as exc:
             self._finish(opt_id, "failed", None, str(exc))
             raise
-        return self._finish(opt_id, "succeeded", summary, None)
+        return self._finish(opt_id, self._final_status(), summary, None)
 
     def walk_forward(self, spec: StudySpec, wf: WalkForwardSpec) -> Optimization:
         windows = wf.windows()
@@ -281,7 +285,7 @@ class OptimizationService:
         except Exception as exc:
             self._finish(opt_id, "failed", None, str(exc))
             raise
-        return self._finish(opt_id, "succeeded", summary, None)
+        return self._finish(opt_id, self._final_status(), summary, None)
 
     # ---- internals --------------------------------------------------------------------------------
     def _check_parameters(self, spec: StudySpec, names: list[str]) -> None:
@@ -326,12 +330,18 @@ class OptimizationService:
         log.info("optimize.finished", optimization_id=opt_id, status=status)
         return self.get(opt_id)
 
+    def _final_status(self) -> str:
+        return "cancelled" if self._cancel is not None and self._cancel.is_set() else "succeeded"
+
     def _run_trials(
         self, opt_id: str, spec: StudySpec, trials: list[_Trial], pinned: str | None
     ) -> str | None:
         """Run trials (first alone to pin data + record the strategy version), persist each as it finishes."""
 
         def run_one(t: _Trial, version: str | None) -> _Trial:
+            if self._cancel is not None and self._cancel.is_set():
+                t.status, t.metrics = "cancelled", {}
+                return t
             try:
                 t.run = self._backtests.run(
                     spec.strategy,

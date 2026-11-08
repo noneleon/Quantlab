@@ -515,6 +515,20 @@ export interface SupervisorStatus {
   } | null;
 }
 
+export interface Job {
+  id: string;
+  kind: "backtest" | "optimization";
+  title: string;
+  params: Record<string, unknown>;
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  result_id: string | null;
+  error: string | null;
+  cancel_requested: boolean;
+}
+
 export interface HealthCheck {
   name: string;
   status: "ok" | "warn" | "fail";

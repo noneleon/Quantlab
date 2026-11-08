@@ -17,6 +17,7 @@ from __future__ import annotations
 import builtins
 import hashlib
 import json
+import threading
 import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -178,7 +179,10 @@ class BacktestService:
         registry: StrategyRegistry | None = None,
         clock: Clock | None = None,
         catalog: DataCatalog | None = None,
+        cancel: threading.Event | None = None,
     ) -> None:
+        """``cancel`` (CORE-007 jobs): when set, the running engine is stopped; the run ends "cancelled"."""
+        self._cancel = cancel
         self._settings = settings
         self._sessions = session_factory
         self._engine_adapter = engine  # None: read-only service (queries only)
@@ -774,13 +778,29 @@ class BacktestService:
             data_dir=data.export_path,
             models=models,
         )
+        if self._cancel is not None and self._cancel.is_set():
+            return {"status": "cancelled", "error": "cancelled before the engine started"}
         try:
             handle = self._engine.start_backtest(spec)
         except EngineError as exc:
             return {"status": "engine_error", "error": str(exc)}
-        outcome = self._engine.wait(
-            handle, timeout_s if timeout_s is not None else self._settings.engine.lean.timeout_s
-        )
+        finished = threading.Event()
+        if self._cancel is not None:
+            cancel, engine = self._cancel, self._engine
+
+            def watch() -> None:  # stops the engine when the job is cancelled
+                while not finished.is_set():
+                    if cancel.wait(0.5):
+                        engine.cancel(handle)
+                        return
+
+            threading.Thread(target=watch, name=f"cancel-{run_id}", daemon=True).start()
+        try:
+            outcome = self._engine.wait(
+                handle, timeout_s if timeout_s is not None else self._settings.engine.lean.timeout_s
+            )
+        finally:
+            finished.set()
         if outcome.state is not RunState.SUCCEEDED:
             return {"status": _OUTCOME_STATUS[outcome.state], "error": outcome.detail or None}
         try:

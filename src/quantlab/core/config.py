@@ -57,6 +57,7 @@ class ServerSettings(_Section):
     host: str = "127.0.0.1"
     port: int = Field(default=8765, ge=1, le=65535)
     remote_access: bool = False
+    max_jobs: int = Field(default=1, ge=1, le=8)  # backtests / optimizations started from the console at once
     ui_dir: Path | None = None  # built web UI (index.html + assets/); None -> web/dist of a source checkout
 
     @model_validator(mode="after")

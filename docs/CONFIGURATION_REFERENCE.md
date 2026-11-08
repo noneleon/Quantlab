@@ -46,6 +46,7 @@ built-in defaults → `QUANTLAB_HOME/quantlab.toml` → environment variables `Q
 | `paper.starting_cash` | `100000` | simulated cash |
 | `paper.commission_per_share` / `min_commission` | `0.005` / `1.0` | simulated commissions |
 | `paper.slippage_bps` | `1.0` | market/stop fills worse than the touch by this |
+| `server.max_jobs` | `1` | backtests / optimizations from the web console that run at the same time (1–8) |
 | `paper.allow_short` | `false` | cash account (no shorting) |
 | `alerts.webhook_secret` | none | `secret://…` reference to an https webhook URL for alerts (OPS-002); set with `quantlab secret set` |
 | `alerts.remind_after_s` | `3600` | repeat an alert while a check stays warn / fail |

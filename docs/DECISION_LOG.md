@@ -330,3 +330,13 @@ on Windows / macOS the deployment runs unisolated with a warning; `required` —
 the owner's explicit choice. The result is recorded in the start audit entry, `status.json`, `provenance.json` and
 shown in the console. (5) Not covered: file access (the strategy runs as the owner and can read the owner's files)
 and Windows/macOS network isolation (needs administrator rights or containers).
+
+### DEC-0036 — The web console starts research jobs (backtests, optimizations)
+State: ACCEPTED (owner: "develop the complete functionality", 2026-11-08; extends DEC-0018/0028, not a trading change)
+Decisions: (1) The API runs backtests, sweeps and walk-forward studies of registered strategies as background jobs
+(`core/jobs.py`, `[server] max_jobs`, default 1). They execute the owner's strategy code on the configured engine
+exactly like the CLI and store their results the same way. (2) Requests are validated before anything is queued
+(strategy, search space, objective/constraint expressions, walk-forward windows). (3) Cancelling a running backtest
+stops the engine process; a cancelled optimization skips trials not started yet and ends "cancelled". (4) The job
+list is in server memory only (results are durable). (5) Unchanged: the console still cannot trade, deploy, pause or
+resume deployments, disengage the kill switch or change risk limits (DEC-0028/0034).

@@ -8,6 +8,7 @@ import { BacktestDetailPage, BacktestList } from "./pages/Backtests";
 import { Dashboard } from "./pages/Dashboard";
 import { DatasetDetailPage, DatasetList } from "./pages/Datasets";
 import { DeploymentsPage } from "./pages/Deployments";
+import { JobsPage } from "./pages/Jobs";
 import { ModulePage } from "./pages/ModulePage";
 import { ComparePage } from "./pages/Compare";
 import { OptimizationDetailPage, OptimizationList } from "./pages/Optimizations";
@@ -57,6 +58,7 @@ export function App({ token }: { token: string | null }) {
               <Route path="/optimizations" element={<OptimizationList />} />
               <Route path="/optimizations/:id" element={<OptimizationDetailPage />} />
               <Route path="/compare" element={<ComparePage />} />
+              <Route path="/jobs" element={<JobsPage />} />
               <Route path="/portfolio" element={<PortfolioPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />

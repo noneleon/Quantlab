@@ -957,3 +957,21 @@ Tests: settlement dates (weekend, Thanksgiving, Eastern date boundary, no calend
 older files, OMS end to end (same-day re-buy refused, next day filled), `settlement_days = 0`. Python 661 passed,
 7 skipped; real-LEAN integration 6 passed.
 Result: PASS · Regression status: PASS
+
+### CHANGE-0051 — Background jobs: backtests and optimizations from the web console (CORE-007, DEC-0036)
+Date: 2026-11-08 · Modules: core (jobs, config), backtest, optimize, bootstrap, api, web · Feature IDs: CORE-007,
+CORE-009, UI-002, UI-005
+Context: the owner asked for complete platform functionality (strategy logic is theirs to write); the console could
+only view runs.
+Change: `core/jobs.py` (`JobRunner`: thread pool of `[server] max_jobs`, queued / running / succeeded / failed /
+cancelled, cancel flag per job). `BacktestService(cancel=)` stops the engine when the flag is set (watcher thread →
+`engine.cancel`); `OptimizationService(cancel=)` skips unstarted trials and finishes "cancelled". API:
+`POST /api/jobs/backtest|sweep|walk-forward` (validated before queueing: strategy, space, objective/constraints,
+samples, walk-forward windows), `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`. Web: Jobs page
+(run forms, job list polling while active, cancel, links to the stored run / study), linked from Backtesting and
+Optimization. Found while verifying: the job routes were first registered after the UI's catch-all route, which
+answered GET /api/jobs with 404 (tests use no UI); routes moved before it, with a regression test.
+Verified: in real Chromium against `quantlab serve` on the native LEAN engine — backtest started from the form,
+finished, result page opened; no console errors.
+Tests: Python 665 passed, 7 skipped; web 33 passed.
+Result: PASS · Regression status: PASS

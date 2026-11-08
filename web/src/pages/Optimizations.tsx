@@ -16,7 +16,7 @@ export function OptimizationList() {
     <section>
       <h1>Optimization</h1>
       <p className="muted">
-        Start studies with <code>quantlab optimize sweep</code> or <code>quantlab optimize walk-forward</code>. Every trial is a recorded
+        <Link to="/jobs">Start a study</Link> here or with <code>quantlab optimize sweep</code> / <code>quantlab optimize walk-forward</code>. Every trial is a recorded
         backtest; the best trial of many is an in-sample selection — read it together with the deflated Sharpe ratio and PBO.
       </p>
       {data.length === 0 ? <Empty>No optimizations yet.</Empty> : (

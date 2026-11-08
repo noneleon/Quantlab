@@ -17,7 +17,7 @@ export function BacktestList() {
   return (
     <section>
       <h1>Backtesting</h1>
-      <p className="muted">History is immutable. Run with <code>quantlab backtest run</code>; reproduce with <code>quantlab backtest rerun</code>.</p>
+      <p className="muted">History is immutable. <Link to="/jobs">Run a backtest</Link> here or with <code>quantlab backtest run</code>; reproduce with <code>quantlab backtest rerun</code>.</p>
       <p>{selected.length >= 2 ? <Link to={`/compare?runs=${selected.join(",")}`}>Compare {selected.length} selected runs</Link> : <span className="muted">Select 2–10 succeeded runs to compare.</span>}</p>
       {data.length === 0 ? <Empty>No backtests yet.</Empty> : (
         <table>

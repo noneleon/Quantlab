@@ -512,3 +512,99 @@ def test_health_checks_need_the_token_and_report_every_check(ctx, client):
     assert names == ["database", "risk limits", "kill switch", "supervisor", "deployments", "engine"]
     assert data["status"] in ("ok", "warn", "fail")
     assert client.post("/api/health/checks", headers=auth(ctx)).status_code == 405
+
+
+def _wait_job(client, ctx, job_id, timeout=60):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = client.get(f"/api/jobs/{job_id}", headers=auth(ctx)).json()
+        if job["state"] in ("succeeded", "failed", "cancelled"):
+            return job
+        time.sleep(0.1)
+    raise AssertionError(f"job {job_id} did not finish: {job}")
+
+
+def test_backtest_and_sweep_jobs_run_in_the_background(ctx, client):
+    """CORE-007: the console starts backtests and optimizations; the job links to the stored result."""
+    with ctx.sessions() as s:
+        ctx.registry.register(s, "sma", EXAMPLE_STRATEGY)
+        s.commit()
+    h = auth(ctx)
+    assert client.post("/api/jobs/backtest", json={"strategy": "sma"}).status_code == 401
+    r = client.post("/api/jobs/backtest", json={"strategy": "sma", "parameters": {"fast": "5"}}, headers=h)
+    assert r.status_code == 201 and r.json()["state"] in ("queued", "running")
+    job = _wait_job(client, ctx, r.json()["id"])
+    assert job["state"] == "succeeded", job
+    run = client.get(f"/api/backtests/{job['result_id']}", headers=h).json()
+    assert run["parameters"]["fast"] == "5"
+    sweep = client.post("/api/jobs/sweep", headers=h,
+                        json={"strategy": "sma", "space": ["fast=5,10"], "objective": "sharpe"})  # fmt: skip
+    assert sweep.status_code == 201
+    done = _wait_job(client, ctx, sweep.json()["id"])
+    assert done["state"] == "succeeded" and done["kind"] == "optimization", done
+    opt = client.get(f"/api/optimizations/{done['result_id']}", headers=h).json()
+    assert opt["status"] == "succeeded"
+    assert [j["id"] for j in client.get("/api/jobs", headers=h).json()] == [
+        sweep.json()["id"],
+        r.json()["id"],
+    ]
+
+
+def test_job_requests_are_validated_before_anything_runs(ctx, client):
+    with ctx.sessions() as s:
+        ctx.registry.register(s, "sma", EXAMPLE_STRATEGY)
+        s.commit()
+    h = auth(ctx)
+    assert client.post("/api/jobs/backtest", json={"strategy": "nope"}, headers=h).status_code == 404
+    bad_space = {"strategy": "sma", "space": ["fast"], "objective": "sharpe"}
+    assert client.post("/api/jobs/sweep", json=bad_space, headers=h).status_code == 400
+    bad_objective = {"strategy": "sma", "space": ["fast=5,10"], "objective": "__import__('os')"}
+    assert client.post("/api/jobs/sweep", json=bad_objective, headers=h).status_code == 400
+    no_samples = {"strategy": "sma", "space": ["fast=5,10"], "method": "random"}
+    assert client.post("/api/jobs/sweep", json=no_samples, headers=h).status_code == 400
+    wf = {"strategy": "sma", "space": ["fast=5,10"], "start": "2020-01-10", "end": "2020-01-01",
+          "train_days": 5, "test_days": 5}  # fmt: skip
+    assert client.post("/api/jobs/walk-forward", json=wf, headers=h).status_code == 400
+    assert client.get("/api/jobs/unknown", headers=h).status_code == 404
+    assert client.get("/api/jobs", headers=h).json() == []  # nothing was queued
+
+
+def test_running_and_queued_jobs_can_be_cancelled(ctx, client, monkeypatch):
+    """A running backtest's engine is stopped; a queued job never starts."""
+    monkeypatch.setenv("FAKE_DOCKER_SLEEP", "30")
+    with ctx.sessions() as s:
+        ctx.registry.register(s, "sma", EXAMPLE_STRATEGY)
+        s.commit()
+    h = auth(ctx)
+    first = client.post("/api/jobs/backtest", json={"strategy": "sma"}, headers=h).json()
+    queued = client.post("/api/jobs/backtest", json={"strategy": "sma"}, headers=h).json()  # max_jobs = 1
+    assert client.post(f"/api/jobs/{queued['id']}/cancel", headers=h).json()["state"] == "cancelled"
+    import time
+
+    deadline = time.monotonic() + 20
+    while client.get(f"/api/jobs/{first['id']}", headers=h).json()["state"] != "running":
+        assert time.monotonic() < deadline
+        time.sleep(0.1)
+    time.sleep(1.0)  # the engine has started
+    client.post(f"/api/jobs/{first['id']}/cancel", headers=h)
+    job = _wait_job(client, ctx, first["id"], timeout=60)
+    assert job["state"] == "cancelled" and job["result_id"], job
+    run = client.get(f"/api/backtests/{job['result_id']}", headers=h).json()
+    assert run["status"] == "cancelled"
+    assert client.get(f"/api/jobs/{queued['id']}", headers=h).json()["started_at"] is None
+
+
+def test_every_api_route_is_registered_before_the_ui_catch_all(ctx, tmp_path):
+    """The SPA fallback (GET /{path}) must never shadow an API route (it did for /api/jobs at first)."""
+    from fastapi.routing import APIRoute
+
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text("<!doctype html><title>x</title>")
+    app = create_app(ctx, ui_dir=ui)
+    paths = [r.path for r in app.routes if isinstance(r, APIRoute)]
+    assert paths[-1] == "/{path:path}"
+    h = auth(ctx)
+    assert TestClient(app, base_url="http://127.0.0.1").get("/api/jobs", headers=h).json() == []

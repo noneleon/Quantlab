@@ -1,6 +1,6 @@
 # Session Handoff
 
-**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0050 · PR noneleon/Quantlab#1
+**Last session:** 2026-11-08 · branch `claude/quantlab-self-hosted-platform-q9f3l1` · CHANGE-0051 · PR noneleon/Quantlab#1
 
 ## What was done (cumulative this session)
 - Phase 1 complete in code (CHANGE-0002..0008). M1 acceptance on real LEAN still pending.
@@ -80,9 +80,11 @@
   loop + `quantlab health --alert` for Task Scheduler / cron; logs/alerts.jsonl + optional https webhook).
 - CHANGE-0050 (RISK-006): cash accounts buy only with settled cash (sale proceeds T+1); `settlement_days` in
   risk_limits.toml (optional, default 1; 0 disables).
+- CHANGE-0051 (DEC-0036): web Jobs page — run backtests, sweeps and walk-forward studies from the console,
+  follow and cancel them (`core/jobs.py`, `/api/jobs/*`).
 
 ## Tests (actually executed)
-Python: `uv run pytest` → 661 passed, 7 skipped (CHANGE-0050); C# plugin 17 passed; real-LEAN integration 6 passed; web 30 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
+Python: `uv run pytest` → 665 passed, 7 skipped (CHANGE-0051); C# plugin 17 passed; real-LEAN integration 6 passed; web 33 passed; ruff, mypy --strict, lint-imports (5 contracts) clean.
 Web: `npm test` → 29 passed; typecheck and build clean; console checked in real Chromium (CHANGE-0029). Trading tests: synthetic SIMULATED quotes on the local paper broker only.
 
 ## Critical honesty note

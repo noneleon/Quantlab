@@ -123,8 +123,8 @@ class AppContext:
             self._engine = create_engine_adapter(self.settings)
         return self._engine
 
-    def optimizer(self) -> OptimizationService:
-        return OptimizationService(self.sessions, self.backtests(), self.registry)
+    def optimizer(self, cancel: threading.Event | None = None) -> OptimizationService:
+        return OptimizationService(self.sessions, self.backtests(cancel), self.registry, cancel=cancel)
 
     def read_only_optimizer(self) -> OptimizationService:
         return OptimizationService(self.sessions, self.read_only_backtests(), self.registry)
@@ -265,8 +265,9 @@ class AppContext:
             expected_account=self.settings.paper.ibkr_account,
         )
 
-    def backtests(self) -> BacktestService:
-        return BacktestService(self.settings, self.sessions, self.engine, self.registry)
+    def backtests(self, cancel: threading.Event | None = None) -> BacktestService:
+        """``cancel``: a background job's cancel flag (CORE-007); stops the engine when set."""
+        return BacktestService(self.settings, self.sessions, self.engine, self.registry, cancel=cancel)
 
     def read_only_backtests(self) -> BacktestService:
         """For queries only: works without a configured engine (running raises BacktestError)."""
