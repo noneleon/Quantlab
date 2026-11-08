@@ -2,6 +2,8 @@
 tests/integration/test_lean_native.py (QUANTLAB_TEST_LEAN_NATIVE)."""
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -42,12 +44,51 @@ def test_no_install_is_a_clear_error(tmp_path):
         LeanNativeAdapter(tmp_path / "missing").start_backtest(spec(tmp_path))
 
 
-def test_python_and_custom_models_are_refused_on_the_native_launcher(tmp_path, install):
+def test_custom_models_are_refused_for_csharp_on_the_native_launcher(tmp_path, install):
     adapter = LeanNativeAdapter(install)
-    with pytest.raises(EngineError, match="pythonnet"):
-        adapter.start_backtest(spec(tmp_path, AlgorithmLanguage.PYTHON, "main.py"))
     with pytest.raises(EngineError, match="custom execution models"):
         adapter.start_backtest(spec(tmp_path, models={"fill": "immediate", "slippage_bps": 5.0}))
+
+
+def test_python_needs_an_install_with_leans_python_modules(tmp_path, install):
+    with pytest.raises(EngineError, match="re-run `quantlab engine native-install`"):
+        LeanNativeAdapter(install).start_backtest(spec(tmp_path, AlgorithmLanguage.PYTHON, "main.py"))
+
+
+def test_python_runs_a_copy_with_this_interpreter_and_the_models_library(tmp_path, install, monkeypatch):
+    """KI-0078: LEAN's pythonnet loads QuantLab's Python 3.11; the run executes its own copy of the files."""
+    (install / "bin" / native.PYTHON_SUPPORT).write_text("# LEAN")
+    started = {}
+
+    class Proc:
+        def poll(self):
+            return 0
+
+    def popen(argv, **kw):
+        started.update(argv=argv, **kw)
+        return Proc()
+
+    monkeypatch.setattr(native.subprocess, "Popen", popen)
+    s = spec(tmp_path, AlgorithmLanguage.PYTHON, "main.py", models={"fill": "immediate", "slippage_bps": 5.0})
+    handle = LeanNativeAdapter(install).start_backtest(s)
+    cfg = json.loads(handle.config_path.read_text())
+    copy = handle.work_dir / "algorithm" / "main.py"
+    assert cfg["algorithm-language"] == "Python" and cfg["algorithm-location"] == str(copy)
+    assert copy.read_text() == "// strategy"
+    (tmp_path / "strategy" / "main.py").write_text("# edited later")
+    assert copy.read_text() == "// strategy"  # the run is fixed
+    assert cfg["python-additional-paths"] == [str(handle.work_dir / "library")]
+    assert (handle.work_dir / "library" / "quantlab_lean" / "models.json").is_file()
+    env = started["env"]
+    assert Path(env["PYTHONNET_PYDLL"]).is_file() and env["PYTHONHOME"] == sys.base_prefix
+    assert env["PYTHONNOUSERSITE"] == "1"
+    assert started["argv"][1:] == [native.LAUNCHER, "--config", str(handle.config_path)]
+
+
+def test_python_runtime_refuses_other_python_versions(monkeypatch):
+    monkeypatch.setattr(native, "PYTHON_VERSION", (3, 99))
+    with pytest.raises(EngineError, match=r"Python 3\.99"):
+        native.python_runtime()
 
 
 def test_dataset_runs_never_see_lean_sample_prices(tmp_path, install):

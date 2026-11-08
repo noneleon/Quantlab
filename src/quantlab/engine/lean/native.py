@@ -14,18 +14,24 @@ never the sample prices — just as the Docker launcher removes them in the cont
 bundled sample data is used (provenance ``sample``).
 
 C# strategies are compiled per run against the same LEAN version (compile-time references only), so the
-assembly matches the engine. Python algorithms on the native launcher need pythonnet set up for Python 3.11
-(KI-0078) and are refused here; use the Docker launcher for them.
+assembly matches the engine. Python strategies (KI-0078) are copied into the run directory and run by LEAN's
+pythonnet in the Python 3.11 interpreter QuantLab itself runs on (``python_runtime``): LEAN loads that
+interpreter's shared library, and the strategy sees QuantLab's environment (pandas, numpy) plus LEAN's own
+Python modules (``AlgorithmImports``), which the install places next to the launcher.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
+import sys
+import sysconfig
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -42,7 +48,7 @@ from quantlab.engine.base import (
     RunState,
 )
 from quantlab.engine.lean.config import LeanPaths, build_backtest_config, write_config
-from quantlab.engine.lean.docker import run_layout
+from quantlab.engine.lean.docker import models_confirmed, prepare_library, run_layout
 from quantlab.engine.lean.results import parse_results_dir
 
 log = get_logger(__name__)
@@ -58,6 +64,8 @@ SAMPLE_DATA = (  # LEAN's bundled sample data used by its template algorithms (p
     "equity/usa/factor_files/spy.csv",
 )
 MANIFEST = "lean-native.json"
+PYTHON_SUPPORT = "AlgorithmImports.py"  # LEAN's Python module, copied into bin/ by lean/QuantLabLauncher
+PYTHON_VERSION = (3, 11)  # LEAN's pythonnet (QuantConnect.pythonnet) targets Python 3.11
 LAUNCHER = "QuantConnect.Lean.Launcher.dll"
 
 ALGORITHM_PROJECT = """<Project Sdk="Microsoft.NET.Sdk">
@@ -239,6 +247,43 @@ def _default_models(models: Any) -> bool:
     return all(defaults.get(k) == v for k, v in dict(models).items())
 
 
+def python_runtime() -> dict[str, str]:
+    """Environment for LEAN's pythonnet: this interpreter's shared library, home and package paths.
+
+    QuantLab runs on Python 3.11 (pinned to match LEAN), so strategies get the same interpreter and packages
+    as QuantLab's research tools. Raises ``EngineError`` when the interpreter has no shared library.
+    """
+    if sys.version_info[:2] != PYTHON_VERSION:
+        raise EngineError(
+            f"LEAN's pythonnet needs Python {PYTHON_VERSION[0]}.{PYTHON_VERSION[1]}; QuantLab runs on "
+            f"{sys.version_info[0]}.{sys.version_info[1]}"
+        )
+    home = Path(sys.base_prefix)
+    if sys.platform == "win32":
+        candidates = [home / f"python{PYTHON_VERSION[0]}{PYTHON_VERSION[1]}.dll"]
+    else:
+        libdir = Path(str(sysconfig.get_config_var("LIBDIR") or home / "lib"))
+        name = str(sysconfig.get_config_var("LDLIBRARY") or "")
+        suffix = ".dylib" if sys.platform == "darwin" else ".so"
+        candidates = [libdir / name] if name.endswith(suffix) else []
+        candidates.append(libdir / f"libpython{PYTHON_VERSION[0]}.{PYTHON_VERSION[1]}{suffix}")
+    library = next((c for c in candidates if c.is_file()), None)
+    if library is None:
+        raise EngineError(
+            "no Python shared library found for LEAN's pythonnet (looked for "
+            + ", ".join(str(c) for c in candidates)
+            + "); use a Python 3.11 build with a shared library (uv's and python.org's have one)"
+        )
+    paths = sysconfig.get_paths()
+    site = [paths["purelib"]] + ([paths["platlib"]] if paths["platlib"] != paths["purelib"] else [])
+    return {
+        "PYTHONNET_PYDLL": str(library),
+        "PYTHONHOME": str(home),
+        "PYTHONPATH": os.pathsep.join(site),
+        "PYTHONNOUSERSITE": "1",  # only QuantLab's environment, not the user's site-packages
+    }
+
+
 class LeanNativeAdapter:
     """EngineAdapter running LEAN with the local .NET runtime."""
 
@@ -289,12 +334,13 @@ class LeanNativeAdapter:
         algo = spec.algorithm
         if not algo.entry_path.is_file():
             raise EngineError(f"algorithm entry file not found: {algo.entry_path}")
-        if algo.language is AlgorithmLanguage.PYTHON:
+        python = algo.language is AlgorithmLanguage.PYTHON
+        if python and not (self.install_dir / "bin" / PYTHON_SUPPORT).is_file():
             raise EngineError(
-                "the native launcher runs C# algorithms; Python algorithms need pythonnet for Python 3.11 "
-                "(KI-0078) — use engine.lean.launcher = 'docker' for them"
+                "this native LEAN install predates Python support: re-run `quantlab engine native-install`"
             )
-        if spec.models is not None and not _default_models(spec.models):
+        env = {**os.environ, **python_runtime()} if python else None
+        if not python and spec.models is not None and not _default_models(spec.models):
             raise EngineError(
                 "custom execution models (ENG-009) are applied through the Python helper library only; "
                 "C# strategies on the native launcher use LEAN's brokerage defaults"
@@ -306,13 +352,21 @@ class LeanNativeAdapter:
             raise EngineError(f"run directory already exists and is not empty: {handle.work_dir}")
         handle.results_dir.mkdir(parents=True, exist_ok=True)
         (handle.work_dir / "storage").mkdir(parents=True, exist_ok=True)
-        assembly = compile_csharp(algo.directory, handle.work_dir / "algorithm", dotnet=self.dotnet)
+        library = handle.work_dir / "library"
+        if python:  # the run keeps its own copy: later edits never change what this run executed
+            shutil.copytree(algo.directory, handle.work_dir / "algorithm")
+            location = handle.work_dir / "algorithm" / algo.entry_file
+            if spec.models is not None:  # quantlab_lean helper + models.json (ENG-009), as on Docker
+                prepare_library(library, spec.models)
+        else:
+            location = compile_csharp(algo.directory, handle.work_dir / "algorithm", dotnet=self.dotnet)
         data_folder = self._data_folder(spec, handle)
         paths = LeanPaths(
-            algorithm_location=str(assembly),
+            algorithm_location=str(location),
             data_folder=str(data_folder) + "/",
             results=str(handle.results_dir),
             storage=str(handle.work_dir / "storage"),
+            library=str(library),
         )
         write_config(build_backtest_config(spec, paths), handle.config_path)
         argv = [self.dotnet, LAUNCHER, "--config", str(handle.config_path)]
@@ -322,7 +376,7 @@ class LeanNativeAdapter:
         log_file = handle.log_path.open("wb")
         try:
             proc = subprocess.Popen(
-                argv, cwd=self.install_dir / "bin", stdout=log_file, stderr=subprocess.STDOUT
+                argv, cwd=self.install_dir / "bin", stdout=log_file, stderr=subprocess.STDOUT, env=env
             )
         except FileNotFoundError as exc:
             raise EngineError(f"dotnet not found: {self.dotnet!r}") from exc
@@ -389,4 +443,9 @@ class LeanNativeAdapter:
             proc.terminate()
 
     def collect(self, handle: RunHandle) -> EngineResult:
-        return parse_results_dir(handle.results_dir, handle.run_id)
+        result = parse_results_dir(handle.results_dir, handle.run_id)
+        models_file = handle.work_dir / "library" / "quantlab_lean" / "models.json"
+        if not models_file.is_file():
+            return result
+        sha = json.loads(models_file.read_text(encoding="utf-8"))["sha256"]
+        return replace(result, models_applied=models_confirmed(handle, sha))

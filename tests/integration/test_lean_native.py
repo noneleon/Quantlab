@@ -56,6 +56,23 @@ def test_csharp_strategy_reproduces_leans_published_statistics(tmp_path):
     assert result.statistics["Net Profit"] == "1.692%"
 
 
+def test_python_strategy_reproduces_leans_published_statistics(tmp_path):
+    """KI-0078: a Python strategy on the native launcher (LEAN's pythonnet in QuantLab's own Python 3.11)."""
+    adapter = LeanNativeAdapter(Path(INSTALL or ""))
+    spec = BacktestSpec(
+        run_id="native-golden-py",
+        algorithm=AlgorithmSpec(EXAMPLE.with_name("buy_and_hold_py"), "main.py", AlgorithmLanguage.PYTHON),
+        work_dir=tmp_path / "run",
+    )
+    handle = adapter.start_backtest(spec)
+    outcome = adapter.wait(handle, timeout_s=900)
+    assert outcome.state is RunState.SUCCEEDED, (handle.work_dir / "engine.log").read_text()[-3000:]
+    stats = json.loads((handle.results_dir / "native-golden-py.json").read_text())["statistics"]
+    assert {k: stats[k] for k in EXPECTED} == EXPECTED
+    log = handle.log_path.read_text(encoding="utf-8", errors="replace")
+    assert f"STATISTICS:: OrderListHash {ORDER_LIST_HASH}" in log
+
+
 def test_real_lean_paper_order_goes_through_the_gateway_and_risk_gate(tmp_path):
     """OMS-007 end to end: LEAN live mode → QuantLabBrokerage → gateway → OMS + risk gate → paper broker →
     fill back in LEAN. Synthetic prices only (gateway harness quotes; FakeDataQueue; seeded price when

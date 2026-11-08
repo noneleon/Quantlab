@@ -864,3 +864,23 @@ Tests (new: flagged / old quotes never fill, gate rejects flagged quotes, `lates
 passed; real-LEAN integration 3 passed. Web unchanged (not re-run).
 Not covered by a test: the status-write guard inside the deploy loop (needs a LEAN run with a failing write).
 Result: PASS · Regression status: PASS
+
+### CHANGE-0045 — Python strategies on the native LEAN launcher (KI-0078)
+Date: 2026-11-08 · Modules: engine (lean/native), lean (QuantLabLauncher), strategies (example) · Feature IDs:
+ENG-003, ENG-007, ENG-009
+Context: the owner asked whether QuantLab reimplements LEAN or builds on it, and whether LEAN needs a QuantConnect
+login or payment. Answer: it builds on LEAN; the open-source engine needs neither (only QuantConnect's cloud, the
+Lean CLI and QuantConnect data do; QuantLab uses none of them). The owner chose to keep LEAN.
+Change: `lean/QuantLabLauncher` copies LEAN's Python modules (`AlgorithmImports.py`, `PandasMapper.py`, …) from the
+QuantConnect.Common package next to the launcher. `native.python_runtime()` points LEAN's pythonnet at QuantLab's own
+Python 3.11 (shared library, home, site-packages; user site off). Python runs execute a copy of the strategy in the
+run directory; custom execution models (`-m`, quantlab_lean helper) are applied natively as on Docker, and
+`collect` confirms them. Installs made earlier are told to re-run `native-install`. New example
+`strategies/examples/buy_and_hold_py` (LEAN's BasicTemplateAlgorithm logic, sample data).
+Verified on real LEAN (fresh `native-install`): the Python golden run reproduces LEAN's published statistics and
+order list hash `3da9fa60…`; `quantlab backtest run` of the SMA example (parameters) and of the RSI template with
+`-m slippage=constant -m slippage_percent=0.005` succeeded on the native launcher with the models applied
+(sample data: not a performance claim).
+Tests: Python 637 passed, 5 skipped; real-LEAN integration 4 passed (new Python golden test). Paper deployments stay
+C# only (KI-0078).
+Result: PASS · Regression status: PASS

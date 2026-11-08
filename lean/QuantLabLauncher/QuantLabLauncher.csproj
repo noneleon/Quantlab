@@ -11,10 +11,19 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="QuantConnect.Lean" Version="$(LeanVersion)" GeneratePathProperty="true" />
+    <!-- referenced directly only to locate its Python support files (AlgorithmImports.py, PandasMapper.py) -->
+    <PackageReference Include="QuantConnect.Common" Version="$(LeanVersion)" GeneratePathProperty="true" />
     <ProjectReference Include="../QuantLabBrokerage/QuantLabBrokerage.csproj" />
   </ItemGroup>
   <!-- LEAN's launcher ships its own runtime configuration; place it next to the launcher DLL. -->
   <Target Name="CopyLeanRuntimeConfig" AfterTargets="Build">
     <Copy SourceFiles="$(PkgQuantConnect_Lean)/lib/net10.0/QuantConnect.Lean.Launcher.runtimeconfig.json" DestinationFolder="$(OutDir)" />
+  </Target>
+  <!-- Python algorithms (KI-0078): LEAN's Python modules must sit next to the launcher, as in LEAN's own build. -->
+  <Target Name="CopyLeanPythonFiles" AfterTargets="Build">
+    <ItemGroup>
+      <LeanPythonFile Include="$(PkgQuantConnect_Common)/content/**/*.py" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LeanPythonFile)" DestinationFiles="@(LeanPythonFile->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 </Project>

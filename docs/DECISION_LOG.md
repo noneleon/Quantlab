@@ -286,7 +286,8 @@ Decisions: (1) `[engine.lean] launcher = "native"` runs LEAN 2.5.18229 from Quan
 local .NET 10 runtime (`lean/QuantLabLauncher`, installed by `quantlab engine native-install` together with LEAN's
 databases and sample data from the matching repository tag 18229; versions and checksums are recorded). C# strategies
 are compiled per run against the same LEAN version. Python algorithms stay on the Docker launcher until pythonnet is
-set up natively (KI-0078). (2) Dataset runs get a data folder with LEAN's databases and the dataset only (no sample
+set up natively (KI-0078; done for backtests in CHANGE-0045: LEAN's pythonnet loads QuantLab's own Python 3.11,
+the install copies LEAN's Python modules next to the launcher). (2) Dataset runs get a data folder with LEAN's databases and the dataset only (no sample
 prices), as in the Docker launcher. (3) The first real LEAN run showed that QuantLab's daily-close metrics disagreed
 with LEAN's statistics because they ignored the starting equity, the exact time span and intraday drawdowns. From now
 on total return, CAGR and max drawdown are computed on the full-resolution equity curve (starting equity, exact
